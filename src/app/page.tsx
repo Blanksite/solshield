@@ -144,15 +144,12 @@ function BuiltInVeniceBadge({ className = "" }: { className?: string }) {
       href="https://github.com/veniceai/builtinvenice/pull/194"
       target="_blank"
       rel="noreferrer"
-      title="Approved in Official Built in Venice Directory (PR #194)"
+      title="Official Built in Venice Directory"
       className={`inline-flex items-center gap-2.5 bg-[#0A0E18] hover:bg-[#0F172A] border border-[#1E293B] hover:border-[#E05A2D]/70 rounded-full px-3.5 py-1.5 transition-all select-none shadow-[0_2px_12px_rgba(0,0,0,0.5)] group ${className}`}
     >
       <VeniceAiLogo className="w-4 h-4 text-[#E05A2D] group-hover:scale-110 transition-transform" />
       <span className="text-[11px] font-mono uppercase tracking-[0.12em] text-white/90 group-hover:text-white transition-colors">
         BUILT IN <span className="text-[#E05A2D] font-semibold">VENICE</span>
-      </span>
-      <span className="text-[9px] font-mono px-1.5 py-0.5 bg-[#E05A2D]/20 border border-[#E05A2D]/40 text-[#E05A2D] rounded hidden sm:inline">
-        PR #194
       </span>
     </a>
   );
@@ -471,8 +468,8 @@ export default function SolShieldHexaCorePage() {
             </div>
 
             {/* Center Interactive Dither Veil (React Bits: https://reactbits.dev/animations/dither-veil) */}
-            <div className="relative w-full bg-[#E6E7EB] flex flex-col items-center">
-              <div className="relative w-full aspect-[4/4.6] max-h-[500px] overflow-hidden select-none bg-[#E6E7EB]">
+            <div className="relative w-full bg-[#E6E7EB] flex-1 flex flex-col items-center">
+              <div className="relative w-full h-[64vh] sm:h-[68vh] xl:h-[72vh] min-h-[520px] overflow-hidden select-none bg-[#E6E7EB]">
                 <DitherVeil
                   src="/cyber-portrait.jpg"
                   fit="cover"
@@ -482,12 +479,12 @@ export default function SolShieldHexaCorePage() {
                   palette="duotone"
                   inkColor="#0A0A0C"
                   paperColor="#E6E7EB"
-                  revealRadius={170}
-                  softness={0.6}
+                  revealRadius={180}
+                  softness={0.65}
                   linger={1.2}
                   rimColor="#2934FF"
                   rim={0.14}
-                  wander={true}
+                  wander={false}
                   clickBurst={true}
                   className="w-full h-full"
                 />
