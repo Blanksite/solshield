@@ -8,13 +8,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      colors: {
-        sol: {
-          green: "#14F195",
-          purple: "#9945FF",
-          dark: "#0B0E14",
-          card: "#121722",
-        },
+      fontFamily: {
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "monospace"],
       },
     },
   },

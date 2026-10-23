@@ -1,8 +1,21 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "SolShield — Private Solana Transaction Firewall & Blinks Agent | Powered by Venice AI",
+  title: "SolShield — Private Solana Transaction Firewall & Blinks Agent",
   description:
     "Non-custodial Solana transaction firewall, Blinks inspector, and Anchor policy vault using Venice AI to detect drainers and risky instructions privately before signing.",
   icons: {
@@ -16,8 +29,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#080b11] text-slate-100 antialiased selection:bg-[#14F195]/20 selection:text-[#14F195]">
+    <html
+      lang="en"
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
+    >
+      <body className="min-h-screen font-sans antialiased selection:bg-emerald-500/15 selection:text-emerald-700">
         {children}
       </body>
     </html>
