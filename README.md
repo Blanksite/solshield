@@ -1,4 +1,25 @@
-# SolShield — Private Solana Transaction Firewall, Blinks Agent & Anchor Policy Vault
+<p align="center">
+  <img src="./public/logo.jpg" alt="SolShield Retro Tech Logo" width="180" style="border-radius: 24px;" />
+</p>
+
+<h1 align="center">SolShield</h1>
+
+<p align="center">
+  <strong>Private Solana Transaction Firewall, Blinks Inspector &amp; Anchor Policy Vault</strong><br>
+  <em>Powered by <a href="https://venice.ai">Venice AI</a> Zero-Data-Retention Private Inference</em>
+</p>
+
+<p align="center">
+  <a href="https://builtinvenice.ai"><img src="https://img.shields.io/badge/Built_in_Venice-Submission_Ready-14F195?style=flat-square&logo=shield" alt="Built in Venice"></a>
+  <a href="https://solana.com"><img src="https://img.shields.io/badge/Solana-Actions_%26_Blinks-9945FF?style=flat-square&logo=solana" alt="Solana Actions"></a>
+  <a href="https://www.anchor-lang.com"><img src="https://img.shields.io/badge/Anchor-v0.30.1-blue?style=flat-square" alt="Anchor v0.30.1"></a>
+  <a href="https://nextjs.org"><img src="https://img.shields.io/badge/Next.js-15_(App_Router)-000000?style=flat-square&logo=nextdotjs" alt="Next.js 15"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-emerald?style=flat-square" alt="MIT License"></a>
+</p>
+
+---
+
+## Overview
 
 **SolShield** is a non-custodial Solana transaction security firewall, **Solana Actions (Blinks)** inspector, and **Rust/Anchor On-Chain Policy Vault** powered by **[Venice AI](https://venice.ai)** private inference.
 
