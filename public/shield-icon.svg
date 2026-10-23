@@ -1,41 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%" fill="none">
   <defs>
-    <linearGradient id="shieldBorderSm" x1="120" y1="80" x2="392" y2="440" gradientUnits="userSpaceOnUse">
+    <linearGradient id="retroPhosphorSm" x1="120" y1="100" x2="392" y2="400" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#14F195"/>
-      <stop offset="60%" stop-color="#9945FF"/>
-      <stop offset="100%" stop-color="#00C2FF"/>
+      <stop offset="65%" stop-color="#9945FF"/>
+      <stop offset="100%" stop-color="#FF3B81"/>
     </linearGradient>
-    <linearGradient id="coreGlowSm" x1="200" y1="180" x2="312" y2="320" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#14F195"/>
-      <stop offset="100%" stop-color="#9945FF"/>
-    </linearGradient>
-    <radialGradient id="bgGlowSm" cx="50%" cy="40%" r="55%">
-      <stop offset="0%" stop-color="#161e2e"/>
-      <stop offset="70%" stop-color="#0b0e14"/>
-      <stop offset="100%" stop-color="#05070a"/>
-    </radialGradient>
   </defs>
 
-  <rect width="512" height="512" rx="112" fill="url(#bgGlowSm)"/>
-  <rect width="510" height="510" x="1" y="1" rx="111" stroke="#1f293d" stroke-width="2"/>
+  <rect width="512" height="512" rx="96" fill="#0c0e14"/>
+  <rect width="508" height="508" x="2" y="2" rx="94" stroke="#252d3d" stroke-width="4"/>
 
-  <!-- Shield Body -->
-  <path d="M256 92 L380 144 C380 240 330 340 256 398 C182 340 132 240 132 144 Z"
-        fill="#0d121c" stroke="url(#shieldBorderSm)" stroke-width="10" stroke-linejoin="round"/>
+  <!-- Stepped Retro Shield -->
+  <path d="M 256 96
+           L 396 142
+           L 396 248
+           L 360 324
+           L 300 388
+           L 256 424
+           L 212 388
+           L 152 324
+           L 116 248
+           L 116 142
+           Z"
+        fill="#111624" stroke="url(#retroPhosphorSm)" stroke-width="12" stroke-linejoin="miter"/>
 
-  <!-- Inner Shading -->
-  <path d="M256 96 L256 394 C324 338 370 244 370 148 Z" fill="#131a29" opacity="0.6"/>
-  <path d="M256 96 L256 394 C188 338 142 244 142 148 Z" fill="#0d131f" opacity="0.8"/>
-
-  <!-- Solana Neon Chevrons -->
-  <g stroke-linecap="round" stroke-width="7">
-    <path d="M196 172 L256 196 L316 172" stroke="#14F195"/>
-    <path d="M184 212 L256 240 L328 212" stroke="#4be8b6"/>
-    <path d="M196 254 L256 278 L316 254" stroke="#9945FF"/>
+  <!-- Phosphor Ribs -->
+  <g fill="none" stroke-linecap="square">
+    <path d="M 176 190 L 256 218 L 336 190" stroke="#14F195" stroke-width="14"/>
+    <path d="M 166 238 L 256 268 L 346 238" stroke="#00E5FF" stroke-width="12"/>
+    <path d="M 176 288 L 256 318 L 336 288" stroke="#9945FF" stroke-width="14"/>
   </g>
 
-  <!-- Central Venice AI Core -->
-  <circle cx="256" cy="236" r="38" fill="#080b11" stroke="url(#coreGlowSm)" stroke-width="6"/>
-  <circle cx="256" cy="236" r="26" fill="#121824" stroke="#14F195" stroke-width="3"/>
-  <path d="M242 236 L252 246 L272 224" stroke="#14F195" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Central Diamond Core -->
+  <rect x="240" y="242" width="32" height="32" rx="4" transform="rotate(45 256 258)"
+        fill="#0c101a" stroke="#14F195" stroke-width="5"/>
+  <rect x="249" y="251" width="14" height="14" rx="2" transform="rotate(45 256 258)"
+        fill="#14F195"/>
 </svg>
