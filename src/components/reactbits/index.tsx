@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef, ReactNode } from "react";
 
+export { default as DitherVeil } from "./DitherVeil";
+
 /* ==========================================================================
    1. REACT BITS — DecryptedText (https://reactbits.dev/text-animations/decrypted-text)
    ========================================================================== */

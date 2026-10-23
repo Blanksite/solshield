@@ -12,6 +12,7 @@ import {
   SpotlightCard,
   ClickSpark,
   CobaltSphere3D,
+  DitherVeil,
 } from "@/components/reactbits";
 import {
   Search,
@@ -469,49 +470,52 @@ export default function SolShieldHexaCorePage() {
               </nav>
             </div>
 
-            {/* Center Halftone Bitmap Guardian Matrix (wrapped in React Bits TiltedCard) */}
-            <div className="relative w-full bg-[#E6E7EB] flex flex-col items-center -mt-1">
-              <TiltedCard
-                rotateAmplitude={5}
-                scaleOnHover={1.01}
-                showGlare={true}
-                className="w-full"
-              >
-                <div className="relative w-full aspect-[4/4.3] max-h-[470px] overflow-hidden select-none bg-[#E6E7EB]">
-                  <img
-                    src="/halftone-guardian.jpg"
-                    alt="Adaptive AI Halftone Guardian"
-                    className="w-full h-full object-cover object-top scale-[1.04]"
-                  />
-                  {/* Seamless top & bottom edge feather */}
-                  <div className="pointer-events-none absolute inset-x-0 top-0 h-6 bg-gradient-to-b from-[#020203] to-transparent" />
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#E6E7EB] to-transparent" />
+            {/* Center Interactive Dither Veil (React Bits: https://reactbits.dev/animations/dither-veil) */}
+            <div className="relative w-full bg-[#E6E7EB] flex flex-col items-center">
+              <div className="relative w-full aspect-[4/4.6] max-h-[500px] overflow-hidden select-none bg-[#E6E7EB]">
+                <DitherVeil
+                  src="/cyber-portrait.jpg"
+                  fit="cover"
+                  pattern="bayer"
+                  pixelSize={2}
+                  levels={2}
+                  palette="duotone"
+                  inkColor="#0A0A0C"
+                  paperColor="#E6E7EB"
+                  revealRadius={170}
+                  softness={0.6}
+                  linger={1.2}
+                  rimColor="#2934FF"
+                  rim={0.14}
+                  wander={true}
+                  clickBurst={true}
+                  className="w-full h-full"
+                />
 
-                  {/* Diagonal Corner-Touching Black Overlay Tags: "security" / "at the core" */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="relative flex flex-col items-center translate-y-1">
-                      {/* Top-left black tag */}
-                      <div className="bg-[#0A0A0C] text-white px-3.5 py-1 text-[21px] sm:text-[25px] font-normal tracking-[-0.03em] leading-[1.05] -translate-x-12 shadow-lg">
-                        <DecryptedText
-                          text={activeStage.tagTop}
-                          speed={30}
-                          maxIterations={10}
-                          animateOn="view"
-                        />
-                      </div>
-                      {/* Bottom-right black tag touching corner */}
-                      <div className="bg-[#0A0A0C] text-white px-3.5 py-1 text-[21px] sm:text-[25px] font-normal tracking-[-0.03em] leading-[1.05] translate-x-10 -mt-[1px] shadow-lg">
-                        <DecryptedText
-                          text={activeStage.tagBottom}
-                          speed={30}
-                          maxIterations={10}
-                          animateOn="view"
-                        />
-                      </div>
+                {/* Diagonal Corner-Touching Black Overlay Tags: "security" / "at the core" */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                  <div className="relative flex flex-col items-center translate-y-1">
+                    {/* Top-left black tag */}
+                    <div className="bg-[#0A0A0C] text-white px-3.5 py-1 text-[21px] sm:text-[25px] font-normal tracking-[-0.03em] leading-[1.05] -translate-x-12 shadow-lg">
+                      <DecryptedText
+                        text={activeStage.tagTop}
+                        speed={30}
+                        maxIterations={10}
+                        animateOn="view"
+                      />
+                    </div>
+                    {/* Bottom-right black tag touching corner */}
+                    <div className="bg-[#0A0A0C] text-white px-3.5 py-1 text-[21px] sm:text-[25px] font-normal tracking-[-0.03em] leading-[1.05] translate-x-10 -mt-[1px] shadow-lg">
+                      <DecryptedText
+                        text={activeStage.tagBottom}
+                        speed={30}
+                        maxIterations={10}
+                        animateOn="view"
+                      />
                     </div>
                   </div>
                 </div>
-              </TiltedCard>
+              </div>
             </div>
 
             {/* Lower Silver-Alabaster Monolith Section (#E6E7EB) */}
