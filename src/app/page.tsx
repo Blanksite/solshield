@@ -637,29 +637,132 @@ export default function SolShieldHexaCorePage() {
             {/* Horizontal Hairline Divider */}
             <div className="w-full hexacore-hairline-t my-2" />
 
-            {/* Bottom 3D Exploded Hardware Card ("TECHNICAL SIDE ↗") */}
-            <div className="pt-8 pb-2 flex flex-col items-center justify-center">
+            {/* Bottom: Live Solana Security Radar & On-Chain Telemetry Card */}
+            <div className="pt-6 pb-2 flex flex-col items-center justify-center">
               <TiltedCard
-                rotateAmplitude={9}
+                rotateAmplitude={8}
                 scaleOnHover={1.02}
                 showGlare={true}
-                className="w-full max-w-[270px] cursor-pointer group"
+                className="w-full max-w-[280px] cursor-pointer group"
               >
-                <div onClick={scrollToTechnicalSide} className="w-full">
-                  <div className="w-full aspect-[16/10] overflow-hidden bg-[#CBD5F5]">
-                    <img
-                      src="/hardware-exploded.jpg"
-                      alt="Cryptographic Hardware Architecture"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  </div>
-                  <div className="mt-3.5 flex items-start justify-between w-full">
-                    <span className="text-[10.5px] font-normal uppercase tracking-[0.06em] leading-[1.32] opacity-80 group-hover:opacity-100">
-                      TECHNICAL
-                      <br />
-                      SIDE
+                <div
+                  onClick={scrollToTechnicalSide}
+                  className="w-full p-4 rounded-xl border border-white/10 bg-[#0A0E17]/95 hover:border-[#2934FF]/50 shadow-[0_8px_24px_rgba(0,0,0,0.45)] transition-all relative overflow-hidden"
+                >
+                  {/* Subtle background radar grid pattern */}
+                  <div className="absolute inset-0 bg-[radial-gradient(#2934FF_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
+
+                  {/* Header: Live Indicator + Network */}
+                  <div className="flex items-center justify-between mb-2.5 relative z-10">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                      </span>
+                      <span className="text-[10px] font-mono uppercase tracking-[0.12em] text-emerald-400 font-semibold">
+                        MAINNET LIVE
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-white/50">
+                      ~142ms
                     </span>
-                    <ArrowUpRight className="w-4 h-4 opacity-80 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                  </div>
+
+                  {/* Animated Waveform / Radar Visual */}
+                  <div className="h-12 w-full my-1.5 relative z-10 flex items-center justify-center overflow-hidden">
+                    <svg
+                      viewBox="0 0 240 48"
+                      fill="none"
+                      className="w-full h-full text-[#2934FF]"
+                    >
+                      <line
+                        x1="0"
+                        y1="24"
+                        x2="240"
+                        y2="24"
+                        stroke="currentColor"
+                        strokeOpacity="0.15"
+                        strokeDasharray="3 3"
+                      />
+                      <line
+                        x1="60"
+                        y1="0"
+                        x2="60"
+                        y2="48"
+                        stroke="currentColor"
+                        strokeOpacity="0.1"
+                      />
+                      <line
+                        x1="120"
+                        y1="0"
+                        x2="120"
+                        y2="48"
+                        stroke="currentColor"
+                        strokeOpacity="0.1"
+                      />
+                      <line
+                        x1="180"
+                        y1="0"
+                        x2="180"
+                        y2="48"
+                        stroke="currentColor"
+                        strokeOpacity="0.1"
+                      />
+                      <path
+                        d="M0 24 L45 24 L55 12 L65 36 L75 18 L85 28 L95 24 L140 24 L150 8 L160 40 L170 14 L180 32 L190 24 L240 24"
+                        stroke="url(#pulseGrad)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="animate-pulse"
+                      />
+                      <defs>
+                        <linearGradient
+                          id="pulseGrad"
+                          x1="0%"
+                          y1="0%"
+                          x2="100%"
+                          y2="0%"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor="#2934FF"
+                            stopOpacity="0.4"
+                          />
+                          <stop offset="50%" stopColor="#10B981" />
+                          <stop offset="100%" stopColor="#2934FF" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                  </div>
+
+                  {/* Telemetry Metrics Row */}
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/10 relative z-10">
+                    <div>
+                      <span className="text-[9px] font-mono text-white/50 block">
+                        SLOT TELEMETRY
+                      </span>
+                      <span className="text-[12px] font-mono text-white font-medium">
+                        #{liveSlot.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-mono text-white/50 block">
+                        ZERO-LOG INFERENCE
+                      </span>
+                      <span className="text-[11px] font-mono text-[#E05A2D] font-medium flex items-center gap-1">
+                        <VeniceAiLogo className="w-3 h-3 text-[#E05A2D]" />
+                        VENICE AI
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card Footer Link */}
+                  <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between text-white/80 group-hover:text-white transition-colors relative z-10">
+                    <span className="text-[10px] font-mono uppercase tracking-[0.1em]">
+                      SECURITY RADAR
+                    </span>
+                    <ArrowUpRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform text-[#2934FF]" />
                   </div>
                 </div>
               </TiltedCard>
