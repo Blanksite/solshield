@@ -17,3 +17,5 @@ submittedBy: Blanksite
 socials:
   - kind: github
     url: https://github.com/Blanksite
+  - kind: website
+    url: https://solshield-wine.vercel.app

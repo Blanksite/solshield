@@ -10,6 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="https://solshield-wine.vercel.app"><img src="https://img.shields.io/badge/Live_Demo-solshield--wine.vercel.app-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
+</p>
+
+<p align="center">
   <a href="https://builtinvenice.ai"><img src="https://img.shields.io/badge/Built_in_Venice-Submission_Ready-14F195?style=flat-square&logo=shield" alt="Built in Venice"></a>
   <a href="https://solana.com"><img src="https://img.shields.io/badge/Solana-Actions_%26_Blinks-9945FF?style=flat-square&logo=solana" alt="Solana Actions"></a>
   <a href="https://www.anchor-lang.com"><img src="https://img.shields.io/badge/Anchor-v0.30.1-blue?style=flat-square" alt="Anchor v0.30.1"></a>
