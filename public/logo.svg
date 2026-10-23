@@ -27,37 +27,45 @@
     </filter>
   </defs>
 
-  <!-- Heavy Beveled Retro Hardware Chassis Frame -->
-  <rect x="24" y="24" width="464" height="464" rx="36" fill="url(#chassisGrad)" stroke="#2f3647" stroke-width="4"/>
-  <rect x="36" y="36" width="440" height="440" rx="26" fill="#0c0f16" stroke="#171c26" stroke-width="3"/>
+  <!-- Sharp Square Industrial Hardware Frame (Zero Border Radius) -->
+  <rect x="16" y="16" width="480" height="480" fill="url(#chassisGrad)" stroke="#2f3647" stroke-width="4"/>
+  <rect x="28" y="28" width="456" height="456" fill="#0c0f16" stroke="#171c26" stroke-width="3"/>
 
-  <!-- Industrial Screw Rivets in 4 corners -->
+  <!-- Industrial Screw Rivets in 4 square corners -->
   <g fill="#252c3d" stroke="#10141d" stroke-width="1.5">
-    <circle cx="56" cy="56" r="7"/>
-    <circle cx="456" cy="56" r="7"/>
-    <circle cx="56" cy="456" r="7"/>
-    <circle cx="456" cy="456" r="7"/>
+    <circle cx="44" cy="44" r="6"/>
+    <circle cx="468" cy="44" r="6"/>
+    <circle cx="44" cy="468" r="6"/>
+    <circle cx="468" cy="468" r="6"/>
   </g>
-  <g stroke="#3f4a63" stroke-width="1.5" stroke-linecap="round">
-    <line x1="53" y1="56" x2="59" y2="56"/>
-    <line x1="453" y1="56" x2="459" y2="56"/>
-    <line x1="53" y1="456" x2="59" y2="456"/>
-    <line x1="453" y1="456" x2="459" y2="456"/>
+  <g stroke="#3f4a63" stroke-width="1.5" stroke-linecap="square">
+    <line x1="41" y1="44" x2="47" y2="44"/>
+    <line x1="465" y1="44" x2="471" y2="44"/>
+    <line x1="41" y1="468" x2="47" y2="468"/>
+    <line x1="465" y1="468" x2="471" y2="468"/>
   </g>
 
-  <!-- Retro Screen Recess Bezel -->
-  <rect x="64" y="64" width="384" height="384" rx="20" fill="#080a0f" stroke="#1f2638" stroke-width="2"/>
+  <!-- Corner Brackets / Crosshairs -->
+  <g stroke="#14F195" stroke-width="2" opacity="0.6">
+    <path d="M 58 76 L 58 58 L 76 58"/>
+    <path d="M 454 76 L 454 58 L 436 58"/>
+    <path d="M 58 436 L 58 454 L 76 454"/>
+    <path d="M 454 436 L 454 454 L 436 454"/>
+  </g>
+
+  <!-- Sharp Square Recess Bezel -->
+  <rect x="58" y="58" width="396" height="396" fill="#080a0f" stroke="#1f2638" stroke-width="2"/>
 
   <!-- CRT Monitor Glass Phosphor Ambient Glow -->
-  <rect x="68" y="68" width="376" height="376" rx="18" fill="#14F195" opacity="0.04"/>
+  <rect x="62" y="62" width="388" height="388" fill="#14F195" opacity="0.04"/>
 
   <!-- Top Industrial Status Bar / Stencil Header -->
-  <g fill="#14F195" opacity="0.75" font-family="monospace" font-size="11" font-weight="bold" letter-spacing="2">
-    <text x="84" y="96">SOL-GUARD // REV.86</text>
-    <circle cx="396" cy="92" r="3.5" fill="#14F195"/>
-    <circle cx="414" cy="92" r="3.5" fill="#9945FF"/>
+  <g fill="#14F195" opacity="0.8" font-family="monospace" font-size="11" font-weight="bold" letter-spacing="2">
+    <text x="80" y="94">SOL-GUARD // REV.86</text>
+    <rect x="390" y="86" width="7" height="7" fill="#14F195"/>
+    <rect x="408" y="86" width="7" height="7" fill="#9945FF"/>
   </g>
-  <line x1="84" y1="106" x2="428" y2="106" stroke="#1f293d" stroke-width="1.5"/>
+  <line x1="80" y1="104" x2="432" y2="104" stroke="#1f293d" stroke-width="1.5"/>
 
   <!-- Retro Stepped / Chunky Pixel-Beveled Shield Silhouette -->
   <!-- Outer Shield Shell -->
@@ -103,16 +111,16 @@
   </g>
 
   <!-- Central 8-Bit Pixel Microchip Diamond Core -->
-  <rect x="242" y="238" width="28" height="28" rx="4" transform="rotate(45 256 252)"
+  <rect x="242" y="238" width="28" height="28" rx="0" transform="rotate(45 256 252)"
         fill="#0c101a" stroke="#14F195" stroke-width="4"/>
-  <rect x="250" y="246" width="12" height="12" rx="2" transform="rotate(45 256 252)"
+  <rect x="250" y="246" width="12" height="12" rx="0" transform="rotate(45 256 252)"
         fill="#14F195"/>
 
   <!-- Retro Phosphor Scanlines Overlay across Screen -->
-  <rect x="68" y="68" width="376" height="376" rx="18" fill="url(#scanlines)" pointer-events="none"/>
+  <rect x="62" y="62" width="388" height="388" fill="url(#scanlines)" pointer-events="none"/>
 
   <!-- Bottom Hardware Label Footer -->
-  <g fill="#9945FF" opacity="0.8" font-family="monospace" font-size="10" font-weight="bold" letter-spacing="3">
-    <text x="188" y="430">[ VENICE.SEC ]</text>
+  <g fill="#9945FF" opacity="0.85" font-family="monospace" font-size="10" font-weight="bold" letter-spacing="3">
+    <text x="188" y="432">[ VENICE.SEC ]</text>
   </g>
 </svg>

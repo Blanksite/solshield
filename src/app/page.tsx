@@ -253,15 +253,11 @@ export default function SolShieldDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
           {/* Brand Identity */}
           <div className="flex items-center gap-3">
-            <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
-                isDark
-                  ? "bg-zinc-900 border-zinc-700 text-emerald-400"
-                  : "bg-zinc-900 border-zinc-900 text-emerald-400 shadow-sm"
-              }`}
-            >
-              <Shield className="w-4 h-4" />
-            </div>
+            <img
+              src="/logo.svg"
+              alt="SolShield Logo"
+              className="w-9 h-9 object-contain border border-zinc-300 dark:border-zinc-700 shadow-sm"
+            />
             <div className="flex items-center gap-2.5">
               <span className="font-semibold tracking-tight text-base">
                 SolShield

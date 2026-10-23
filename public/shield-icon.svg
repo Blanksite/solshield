@@ -7,33 +7,34 @@
     </linearGradient>
   </defs>
 
-  <rect width="512" height="512" rx="96" fill="#0c0e14"/>
-  <rect width="508" height="508" x="2" y="2" rx="94" stroke="#252d3d" stroke-width="4"/>
+  <!-- Sharp Square Outer Chassis -->
+  <rect width="512" height="512" fill="#0c0e14"/>
+  <rect width="504" height="504" x="4" y="4" stroke="#252d3d" stroke-width="8"/>
 
   <!-- Stepped Retro Shield -->
-  <path d="M 256 96
-           L 396 142
-           L 396 248
-           L 360 324
-           L 300 388
-           L 256 424
-           L 212 388
-           L 152 324
-           L 116 248
-           L 116 142
+  <path d="M 256 80
+           L 410 130
+           L 410 248
+           L 370 330
+           L 304 400
+           L 256 440
+           L 208 400
+           L 142 330
+           L 102 248
+           L 102 130
            Z"
-        fill="#111624" stroke="url(#retroPhosphorSm)" stroke-width="12" stroke-linejoin="miter"/>
+        fill="#111624" stroke="url(#retroPhosphorSm)" stroke-width="14" stroke-linejoin="miter"/>
 
   <!-- Phosphor Ribs -->
   <g fill="none" stroke-linecap="square">
-    <path d="M 176 190 L 256 218 L 336 190" stroke="#14F195" stroke-width="14"/>
-    <path d="M 166 238 L 256 268 L 346 238" stroke="#00E5FF" stroke-width="12"/>
-    <path d="M 176 288 L 256 318 L 336 288" stroke="#9945FF" stroke-width="14"/>
+    <path d="M 166 186 L 256 216 L 346 186" stroke="#14F195" stroke-width="16"/>
+    <path d="M 154 238 L 256 270 L 358 238" stroke="#00E5FF" stroke-width="14"/>
+    <path d="M 166 292 L 256 324 L 346 292" stroke="#9945FF" stroke-width="16"/>
   </g>
 
   <!-- Central Diamond Core -->
-  <rect x="240" y="242" width="32" height="32" rx="4" transform="rotate(45 256 258)"
-        fill="#0c101a" stroke="#14F195" stroke-width="5"/>
-  <rect x="249" y="251" width="14" height="14" rx="2" transform="rotate(45 256 258)"
+  <rect x="238" y="240" width="36" height="36" rx="0" transform="rotate(45 256 258)"
+        fill="#0c101a" stroke="#14F195" stroke-width="6"/>
+  <rect x="248" y="250" width="16" height="16" rx="0" transform="rotate(45 256 258)"
         fill="#14F195"/>
 </svg>
