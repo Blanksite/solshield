@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none">
+  <rect width="256" height="256" rx="48" fill="#0B0E14"/>
+  <path d="M128 32L48 68V124C48 176.5 82.1 224.3 128 240C173.9 224.3 208 176.5 208 124V68L128 32Z" fill="#121722" stroke="url(#solGrad)" stroke-width="10"/>
+  <path d="M98 130L118 150L162 106" stroke="#14F195" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="solGrad" x1="48" y1="32" x2="208" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14F195"/>
+      <stop offset="1" stop-color="#9945FF"/>
+    </linearGradient>
+  </defs>
+</svg>

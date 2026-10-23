@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "pathPattern": "/blink/**",
+      "apiPath": "/api/actions/audit-swap/**"
+    },
+    {
+      "pathPattern": "/api/actions/**",
+      "apiPath": "/api/actions/**"
+    }
+  ]
+}
