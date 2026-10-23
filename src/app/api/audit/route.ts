@@ -3,6 +3,49 @@ import { analyzeBase64Transaction } from "@/lib/solana-parser";
 import { getPresetReport, SIMULATION_PRESETS } from "@/lib/presets";
 import { auditTransactionWithVenice } from "@/lib/venice-ai";
 
+const SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
+
+async function fetchLiveSolanaSlot(): Promise<{
+  slot: number;
+  latencyMs: number;
+  connected: boolean;
+}> {
+  const start = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch(SOLANA_MAINNET_RPC, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getSlot",
+        params: [],
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    const data = await res.json();
+    if (typeof data.result === "number") {
+      return {
+        slot: data.result,
+        latencyMs: Date.now() - start,
+        connected: true,
+      };
+    }
+    throw new Error("Invalid slot response");
+  } catch {
+    return {
+      slot: 328_450_900 + Math.floor((Date.now() / 400) % 10000),
+      latencyMs: Date.now() - start,
+      connected: false,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -27,7 +70,6 @@ export async function POST(req: NextRequest) {
     } else if (base64Transaction && typeof base64Transaction === "string") {
       report = analyzeBase64Transaction(base64Transaction);
     } else if (blinkUrl && typeof blinkUrl === "string") {
-      // Match known suspicious / safe blink patterns or map to appropriate simulation
       const lower = blinkUrl.toLowerCase();
       if (
         lower.includes("claim") ||
@@ -65,23 +107,27 @@ export async function POST(req: NextRequest) {
         ? Math.round(maxDailySol * 1e9)
         : 5_000_000_000;
 
-    const veniceAudit = await auditTransactionWithVenice(report, {
-      apiKey: veniceApiKey,
-      model: veniceModel,
-      maxAllowedRiskScore:
-        typeof maxAllowedRiskScore === "number" ? maxAllowedRiskScore : 35,
-      maxDailyLamports,
-      blockUnknownTransferHooks:
-        typeof blockUnknownTransferHooks === "boolean"
-          ? blockUnknownTransferHooks
-          : true,
-    });
+    const [veniceAudit, liveSolana] = await Promise.all([
+      auditTransactionWithVenice(report, {
+        apiKey: veniceApiKey,
+        model: veniceModel,
+        maxAllowedRiskScore:
+          typeof maxAllowedRiskScore === "number" ? maxAllowedRiskScore : 35,
+        maxDailyLamports,
+        blockUnknownTransferHooks:
+          typeof blockUnknownTransferHooks === "boolean"
+            ? blockUnknownTransferHooks
+            : true,
+      }),
+      fetchLiveSolanaSlot(),
+    ]);
 
     return NextResponse.json({
       ok: true,
       preset: activePreset,
       simulation: report,
       veniceAudit,
+      liveSolana,
     });
   } catch (err: unknown) {
     const message =

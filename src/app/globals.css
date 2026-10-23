@@ -2,8 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  }
+:root {
+  --bg-obsidian: #F3F3F6;
+  --bg-obsidian-elevated: #EAEAEF;
+  --text-obsidian: #0A0A0C;
+  --text-obsidian-muted: #52525B;
+  --border-hairline: rgba(10, 10, 12, 0.12);
+  --monolith-bg: #E2E4E8;
+  --monolith-text: #0A0A0C;
+  --cobalt: #2934FF;
+  --cobalt-hover: #1E28E6;
+}
+
+html.dark {
+  --bg-obsidian: #0A0A0C;
+  --bg-obsidian-elevated: #111115;
+  --text-obsidian: #F8F8FA;
+  --text-obsidian-muted: #9CA3AF;
+  --border-hairline: rgba(255, 255, 255, 0.11);
+  --monolith-bg: #E2E4E8;
+  --monolith-text: #0A0A0C;
+  --cobalt: #2934FF;
+  --cobalt-hover: #1E28E6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-obsidian);
+  color: var(--text-obsidian);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  overflow-x: hidden;
+}
+
+.hexacore-canvas {
+  background-color: var(--bg-obsidian);
+  color: var(--text-obsidian);
+}
+
+.hexacore-hairline-r {
+  border-right: 1px solid var(--border-hairline);
+}
+
+.hexacore-hairline-b {
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.hexacore-hairline-t {
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 155, 0.35);
 }

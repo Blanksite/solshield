@@ -1,39 +1,46 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
   variable: "--font-sans",
-  display: "swap",
 });
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   variable: "--font-mono",
-  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "SolShield — Private Solana Transaction Firewall & Blinks Agent",
+  title: "SolShield® — Adaptive AI Guard for Solana",
   description:
-    "Non-custodial Solana transaction firewall, Blinks inspector, and Anchor policy vault using Venice AI to detect drainers and risky instructions privately before signing.",
+    "Continuous Solana payload simulation and behavioral threat interception powered by zero-retention Venice AI.",
   icons: {
-    icon: "/shield-icon.svg",
+    icon: "/logo.jpg",
+    shortcut: "/logo.jpg",
+    apple: "/logo.jpg",
+  },
+  openGraph: {
+    title: "SolShield® — Adaptive AI Guard",
+    description:
+      "Continuous Solana transaction payload and behavior audit by private Venice AI.",
+    images: ["/og-image.jpg"],
   },
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html
-      lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable}`}
-    >
-      <body className="min-h-screen font-sans antialiased selection:bg-emerald-500/15 selection:text-emerald-700">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body
+        className={`${jakarta.variable} ${jetbrainsMono.variable} font-sans antialiased selection:bg-[#2934FF] selection:text-white`}
+      >
         {children}
       </body>
     </html>
