@@ -1,5 +1,5 @@
 {
-  "name": "solshield",
+  "name": "solshield-protocol",
   "version": "1.0.0",
   "private": false,
   "description": "Non-custodial Solana transaction firewall, Blinks inspector, and Anchor policy vault powered by Venice AI.",

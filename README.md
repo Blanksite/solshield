@@ -2,7 +2,7 @@
   <img src="./public/logo.jpg" alt="SolShield Retro Tech Logo" width="180" style="border-radius: 24px;" />
 </p>
 
-<h1 align="center">SolShield</h1>
+<h1 align="center">SolShield Protocol</h1>
 
 <p align="center">
   <strong>Private Solana Transaction Firewall, Blinks Inspector &amp; Anchor Policy Vault</strong><br>
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://solshield-wine.vercel.app"><img src="https://img.shields.io/badge/Live_Demo-solshield--wine.vercel.app-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
+  <a href="https://solshield-dev.vercel.app"><img src="https://img.shields.io/badge/Live_Demo-solshield--dev.vercel.app-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
 </p>
 
 <p align="center">
@@ -25,9 +25,25 @@
 
 ## Overview
 
-**SolShield** is a non-custodial Solana transaction security firewall, **Solana Actions (Blinks)** inspector, and **Rust/Anchor On-Chain Policy Vault** powered by **[Venice AI](https://venice.ai)** private inference.
+**SolShield Protocol** is an open-source, non-custodial Solana transaction security firewall, **Solana Actions (Blinks)** inspector, and **Rust/Anchor On-Chain Policy Vault** powered by **[Venice AI](https://venice.ai)** private zero-retention inference.
 
-It protects Solana users from blind-signing wallet drainers (`SPL SetAuthority` owner hijacks, unlimited `ApproveChecked` delegate allowances, and malicious **Token-2022** `TransferHook` / `PermanentDelegate` extensions) while keeping wallet addresses, balances, and DeFi trading intent 100% private via Venice AI's zero-data-retention API.
+It protects Solana users from blind-signing wallet drainers (`SPL SetAuthority` owner hijacks, unlimited `ApproveChecked` delegate allowances, and malicious **Token-2022** `TransferHook` / `PermanentDelegate` extensions) while keeping wallet addresses, balances, and DeFi trading intent 100% private.
+
+---
+
+## Key Features & Capabilities
+
+1. **Pre-Sign Bytecode Decompiler & Sandbox:** Decompiles raw wire-format Solana transactions (`Legacy` & `Versioned V0`) and Solana Action (`solana-action:`) payloads into human-readable ASTs before signing.
+2. **Zero-Data-Retention Privacy (Venice AI):** Traditional AI security scanners leak public keys, financial net worth, and alpha into training sets. SolShield routes all transaction ASTs and natural-language DeFi intents through **Venice AI (`llama-3.3-70b`)** with `include_venice_system_prompt: false` for strict zero-retention confidential security reasoning.
+3. **Natural-Language DeFi Intent Copilot:** Users describe swaps in plain English (e.g. *"Swap 1.5 SOL to USDC on Jupiter with max 0.5% slippage"*). The AI compiles and validates the intent directly against on-chain policy limits.
+4. **Anchor On-Chain Policy Vault (`programs/solshield-policy`):** Deterministic Rust smart contract enforcing per-wallet `SecurityPolicy` PDAs:
+   - Rolling 24-hour Lamport spend limits.
+   - Max allowable Venice AI risk score threshold.
+   - Instant 1-click on-chain **Emergency Circuit Breaker**.
+5. **1-Click SPL Delegate Revoker:** Directly detects and neutralizes unlimited token allowances (`u64::MAX`) with built-in revoke action generator (`Instruction Tag 5`).
+6. **Live Mainnet Transaction Signature (`txHash`) X-Ray:** Directly queries Solana Mainnet RPC for 84–90 char base58 signatures, decoding slot, fee, and program interactions.
+7. **Official Solana Actions & Blinks Studio:** Fully compliant with Solana Actions specification (`/api/actions/audit-swap` + `/actions.json`) with interactive Blink tester.
+8. **Browser Wallet Connect & Cryptographic Audit Proof:** Connects with Phantom and Solflare wallets, enabling 1-click export of structured JSON audit certificates (`solshield-audit-proof-*.json`).
 
 ---
 

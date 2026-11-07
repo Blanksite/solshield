@@ -1,23 +1,10 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-sans",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-mono",
-});
 
 export const metadata: Metadata = {
   title: "SolShield® — Adaptive AI Guard for Solana",
   description:
-    "Continuous Solana payload simulation and behavioral threat interception powered by zero-retention Venice AI.",
+    "Continuous Solana payload simulation, DeFi Intent Copilot, Blinks Inspector, and Anchor Policy PDA Vault powered by zero-retention Venice AI.",
   icons: {
     icon: "/logo.jpg",
     shortcut: "/logo.jpg",
@@ -38,9 +25,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body
-        className={`${jakarta.variable} ${jetbrainsMono.variable} font-sans antialiased selection:bg-[#2934FF] selection:text-white`}
-      >
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="font-sans antialiased selection:bg-[#2934FF] selection:text-white">
         {children}
       </body>
     </html>
