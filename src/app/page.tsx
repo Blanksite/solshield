@@ -612,7 +612,7 @@ export default function SolShieldHexaCorePage() {
                 </Magnet>
                 <Magnet padding={28} magnetStrength={3.2}>
                   <a
-                    href="https://github.com/Blanksite/solshield"
+                    href="https://github.com/Blanksite/solshield-protocol"
                     target="_blank"
                     rel="noreferrer"
                     className="hover:opacity-100 transition-opacity"
@@ -1676,7 +1676,7 @@ export default function SolShieldHexaCorePage() {
             <div className="mt-8 pt-6 hexacore-hairline-t flex items-center justify-between text-[11px] font-mono opacity-70">
               <span>Built by @Blanksite</span>
               <a
-                href="https://github.com/Blanksite/solshield"
+                href="https://github.com/Blanksite/solshield-protocol"
                 target="_blank"
                 rel="noreferrer"
                 className="underline hover:opacity-100"
