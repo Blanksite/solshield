@@ -554,13 +554,19 @@ export default function SolShieldHexaCorePage() {
             {/* Bottom Social Proof & Decrypted Telemetry Copy */}
             <div className="pt-8 pb-2 flex flex-col items-center justify-center text-center">
               <div className="flex items-center justify-center -space-x-2.5 mb-5">
-                <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#0A0A0C] bg-neutral-900 shadow-md relative z-10">
+                <a
+                  href="https://github.com/Blanksite/solshield"
+                  target="_blank"
+                  rel="noreferrer"
+                  title="SolShield Official GitHub Repository"
+                  className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#0A0A0C] bg-neutral-900 shadow-md relative z-10 hover:border-[#2934FF] transition-colors"
+                >
                   <img
                     src="/logo.jpg"
                     alt="SolShield GitHub Logo"
                     className="w-full h-full object-cover"
                   />
-                </div>
+                </a>
                 <a
                   href="https://venice.ai"
                   target="_blank"
@@ -612,7 +618,7 @@ export default function SolShieldHexaCorePage() {
                 </Magnet>
                 <Magnet padding={28} magnetStrength={3.2}>
                   <a
-                    href="https://github.com/Blanksite/solshield-protocol"
+                    href="https://github.com/Blanksite/solshield"
                     target="_blank"
                     rel="noreferrer"
                     className="hover:opacity-100 transition-opacity"
@@ -1676,7 +1682,7 @@ export default function SolShieldHexaCorePage() {
             <div className="mt-8 pt-6 hexacore-hairline-t flex items-center justify-between text-[11px] font-mono opacity-70">
               <span>Built by @Blanksite</span>
               <a
-                href="https://github.com/Blanksite/solshield-protocol"
+                href="https://github.com/Blanksite/solshield"
                 target="_blank"
                 rel="noreferrer"
                 className="underline hover:opacity-100"
