@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://solshield-wine.vercel.app/"><img src="https://img.shields.io/badge/Live_Demo-solshield--wine.vercel.app-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
+  <a href="https://sol-shield.xyz"><img src="https://img.shields.io/badge/Live_Demo-sol--shield.xyz-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
 </p>
 
 <p align="center">

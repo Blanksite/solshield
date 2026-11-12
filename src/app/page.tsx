@@ -1628,7 +1628,7 @@ export default function SolShieldHexaCorePage() {
                       SolShield — Venice AI Guarded Swap
                     </div>
                     <div className="text-[11px] font-mono opacity-60">
-                      solshield-wine.vercel.app • Zero-Log Action
+                      sol-shield.xyz • Zero-Log Action
                     </div>
                   </div>
                 </div>
