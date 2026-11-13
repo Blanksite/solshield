@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzeBase64Transaction } from "@/lib/solana-parser";
 import { getPresetReport, SIMULATION_PRESETS } from "@/lib/presets";
 import { auditTransactionWithVenice } from "@/lib/venice-ai";
+import {
+  BlinkInspectionError,
+  BlinkActionInspectionMeta,
+  inspectLiveBlinkUrl,
+} from "@/lib/blink-inspector";
 
 const SOLANA_MAINNET_RPCS = [
   "https://api.mainnet-beta.solana.com",
@@ -63,10 +68,13 @@ export async function POST(req: NextRequest) {
       maxAllowedRiskScore,
       maxDailySol,
       blockUnknownTransferHooks,
+      emergencyLocked,
+      walletAddress,
     } = body;
 
     let report;
     let activePreset = null;
+    let blinkMeta: BlinkActionInspectionMeta | null = null;
 
     if (presetId) {
       const presetBundle = getPresetReport(presetId);
@@ -75,32 +83,12 @@ export async function POST(req: NextRequest) {
     } else if (base64Transaction && typeof base64Transaction === "string") {
       report = analyzeBase64Transaction(base64Transaction);
     } else if (blinkUrl && typeof blinkUrl === "string") {
-      const lower = blinkUrl.toLowerCase();
-      if (
-        lower.includes("claim") ||
-        lower.includes("airdrop") ||
-        lower.includes("drainer")
-      ) {
-        const bundle = getPresetReport("drainer-set-authority");
-        report = bundle.report;
-        report.sourceType = "BLINK_URL";
-        activePreset = bundle.preset;
-      } else if (lower.includes("tokenz") || lower.includes("hook")) {
-        const bundle = getPresetReport("token2022-malicious-hook");
-        report = bundle.report;
-        report.sourceType = "BLINK_URL";
-        activePreset = bundle.preset;
-      } else if (lower.includes("stake") || lower.includes("approve")) {
-        const bundle = getPresetReport("warning-unlimited-approve");
-        report = bundle.report;
-        report.sourceType = "BLINK_URL";
-        activePreset = bundle.preset;
-      } else {
-        const bundle = getPresetReport("safe-jupiter-swap");
-        report = bundle.report;
-        report.sourceType = "BLINK_URL";
-        activePreset = bundle.preset;
-      }
+      const inspected = await inspectLiveBlinkUrl({
+        blinkUrl,
+        account: typeof walletAddress === "string" ? walletAddress : undefined,
+      });
+      report = inspected.report;
+      blinkMeta = inspected.blinkMeta;
     } else {
       const bundle = getPresetReport(SIMULATION_PRESETS[0].id);
       report = bundle.report;
@@ -123,6 +111,7 @@ export async function POST(req: NextRequest) {
           typeof blockUnknownTransferHooks === "boolean"
             ? blockUnknownTransferHooks
             : true,
+        emergencyLocked: Boolean(emergencyLocked),
       }),
       fetchLiveSolanaSlot(),
     ]);
@@ -130,13 +119,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       preset: activePreset,
+      blinkMeta,
       simulation: report,
       veniceAudit,
       liveSolana,
     });
   } catch (err: unknown) {
+    const status = err instanceof BlinkInspectionError ? err.status : 400;
     const message =
       err instanceof Error ? err.message : "Failed to audit transaction.";
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

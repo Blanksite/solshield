@@ -6,6 +6,16 @@ import { VeniceSecurityAuditResult } from "@/lib/venice-ai";
 import { DeterministicSimulationReport } from "@/lib/solana-parser";
 import type { TokenScanReport } from "@/lib/token-scanner";
 import { deriveSecurityPolicyPda } from "@/lib/anchor-idl";
+import {
+  buildInitializePolicyTransaction,
+  buildSetEmergencyLockTransaction,
+  buildSplDelegateRevokeTransaction,
+  buildUpdatePolicyTransaction,
+  deriveUsdcAssociatedTokenAccount,
+  DevnetPolicyVaultStatus,
+  SerializedInstructionArtifact,
+  submitDevnetArtifactWithWallet,
+} from "@/lib/anchor-vault";
 import FooterWordmark from "@/components/FooterWordmark";
 import {
   DecryptedText,
@@ -84,11 +94,26 @@ interface ParsedIntentResponse {
     amount: number;
     maxSlippageBps: number;
     explanation: string;
+    inferenceMode?: "venice-live-api" | "deterministic-fallback";
   };
   policyPda: {
     pda: string;
     bump: number;
   } | null;
+  previewWalletUsed?: boolean;
+  recentBlockhash?: string | null;
+  base64Transaction?: string | null;
+  quote?: {
+    quoteMode: "jupiter-v1-live" | "jupiter-unavailable";
+    inputMint: string;
+    outputMint: string;
+    inAmountUi: number;
+    outAmountUi: number | null;
+    effectiveRate: number | null;
+    priceImpactPct: string | null;
+    routeLabels: string[];
+    error?: string;
+  };
   veniceAudit: VeniceSecurityAuditResult;
 }
 
@@ -262,6 +287,15 @@ export default function SolShieldHexaCorePage() {
   const [maxAllowedRisk, setMaxAllowedRisk] = useState<number>(30);
   const [emergencyLocked, setEmergencyLocked] = useState<boolean>(false);
   const [derivedPdaAddress, setDerivedPdaAddress] = useState<string>("");
+  const [devnetVaultStatus, setDevnetVaultStatus] =
+    useState<DevnetPolicyVaultStatus | null>(null);
+  const [policyTxArtifact, setPolicyTxArtifact] =
+    useState<SerializedInstructionArtifact | null>(null);
+  const [policyActionNotice, setPolicyActionNotice] = useState<string | null>(
+    null
+  );
+  const [revokeArtifact, setRevokeArtifact] =
+    useState<SerializedInstructionArtifact | null>(null);
 
   // DeFi Intent Copilot State (/api/intent)
   const [intentPrompt, setIntentPrompt] = useState<string>(INTENT_SAMPLES[0]);
@@ -319,8 +353,110 @@ export default function SolShieldHexaCorePage() {
 
     runIntentCopilot(INTENT_SAMPLES[0]);
     runTokenScan(TOKEN_SCAN_SAMPLES[0].mint);
+    refreshDevnetVaultStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    refreshDevnetVaultStatus(connectedWallet || undefined);
+  }, [connectedWallet]);
+
+  const refreshDevnetVaultStatus = async (owner?: string) => {
+    try {
+      const qs = owner ? `?owner=${encodeURIComponent(owner)}` : "";
+      const res = await fetch(`/api/policy-status${qs}`);
+      const data = await res.json();
+      if (data.ok) {
+        setDevnetVaultStatus(data);
+      }
+    } catch {
+      // Non-fatal Devnet probe error
+    }
+  };
+
+  const handleBuildPolicyVaultTx = async (
+    mode: "sync" | "emergency-lock",
+    nextLockState?: boolean
+  ) => {
+    const owner =
+      connectedWallet || "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV";
+    const latestBh = devnetVaultStatus?.latestDevnetBlockhash || undefined;
+    try {
+      const lamportsCap = Math.round(maxDailySol * 1e9);
+      const artifact =
+        mode === "emergency-lock"
+          ? await buildSetEmergencyLockTransaction({
+              owner,
+              locked: Boolean(nextLockState),
+              recentBlockhash: latestBh,
+            })
+          : devnetVaultStatus?.policyInitializedOnDevnet
+            ? await buildUpdatePolicyTransaction({
+                owner,
+                maxDailySpendLamports: lamportsCap,
+                maxAllowedRiskScore: maxAllowedRisk,
+                blockUnknownTransferHooks: true,
+                recentBlockhash: latestBh,
+              })
+            : await buildInitializePolicyTransaction({
+                owner,
+                maxDailySpendLamports: lamportsCap,
+                maxAllowedRiskScore: maxAllowedRisk,
+                blockUnknownTransferHooks: true,
+                recentBlockhash: latestBh,
+              });
+
+      setPolicyTxArtifact(artifact);
+
+      if (devnetVaultStatus?.programDeployedOnDevnet && isRealWalletConnected) {
+        const anyWin = window as unknown as {
+          solana?: {
+            signAndSendTransaction?: (
+              tx: import("@solana/web3.js").Transaction
+            ) => Promise<{ signature: string }>;
+          };
+        };
+        if (anyWin.solana?.signAndSendTransaction) {
+          const sig = await submitDevnetArtifactWithWallet(artifact, {
+            signAndSendTransaction: anyWin.solana.signAndSendTransaction,
+          });
+          setPolicyActionNotice(`Devnet Tx Submitted: ${sig}`);
+          return;
+        }
+      }
+
+      setPolicyActionNotice(
+        devnetVaultStatus?.isPlaceholderTemplateId ||
+          !devnetVaultStatus?.programDeployedOnDevnet
+          ? lang === "id"
+            ? `Instruksi Anchor v0.30.1 ter-serialisasi (disc 0x${artifact.discriminatorHex}). Deploy Devnet menunggu Solana/Anchor CLI build.`
+            : `Anchor v0.30.1 instruction serialized (disc 0x${artifact.discriminatorHex}). Devnet submit awaits Anchor CLI program deployment.`
+          : lang === "id"
+            ? `Tx Devnet siap (${artifact.transactionBase64.length} b64 chars). Hubungkan wallet Devnet untuk menandatangani.`
+            : `Devnet tx serialized (${artifact.transactionBase64.length} b64 chars). Connect browser wallet to sign.`
+      );
+    } catch (err: unknown) {
+      setPolicyActionNotice(
+        err instanceof Error
+          ? err.message
+          : "Failed to build Anchor Policy instruction."
+      );
+    }
+  };
+
+  const handleRevokeSplDelegate = () => {
+    const owner =
+      connectedWallet || "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV";
+    const usdcAta = deriveUsdcAssociatedTokenAccount(owner);
+    const artifact = buildSplDelegateRevokeTransaction({
+      tokenAccount: usdcAta,
+      owner,
+      recentBlockhash: devnetVaultStatus?.latestDevnetBlockhash || undefined,
+    });
+    setRevokeArtifact(artifact);
+    setRevokeStatus("BUILT");
+    setWalletStatus("REVOKED");
+  };
 
   const toggleTheme = () => {
     const nextDark = !darkMode;
@@ -393,6 +529,7 @@ export default function SolShieldHexaCorePage() {
           veniceApiKey: veniceApiKey.trim() || undefined,
           maxAllowedRiskScore: maxAllowedRisk,
           maxDailySol,
+          emergencyLocked,
         }),
       });
       const data = await response.json();
@@ -427,6 +564,7 @@ export default function SolShieldHexaCorePage() {
           veniceApiKey: veniceApiKey.trim() || undefined,
           maxAllowedRiskScore: maxAllowedRisk,
           maxDailySol,
+          emergencyLocked,
         }),
       });
       const data = await res.json();
@@ -519,7 +657,8 @@ export default function SolShieldHexaCorePage() {
       threatFlags: simulationReport?.threatFlags ?? [],
       privacyAttestation: {
         engine: "Venice AI (https://api.venice.ai/api/v1/chat/completions)",
-        model: "llama-3.3-70b",
+        model: auditResult?.modelUsed ?? "llama-3.3-70b (Deterministic Pre-Filter)",
+        inferenceMode: auditResult?.inferenceMode ?? "deterministic-fallback",
         include_venice_system_prompt: false,
         zeroDataRetention: true,
       },
@@ -1981,7 +2120,7 @@ export default function SolShieldHexaCorePage() {
 
                 {/* 1-Click SPL Token Delegate Revoke Button */}
                 <button
-                  onClick={() => setWalletStatus("REVOKED")}
+                  onClick={handleRevokeSplDelegate}
                   className="w-full py-3 px-4 border border-[#0A0A0C]/25 hover:bg-[#0A0A0C] hover:text-white text-[#0A0A0C] text-[12.5px] font-sans font-semibold uppercase tracking-[0.05em] transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
@@ -1989,6 +2128,17 @@ export default function SolShieldHexaCorePage() {
                     EMERGENCY REVOKE SPL TOKEN DELEGATE (INSTRUCTION TAG 5)
                   </span>
                 </button>
+                {walletStatus === "REVOKED" && revokeArtifact && (
+                  <div className="p-3 bg-[#0A0A0C] text-emerald-300 font-mono text-[11.5px] leading-relaxed break-all border border-emerald-500/30">
+                    <div>
+                      TAG_5_REVOKE_IX (0x{revokeArtifact.discriminatorHex}) ·{" "}
+                      {revokeArtifact.accountCount} accounts
+                    </div>
+                    <div className="text-white/75 mt-1">
+                      TX_B64: {revokeArtifact.transactionBase64.slice(0, 72)}...
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2305,34 +2455,70 @@ export default function SolShieldHexaCorePage() {
 
             {intentResponse && (
               <div className="mt-8 pt-6 hexacore-hairline-t font-mono text-[13px] space-y-2.5">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
                   <span className="opacity-75">PARSED_ACTION</span>
-                  <span className="font-semibold">
+                  <span className="font-semibold text-right">
                     {intentResponse.intent.action}{" "}
                     {intentResponse.intent.amount}{" "}
                     {intentResponse.intent.inputToken} →{" "}
                     {intentResponse.intent.outputToken}
                   </span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-2">
+                  <span className="opacity-75">QUOTED_OUTPUT</span>
+                  {intentResponse.quote?.quoteMode === "jupiter-v1-live" &&
+                  intentResponse.quote.outAmountUi !== null ? (
+                    <span className="text-emerald-400 font-semibold text-right">
+                      {intentResponse.quote.outAmountUi.toLocaleString(
+                        undefined,
+                        { maximumFractionDigits: 4 }
+                      )}{" "}
+                      {intentResponse.intent.outputToken}
+                      {intentResponse.quote.routeLabels.length > 0
+                        ? ` (${intentResponse.quote.routeLabels[0]})`
+                        : " (Jupiter v1)"}
+                    </span>
+                  ) : (
+                    <span className="text-amber-400 text-right">
+                      Quote unavailable ({intentResponse.quote?.error ?? "offline"})
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between gap-2">
                   <span className="opacity-75">MAX_SLIPPAGE</span>
                   <span>{intentResponse.intent.maxSlippageBps} BPS</span>
                 </div>
-                <div className="flex justify-between">
+                {intentResponse.recentBlockhash && (
+                  <div className="flex justify-between gap-2">
+                    <span className="opacity-75">LIVE_TX_V0</span>
+                    <span className="opacity-90">
+                      BH {intentResponse.recentBlockhash.slice(0, 8)}... ·{" "}
+                      {intentResponse.base64Transaction?.length ?? 0}b64
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-2">
                   <span className="opacity-75">PDA_POLICY_CHECK</span>
                   <span
                     className={
-                      intentResponse.intent.amount > maxDailySol ||
-                      emergencyLocked
-                        ? "text-red-500 font-semibold"
-                        : "text-emerald-500 font-semibold"
+                      (intentResponse.intent.inputToken === "SOL" &&
+                        intentResponse.intent.amount > maxDailySol) ||
+                      emergencyLocked ||
+                      !intentResponse.veniceAudit.policyGuardVerdict
+                        .passesPolicy
+                        ? "text-red-500 font-semibold text-right"
+                        : "text-emerald-500 font-semibold text-right"
                     }
                   >
                     {emergencyLocked
                       ? "BLOCKED (EmergencyLock)"
-                      : intentResponse.intent.amount > maxDailySol
-                      ? `BLOCKED (Exceeds ${maxDailySol} SOL Cap)`
-                      : "APPROVED BY PDA"}
+                      : intentResponse.intent.inputToken === "SOL" &&
+                          intentResponse.intent.amount > maxDailySol
+                        ? `BLOCKED (Exceeds ${maxDailySol} SOL Cap)`
+                        : !intentResponse.veniceAudit.policyGuardVerdict
+                              .passesPolicy
+                          ? "BLOCKED BY POLICY"
+                          : "APPROVED BY PDA"}
                   </span>
                 </div>
                 <p className="text-[13.5px] opacity-85 pt-2 font-sans leading-relaxed">
@@ -2358,7 +2544,9 @@ export default function SolShieldHexaCorePage() {
                   </h3>
                 </div>
                 <span className="px-2.5 py-1 bg-[#0A0A0C] text-white text-[12px] font-mono uppercase shrink-0">
-                  Anchor v0.30.1
+                  {devnetVaultStatus?.programDeployedOnDevnet
+                    ? "Devnet Live · Anchor v0.30.1"
+                    : "Anchor v0.30.1 · Devnet Pending"}
                 </span>
               </div>
 
@@ -2399,6 +2587,24 @@ export default function SolShieldHexaCorePage() {
                 <div className="flex justify-between text-white/75">
                   <span>SEEDS</span>
                   <span>[&quot;solshield_policy&quot;, owner]</span>
+                </div>
+                <div className="flex justify-between items-center text-white/75 pt-1 border-t border-white/10">
+                  <span>DEVNET_PROGRAM</span>
+                  <span
+                    className={
+                      devnetVaultStatus?.programDeployedOnDevnet
+                        ? "text-emerald-400"
+                        : "text-amber-300"
+                    }
+                  >
+                    {devnetVaultStatus
+                      ? `${devnetVaultStatus.programId.slice(0, 6)}..${devnetVaultStatus.programId.slice(-4)} (${
+                          devnetVaultStatus.programDeployedOnDevnet
+                            ? "Deployed"
+                            : "Template ID"
+                        })`
+                      : "Checking Devnet..."}
+                  </span>
                 </div>
               </div>
               {walletNotice && (
@@ -2448,11 +2654,24 @@ export default function SolShieldHexaCorePage() {
               </div>
             </div>
 
-            {/* Emergency Circuit Breaker Button */}
-            <div className="mt-8 pt-6 border-t border-[#0A0A0C]/15">
+            {/* Emergency Circuit Breaker & Policy Sync Controls */}
+            <div className="mt-8 pt-6 border-t border-[#0A0A0C]/15 space-y-3">
               <button
                 type="button"
-                onClick={() => setEmergencyLocked(!emergencyLocked)}
+                onClick={() => handleBuildPolicyVaultTx("sync")}
+                className="w-full py-3 px-4 border border-[#0A0A0C]/25 bg-white/70 hover:bg-[#0A0A0C] hover:text-white text-[#0A0A0C] font-mono text-[12.5px] uppercase tracking-[0.05em] transition-colors cursor-pointer"
+              >
+                {devnetVaultStatus?.programDeployedOnDevnet
+                  ? "SYNC POLICY GUARDRAILS TO DEVNET PDA ↗"
+                  : "SERIALIZE ANCHOR POLICY INSTRUCTION (DEVNET READY)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextLocked = !emergencyLocked;
+                  setEmergencyLocked(nextLocked);
+                  handleBuildPolicyVaultTx("emergency-lock", nextLocked);
+                }}
                 className={`w-full py-4 px-5 font-sans font-semibold text-[13.5px] uppercase tracking-[0.06em] text-white transition-colors flex items-center justify-center gap-2 cursor-pointer ${
                   emergencyLocked
                     ? "bg-emerald-700 hover:bg-emerald-800"
@@ -2475,6 +2694,16 @@ export default function SolShieldHexaCorePage() {
                   </>
                 )}
               </button>
+              {policyActionNotice && (
+                <div className="p-3 bg-[#0A0A0C] text-white font-mono text-[11.5px] leading-relaxed break-all">
+                  <div>{policyActionNotice}</div>
+                  {policyTxArtifact && (
+                    <div className="text-emerald-300/90 mt-1">
+                      DATA_HEX: {policyTxArtifact.instructionDataHex}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

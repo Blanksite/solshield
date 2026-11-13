@@ -78,6 +78,9 @@ export interface AuditedBlinkSwapResult {
   outputToken: TokenMintSpec;
   inAmountUi: number;
   outAmountUi: number | null;
+  effectiveRate: number | null;
+  priceImpactPct: string | null;
+  quoteMode: "jupiter-v1-live";
   routeLabels: string[];
   policyPda: string;
   simulationReport: DeterministicSimulationReport;
@@ -204,6 +207,10 @@ export async function buildAuditedJupiterBlinkSwap(params: {
   veniceApiKey?: string;
   maxDailyLamports?: number;
   maxAllowedRiskScore?: number;
+  blockUnknownTransferHooks?: boolean;
+  emergencyLocked?: boolean;
+  enforcePolicyGate?: boolean;
+  sourceType?: DeterministicSimulationReport["sourceType"];
 }): Promise<AuditedBlinkSwapResult> {
   const fetchImpl = params.fetchImpl ?? fetch;
   const jupiterApiBase =
@@ -349,23 +356,61 @@ export async function buildAuditedJupiterBlinkSwap(params: {
     );
   }
 
+  const outAmountUi =
+    outputToken.decimals !== null
+      ? Number(quote.outAmount) / Math.pow(10, outputToken.decimals)
+      : null;
+
   const report = analyzeBase64Transaction(swapData.swapTransaction);
-  report.sourceType = "BLINK_URL";
+  report.sourceType = params.sourceType ?? "BLINK_URL";
   if (inputToken.mint === SOL_MINT) {
     report.estimatedSpendLamports = amountBaseUnits;
+  }
+  if (report.balanceDeltas.length === 0) {
+    report.balanceDeltas = [
+      {
+        asset: inputToken.symbol,
+        mint: inputToken.mint,
+        deltaUiAmount: -params.amountUi,
+        direction: "OUT",
+      },
+      ...(outAmountUi !== null
+        ? [
+            {
+              asset: outputToken.symbol,
+              mint: outputToken.mint,
+              deltaUiAmount: Number(
+                outAmountUi.toFixed(
+                  outputToken.decimals !== null && outputToken.decimals >= 5
+                    ? 6
+                    : 4
+                )
+              ),
+              direction: "IN" as const,
+            },
+          ]
+        : []),
+    ];
   }
 
   const maxDailyLamports = params.maxDailyLamports ?? DEFAULT_MAX_DAILY_LAMPORTS;
   const maxAllowedRiskScore = params.maxAllowedRiskScore ?? DEFAULT_MAX_RISK_SCORE;
+  const blockUnknownTransferHooks = params.blockUnknownTransferHooks ?? true;
+  const emergencyLocked = params.emergencyLocked ?? false;
+  const enforcePolicyGate = params.enforcePolicyGate ?? true;
 
   const audit = await auditTransactionWithVenice(report, {
     apiKey: params.veniceApiKey,
     maxAllowedRiskScore,
     maxDailyLamports,
-    blockUnknownTransferHooks: true,
+    blockUnknownTransferHooks,
+    emergencyLocked,
   });
 
-  if (audit.classification === "CRITICAL" || !audit.policyGuardVerdict.passesPolicy) {
+  if (
+    enforcePolicyGate &&
+    (audit.classification === "CRITICAL" || !audit.policyGuardVerdict.passesPolicy)
+  ) {
     throw new BlinkValidationError(
       `Blocked by SolShield + Venice AI Firewall: ${
         !audit.policyGuardVerdict.passesPolicy
@@ -384,9 +429,9 @@ export async function buildAuditedJupiterBlinkSwap(params: {
     )
   );
 
-  const outAmountUi =
-    outputToken.decimals !== null
-      ? Number(quote.outAmount) / Math.pow(10, outputToken.decimals)
+  const effectiveRate =
+    params.amountUi > 0 && outAmountUi !== null
+      ? outAmountUi / params.amountUi
       : null;
   const { pda } = deriveSecurityPolicyPda(userPubkey);
 
@@ -397,6 +442,9 @@ export async function buildAuditedJupiterBlinkSwap(params: {
     outputToken,
     inAmountUi: params.amountUi,
     outAmountUi,
+    effectiveRate,
+    priceImpactPct: quote.priceImpactPct ?? null,
+    quoteMode: "jupiter-v1-live",
     routeLabels,
     policyPda: pda,
     simulationReport: report,

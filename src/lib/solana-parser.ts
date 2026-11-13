@@ -250,6 +250,16 @@ function inspectSplTokenInstruction(
       };
     }
 
+    case 5:
+      return {
+        instructionName: isToken2022
+          ? "Token2022::RevokeDelegate"
+          : "SPL::RevokeDelegate",
+        warnings,
+        threats,
+        hasUnverifiedTransferHook,
+      };
+
     default:
       return {
         instructionName: isToken2022

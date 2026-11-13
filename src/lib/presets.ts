@@ -203,7 +203,7 @@ export const SIMULATION_PRESETS: SimulationPreset[] = [
     subtitle: "Verified aggregator route guarded by SolShield Anchor Policy PDA",
     badge: "SAFE",
     blinkActionUrl:
-      "solana-action:https://solshield.app/api/actions/audit-swap?inputMint=SOL&outputMint=USDC&amount=1.5",
+      "solana-action:https://sol-shield.xyz/api/actions/audit-swap?inputMint=SOL&outputMint=USDC&amount=1.5",
     base64Transaction: buildSafeJupiterSwapBase64(),
     simulatedBalanceDeltas: [
       {
@@ -255,7 +255,7 @@ export const SIMULATION_PRESETS: SimulationPreset[] = [
       "Token Extensions mint with hidden clawback delegate & custom transfer hook CPI",
     badge: "CRITICAL",
     blinkActionUrl:
-      "solana-action:https://solshield.app/api/actions/audit-swap?mint=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "solana-action:https://sol-shield.xyz/api/actions/audit-swap?mint=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
     base64Transaction: buildToken2022MaliciousHookBase64(),
     simulatedBalanceDeltas: [
       {
