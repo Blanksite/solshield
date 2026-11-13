@@ -10,9 +10,9 @@ export const metadata: Metadata = {
     canonical: "https://sol-shield.xyz",
   },
   icons: {
-    icon: "/logo.png",
-    shortcut: "/logo.png",
-    apple: "/logo.png",
+    icon: "/logo.png?v=2",
+    shortcut: "/logo.png?v=2",
+    apple: "/logo.png?v=2",
   },
   openGraph: {
     title: "SolShield® — Private Solana Transaction Firewall & Policy Vault",
@@ -20,7 +20,14 @@ export const metadata: Metadata = {
       "Pre-sign bytecode firewall, Solana Blinks inspector, DeFi Intent Copilot & Anchor Policy PDA vault powered by zero-retention Venice AI.",
     url: "https://sol-shield.xyz",
     siteName: "SolShield Protocol",
-    images: ["/og-image.jpg"],
+    images: [
+      {
+        url: "/og-image.jpg?v=2",
+        width: 1200,
+        height: 630,
+        alt: "SolShield® — Built in Venice Solana Transaction Firewall",
+      },
+    ],
     type: "website",
   },
   twitter: {
@@ -28,7 +35,7 @@ export const metadata: Metadata = {
     title: "SolShield® — Private Solana Transaction Firewall & Policy Vault",
     description:
       "Non-custodial Solana tx firewall, Blinks inspector & Anchor Policy PDA vault powered by zero-retention Venice AI.",
-    images: ["/og-image.jpg"],
+    images: ["/og-image.jpg?v=2"],
   },
 };
 
