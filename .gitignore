@@ -11,3 +11,5 @@ test-ledger/
 .DS_Store
 
 .vercel
+
+*.tsbuildinfo

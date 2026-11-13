@@ -20,7 +20,7 @@ export function deriveSecurityPolicyPda(ownerPubkey: string | PublicKey): {
       : ownerPubkey;
 
   const [pdaKey, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(SOLSHIELD_POLICY_SEED, "utf-8"), ownerKey.toBuffer()],
+    [new TextEncoder().encode(SOLSHIELD_POLICY_SEED), ownerKey.toBuffer()],
     SOLSHIELD_PROGRAM_ID
   );
 

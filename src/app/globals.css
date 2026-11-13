@@ -3,11 +3,13 @@
 @tailwind utilities;
 
 :root {
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg-obsidian: #F3F3F6;
   --bg-obsidian-elevated: #EAEAEF;
   --text-obsidian: #0A0A0C;
-  --text-obsidian-muted: #52525B;
-  --border-hairline: rgba(10, 10, 12, 0.12);
+  --text-obsidian-muted: #47474F;
+  --border-hairline: rgba(10, 10, 12, 0.14);
   --monolith-bg: #E2E4E8;
   --monolith-text: #0A0A0C;
   --cobalt: #2934FF;
@@ -18,8 +20,8 @@ html.dark {
   --bg-obsidian: #0A0A0C;
   --bg-obsidian-elevated: #111115;
   --text-obsidian: #F8F8FA;
-  --text-obsidian-muted: #9CA3AF;
-  --border-hairline: rgba(255, 255, 255, 0.11);
+  --text-obsidian-muted: #A8B0BC;
+  --border-hairline: rgba(255, 255, 255, 0.12);
   --monolith-bg: #E2E4E8;
   --monolith-text: #0A0A0C;
   --cobalt: #2934FF;
@@ -37,6 +39,9 @@ html {
 body {
   background-color: var(--bg-obsidian);
   color: var(--text-obsidian);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

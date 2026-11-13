@@ -3,47 +3,52 @@ import { analyzeBase64Transaction } from "@/lib/solana-parser";
 import { getPresetReport, SIMULATION_PRESETS } from "@/lib/presets";
 import { auditTransactionWithVenice } from "@/lib/venice-ai";
 
-const SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
+const SOLANA_MAINNET_RPCS = [
+  "https://api.mainnet-beta.solana.com",
+  "https://solana-rpc.publicnode.com",
+];
 
 async function fetchLiveSolanaSlot(): Promise<{
-  slot: number;
+  slot: number | null;
   latencyMs: number;
   connected: boolean;
 }> {
   const start = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
-  try {
-    const res = await fetch(SOLANA_MAINNET_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getSlot",
-        params: [],
-      }),
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    const data = await res.json();
-    if (typeof data.result === "number") {
-      return {
-        slot: data.result,
-        latencyMs: Date.now() - start,
-        connected: true,
-      };
+  for (const rpcUrl of SOLANA_MAINNET_RPCS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    try {
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getSlot",
+          params: [],
+        }),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (typeof data.result === "number") {
+        return {
+          slot: data.result,
+          latencyMs: Date.now() - start,
+          connected: true,
+        };
+      }
+    } catch {
+      // Try next RPC endpoint
+    } finally {
+      clearTimeout(timeout);
     }
-    throw new Error("Invalid slot response");
-  } catch {
-    return {
-      slot: 328_450_900 + Math.floor((Date.now() / 400) % 10000),
-      latencyMs: Date.now() - start,
-      connected: false,
-    };
-  } finally {
-    clearTimeout(timeout);
   }
+  return {
+    slot: null,
+    latencyMs: Date.now() - start,
+    connected: false,
+  };
 }
 
 export async function POST(req: NextRequest) {

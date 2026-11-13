@@ -44,9 +44,16 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    const ownerKey =
-      walletAddress || "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
-    const policyPda = deriveSecurityPolicyPda(ownerKey);
+    const cleanedWallet =
+      typeof walletAddress === "string" ? walletAddress.trim() : "";
+    let policyPda: { pda: string; bump: number } | null = null;
+    if (cleanedWallet) {
+      try {
+        policyPda = deriveSecurityPolicyPda(cleanedWallet);
+      } catch {
+        policyPda = null;
+      }
+    }
 
     const veniceAudit = await auditTransactionWithVenice(report, {
       apiKey: veniceApiKey,

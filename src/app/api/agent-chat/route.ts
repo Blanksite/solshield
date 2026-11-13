@@ -2,33 +2,43 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPresetReport } from "@/lib/presets";
 import { VENICE_API_BASE_URL, DEFAULT_VENICE_MODEL } from "@/lib/venice-ai";
 
-const SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
+const SOLANA_MAINNET_RPCS = [
+  "https://api.mainnet-beta.solana.com",
+  "https://solana-rpc.publicnode.com",
+];
 
 async function solanaRpcCall<T = unknown>(
   method: string,
   params: unknown[] = []
 ): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-  try {
-    const res = await fetch(SOLANA_MAINNET_RPC, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method,
-        params,
-      }),
-      signal: controller.signal,
-      cache: "no-store",
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error.message || "Solana RPC Error");
-    return data.result as T;
-  } finally {
-    clearTimeout(timeout);
+  let lastError: Error | null = null;
+  for (const rpcUrl of SOLANA_MAINNET_RPCS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method,
+          params,
+        }),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || "Solana RPC Error");
+      return data.result as T;
+    } catch (err) {
+      lastError =
+        err instanceof Error ? err : new Error("Solana Mainnet RPC failed");
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  throw lastError ?? new Error("Solana Mainnet RPC unavailable");
 }
 
 export async function POST(req: NextRequest) {
@@ -66,14 +76,15 @@ export async function POST(req: NextRequest) {
     const base58Match = !txSigMatch
       ? userQuestion.match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/)
       : null;
-    const addressToInspect =
-      base58Match?.[0] || "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+    const addressToInspect = base58Match?.[0] || txSigMatch?.[0] || null;
 
     // Query LIVE Solana Mainnet RPC for current slot and target account / tx telemetry
-    let liveSlot = 328_450_120;
-    let accountOwnerProgram = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-    let accountExecutable = true;
-    let accountLamports = 1_450_000_000;
+    let liveSlot: number | null = null;
+    let accountFound = false;
+    let accountOwnerProgram: string | null = null;
+    let accountExecutable = false;
+    let accountLamports: number | null = null;
+    let rpcError = false;
     let txTelemetrySummary = "";
 
     try {
@@ -100,44 +111,54 @@ export async function POST(req: NextRequest) {
           { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
         ]);
         if (txRes) {
+          accountFound = true;
           const feeLamports = txRes.meta?.fee ?? 5000;
           const statusText = txRes.meta?.err ? "FAILED / REVERTED" : "CONFIRMED";
           const keysCount = txRes.transaction?.message?.accountKeys?.length ?? 0;
+          const slotLabel = txRes.slot ?? liveSlot;
           txTelemetrySummary = `Live Mainnet Transaction X-Ray for signature \`${sig.slice(
             0,
             10
-          )}...${sig.slice(-8)}\`:\n• **Status:** ${statusText} (Slot #${(
-            txRes.slot || liveSlot
-          ).toLocaleString()})\n• **Network Fee:** ${(
+          )}...${sig.slice(-8)}\`:\n• **Status:** ${statusText}${
+            slotLabel ? ` (Slot #${slotLabel.toLocaleString()})` : ""
+          }\n• **Network Fee:** ${(
             feeLamports / 1e9
           ).toFixed(6)} SOL (${feeLamports.toLocaleString()} lamports)\n• **Accounts Touched:** ${keysCount} accounts\n• **Zero-Retention Audit:** Verified via Venice AI privacy pipeline.`;
         } else {
-          txTelemetrySummary = `Queried Solana Mainnet RPC (Slot #${liveSlot.toLocaleString()}) for signature \`${sig.slice(
-            0,
-            10
-          )}...${sig.slice(
+          txTelemetrySummary = `Queried Solana Mainnet RPC${
+            liveSlot ? ` (Slot #${liveSlot.toLocaleString()})` : ""
+          } for signature \`${sig.slice(0, 10)}...${sig.slice(
             -8
-          )}\`: Transaction not found in recent archival window or lives on Devnet.`;
+          )}\`: Transaction not found on recent Mainnet history.`;
         }
-      } else {
+      } else if (base58Match) {
+        const targetAddr = base58Match[0];
         const accRes = await solanaRpcCall<{
           value: {
             executable: boolean;
             lamports: number;
             owner: string;
           } | null;
-        }>("getAccountInfo", [addressToInspect, { encoding: "base64" }]);
+        }>("getAccountInfo", [targetAddr, { encoding: "base64" }]);
         if (accRes?.value) {
+          accountFound = true;
           accountOwnerProgram = accRes.value.owner;
           accountExecutable = accRes.value.executable;
           accountLamports = accRes.value.lamports;
+        } else {
+          accountFound = false;
+          accountLamports = 0;
         }
       }
     } catch {
-      // Fallback if public RPC rate-limits
+      rpcError = true;
     }
 
     const latencyMs = Date.now() - startMs;
+    const slotText =
+      liveSlot !== null
+        ? `Solana Mainnet Slot #${liveSlot.toLocaleString()}`
+        : "Solana Mainnet RPC";
 
     // Optional live Venice AI inference if key is provided
     const apiKey =
@@ -169,7 +190,9 @@ export async function POST(req: NextRequest) {
                   report.balanceDeltas
                 )}. Threats: ${JSON.stringify(
                   report.threatFlags
-                )}. Live Solana Slot: ${liveSlot}. User question: ${userQuestion}`,
+                )}. Live Solana Slot: ${
+                  liveSlot ?? "unavailable"
+                }. User question: ${userQuestion}`,
               },
             ],
           }),
@@ -184,6 +207,21 @@ export async function POST(req: NextRequest) {
               latencyMs,
               inspectedAddress: addressToInspect,
               mode: "venice-live-api",
+              telemetry:
+                liveSlot !== null || accountFound
+                  ? {
+                      slot: liveSlot ?? undefined,
+                      inspectedAddress: addressToInspect ?? undefined,
+                      accountFound,
+                      lamports: accountLamports ?? undefined,
+                      solBalance:
+                        accountLamports !== null
+                          ? (accountLamports / 1e9).toFixed(4)
+                          : undefined,
+                      ownerProgram: accountOwnerProgram ?? undefined,
+                      executable: accountExecutable,
+                    }
+                  : null,
             });
           }
         }
@@ -198,19 +236,32 @@ export async function POST(req: NextRequest) {
     if (txTelemetrySummary) {
       reply = txTelemetrySummary;
     } else if (base58Match) {
-      const solBal = (accountLamports / 1e9).toFixed(4);
-      reply =
-        lang === "id"
-          ? `Saya baru saja memeriksa alamat Solana \`${addressToInspect}\` secara langsung di **Solana Mainnet Slot #${liveSlot.toLocaleString()}** (${latencyMs}ms):\n\n• **Status Akun:** ${
-              accountExecutable
-                ? "Smart Contract / Program Aktif (Executable)"
-                : "Wallet / Token Account Standar"
-            }\n• **Program Pemilik (Owner):** \`${accountOwnerProgram}\`\n• **Saldo SOL di Akun Ini:** ${solBal} SOL\n• **Privasi Venice AI:** Pemeriksaan ini berjalan dengan *Zero Data Retention* (data wallet kamu tidak disimpan).`
-          : `I just inspected Solana address \`${addressToInspect}\` live at **Solana Mainnet Slot #${liveSlot.toLocaleString()}** (${latencyMs}ms):\n\n• **Account Type:** ${
-              accountExecutable
-                ? "Executable Smart Contract / Program"
-                : "Standard Wallet / Token Account"
-            }\n• **Owner Program:** \`${accountOwnerProgram}\`\n• **SOL Balance:** ${solBal} SOL\n• **Venice AI Privacy:** Checked with Zero Data Retention (your wallet query is never logged).`;
+      const targetAddr = base58Match[0];
+      if (rpcError) {
+        reply =
+          lang === "id"
+            ? `Gagal menghubungi Solana Mainnet RPC untuk memeriksa \`${targetAddr}\`. Coba kirim ulang beberapa saat lagi.`
+            : `Unable to reach Solana Mainnet RPC while inspecting \`${targetAddr}\`. Please retry shortly.`;
+      } else if (!accountFound) {
+        reply =
+          lang === "id"
+            ? `Pemeriksaan langsung pada **${slotText}** (${latencyMs}ms):\n\n• **Alamat:** \`${targetAddr}\`\n• **Status Akun:** Belum diinisialisasi / tidak ditemukan di Mainnet (0 SOL).\n• **Privasi Venice AI:** Pemeriksaan berjalan dengan *Zero Data Retention*.`
+            : `Live lookup at **${slotText}** (${latencyMs}ms):\n\n• **Address:** \`${targetAddr}\`\n• **Account Status:** Uninitialized / not found on Mainnet (0 SOL).\n• **Venice AI Privacy:** Checked with Zero Data Retention.`;
+      } else {
+        const solBal = ((accountLamports ?? 0) / 1e9).toFixed(4);
+        reply =
+          lang === "id"
+            ? `Pemeriksaan langsung alamat Solana \`${targetAddr}\` di **${slotText}** (${latencyMs}ms):\n\n• **Tipe Akun:** ${
+                accountExecutable
+                  ? "Smart Contract / Program Aktif (Executable)"
+                  : "Wallet / Token / Program Data Account"
+              }\n• **Program Pemilik (Owner):** \`${accountOwnerProgram}\`\n• **Saldo Lamports (SOL):** ${solBal} SOL\n• **Privasi Venice AI:** Berjalan dengan *Zero Data Retention* (alamat wallet tidak disimpan).`
+            : `Live inspection of Solana address \`${targetAddr}\` at **${slotText}** (${latencyMs}ms):\n\n• **Account Type:** ${
+                accountExecutable
+                  ? "Executable Smart Contract / Program"
+                  : "Wallet / Token / Program Data Account"
+              }\n• **Owner Program:** \`${accountOwnerProgram}\`\n• **Account SOL Reserve:** ${solBal} SOL\n• **Venice AI Privacy:** Checked with Zero Data Retention (your query is never logged).`;
+      }
     } else if (
       qLower.includes("phantom") ||
       qLower.includes("approve") ||
@@ -219,19 +270,19 @@ export async function POST(req: NextRequest) {
       qLower.includes("what happens") ||
       qLower.includes("apa yang terjadi")
     ) {
+      const deltaSummary = report.balanceDeltas
+        .map((d) => `${d.direction === "IN" ? "+" : ""}${d.deltaUiAmount} ${d.asset}`)
+        .join(", ");
       if (report.deterministicClassification === "CRITICAL") {
-        const outItems = report.balanceDeltas
-          .map((d) => `${d.deltaUiAmount} ${d.asset}`)
-          .join(", ");
         reply =
           lang === "id"
-            ? `Jika kamu menekan tombol **Approve / Confirm** di wallet Phantom atau Solflare pada transaksi ini (Slot **#${liveSlot.toLocaleString()}**):\n\n• **Uang yang Hilang Seketika:** ${outItems}\n• **Penyebab:** ${
+            ? `Jika kamu menekan tombol **Approve / Confirm** di wallet Phantom atau Solflare pada transaksi ini (**${slotText}**):\n\n• **Perubahan Aset Terdeteksi:** ${deltaSummary}\n• **Penyebab:** ${
                 report.threatFlags[0]?.title ||
-                "Instruksi jahat tersembunyi di dalam transaksi"
+                "Instruksi berbahaya terdeteksi dalam transaksi"
               } — ${
                 report.threatFlags[0]?.description || ""
               }\n\n**Keputusan SolShield:** **JANGAN DITANDATANGANI.** Tutup halaman dApp tersebut sekarang juga.`
-            : `If you click **Approve / Confirm** in Phantom or Solflare on this transaction (Solana Slot **#${liveSlot.toLocaleString()}**):\n\n• **Immediate Loss:** ${outItems}\n• **Why:** ${
+            : `If you click **Approve / Confirm** in Phantom or Solflare on this transaction (**${slotText}**):\n\n• **Simulated Balance Impact:** ${deltaSummary}\n• **Why:** ${
                 report.threatFlags[0]?.title ||
                 "Hidden malicious instruction inside the transaction"
               } — ${
@@ -240,13 +291,13 @@ export async function POST(req: NextRequest) {
       } else if (report.deterministicClassification === "WARNING") {
         reply =
           lang === "id"
-            ? `Jika kamu menekan **Approve** pada transaksi ini:\n\n• Uangmu tidak langsung hilang detik ini, **TETAPI** kamu memberikan **izin penarikan tanpa batas (Unlimited Allowance)** kepada kontrak pihak ketiga.\n• Artinya di kemudian hari, kontrak tersebut bisa mengambil seluruh USDC kamu tanpa meminta tanda tangan lagi.\n\n**Saran Agent:** Batasi jumlah izin (*allowance*) sesuai yang ingin kamu depositkan saja.`
-            : `If you click **Approve** on this transaction:\n\n• Your tokens aren't taken right this second, **BUT** you are granting an **Unlimited Spending Allowance** to an external contract.\n• That contract could drain your USDC later without asking for your signature again.\n\n**Agent Advice:** Only approve the exact amount you intend to stake.`;
+            ? `Jika kamu menekan **Approve** pada transaksi ini:\n\n• Uangmu tidak langsung hilang detik ini, **TETAPI** kamu memberikan **izin penarikan (Delegate/Allowance)** kepada kontrak pihak ketiga.\n• Kontrak tersebut bisa menarik token kamu nanti tanpa meminta tanda tangan lagi.\n\n**Saran Agent:** Batasi jumlah izin (*allowance*) sesuai kebutuhan saja.`
+            : `If you click **Approve** on this transaction:\n\n• Your tokens aren't taken immediately, **BUT** you are granting a **Token Delegate Allowance** to an external contract.\n• That delegate could pull approved tokens later without another prompt.\n\n**Agent Advice:** Restrict delegate approvals strictly to the exact amount needed.`;
       } else {
         reply =
           lang === "id"
-            ? `Jika kamu menekan **Approve** pada transaksi ini di Slot **#${liveSlot.toLocaleString()}**:\n\n• **Keluar dari Wallet:** 1.5 SOL\n• **Masuk ke Wallet:** +279.45 USDC\n• **Keamanan:** Semua program yang dipanggil adalah kontrak resmi **Jupiter v6** dan kepemilikan wallet kamu tetap 100% milikmu.\n\n**Keputusan SolShield:** **Aman untuk ditandatangani.**`
-            : `If you click **Approve** on this transaction at Solana Slot **#${liveSlot.toLocaleString()}**:\n\n• **Leaving Your Wallet:** 1.5 SOL\n• **Entering Your Wallet:** +279.45 USDC\n• **Safety Check:** Every instruction calls the official **Jupiter v6** program, and your wallet ownership remains 100% untouched.\n\n**SolShield Verdict:** **Safe to sign.**`;
+            ? `Jika kamu menekan **Approve** pada skenario **${preset.name}** (**${slotText}**):\n\n• **Simulasi Perubahan Aset:** ${deltaSummary || "Sesuai instruksi"}\n• **Keamanan:** Semua instruksi menggunakan program terverifikasi tanpa transfer otoritas wallet.\n\n**Keputusan SolShield:** **Aman untuk ditandatangani.**`
+            : `If you click **Approve** on scenario **${preset.name}** (**${slotText}**):\n\n• **Simulated Asset Deltas:** ${deltaSummary || "As inspected"}\n• **Safety Check:** Instructions match verified programs with no authority takeover.\n\n**SolShield Verdict:** **Safe to sign.**`;
       }
     } else if (
       qLower.includes("venice") ||
@@ -255,13 +306,13 @@ export async function POST(req: NextRequest) {
     ) {
       reply =
         lang === "id"
-          ? `**Kenapa SolShield menggunakan Venice AI?**\n\nSaat kamu mengecek transaksi bernilai besar di Solana, layanan AI biasa menyimpan alamat wallet, IP, dan rencana trading kamu (bisa bocor ke bot MEV). SolShield memanggil **Venice AI (\`llama-3.3-70b\`)** dengan parameter \`include_venice_system_prompt: false\` dan kebijakan **Zero Data Retention**, sehingga isi dompet dan transaksi kamu 100% rahasia.`
-          : `**Why SolShield uses Venice AI:**\n\nWhen you preview a large trade on Solana, centralized AI APIs log your wallet address, IP, and trade intent (exposing you to copy-traders and MEV bots). SolShield routes security audits through **Venice AI (\`llama-3.3-70b\`)** with **Zero Data Retention**, keeping your wallet activity 100% private.`;
+          ? `**Kenapa SolShield menggunakan Venice AI?**\n\nSaat mengecek transaksi bernilai besar di Solana, API AI biasa dapat menyimpan alamat wallet, IP, dan rencana transaksi kamu. SolShield memanggil **Venice AI (\`llama-3.3-70b\`)** dengan \`include_venice_system_prompt: false\` dan kebijakan **Zero Data Retention**, sehingga query kamu tidak pernah disimpan.`
+          : `**Why SolShield uses Venice AI:**\n\nCentralized LLM APIs can log wallet addresses, IPs, and trade intent. SolShield routes security audits through **Venice AI (\`llama-3.3-70b\`)** with **Zero Data Retention**, ensuring queries are never persisted.`;
     } else {
       reply =
         lang === "id"
-          ? `Laporan pemeriksaan langsung pada **Solana Mainnet Slot #${liveSlot.toLocaleString()}** (${latencyMs}ms):\n\n• **Skenario:** ${preset.name}\n• **Jumlah Instruksi Diperiksa:** ${report.instructions.length} instruksi program\n• **Status Keamanan:** **${report.deterministicClassification}** (Skor Risiko: ${report.deterministicRiskScore}/100)\n\nKetik pertanyaan atau tempel alamat wallet/token Solana apa pun di bawah untuk saya periksa!`
-          : `Live inspection at **Solana Mainnet Slot #${liveSlot.toLocaleString()}** (${latencyMs}ms latency):\n\n• **Scenario:** ${preset.name}\n• **Instructions Decoded:** ${report.instructions.length} Solana program instructions\n• **Safety Verdict:** **${report.deterministicClassification}** (Risk Score: ${report.deterministicRiskScore}/100)\n\nAsk any question below, or paste any Solana wallet/token address for a live mainnet check!`;
+          ? `Status inspeksi pada **${slotText}** (${latencyMs}ms):\n\n• **Skenario Aktif:** ${preset.name}\n• **Instruksi Terbaca:** ${report.instructions.length} instruksi program\n• **Verdict Keamanan:** **${report.deterministicClassification}** (Skor Risiko: ${report.deterministicRiskScore}/100)\n\nTempel alamat Token Mint, Program ID, Wallet, atau 88-char Tx Signature di kolom X-Ray untuk mengecek data Mainnet secara real-time.`
+          : `Live status at **${slotText}** (${latencyMs}ms):\n\n• **Active Scenario:** ${preset.name}\n• **Instructions Decoded:** ${report.instructions.length} Solana program instructions\n• **Safety Verdict:** **${report.deterministicClassification}** (Risk Score: ${report.deterministicRiskScore}/100)\n\nPaste any Token Mint, Program ID, Wallet address, or 88-char Tx Signature to inspect live Mainnet data.`;
     }
 
     return NextResponse.json({
@@ -270,15 +321,21 @@ export async function POST(req: NextRequest) {
       latencyMs,
       inspectedAddress: addressToInspect,
       mode: "live-solana-rpc",
-      telemetry: {
-        slot: liveSlot,
-        inspectedAddress: addressToInspect,
-        accountFound: true,
-        lamports: accountLamports,
-        solBalance: (accountLamports / 1e9).toFixed(4),
-        ownerProgram: accountOwnerProgram,
-        executable: accountExecutable,
-      },
+      telemetry:
+        liveSlot !== null || accountFound
+          ? {
+              slot: liveSlot ?? undefined,
+              inspectedAddress: addressToInspect ?? undefined,
+              accountFound,
+              lamports: accountLamports ?? undefined,
+              solBalance:
+                accountLamports !== null
+                  ? (accountLamports / 1e9).toFixed(4)
+                  : undefined,
+              ownerProgram: accountOwnerProgram ?? undefined,
+              executable: accountExecutable,
+            }
+          : null,
       privacyProof: {
         provider: "Venice AI (Zero-Retention)",
         model: DEFAULT_VENICE_MODEL,

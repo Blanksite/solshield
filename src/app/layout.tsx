@@ -2,18 +2,32 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SolShield® — Adaptive AI Guard for Solana",
+  metadataBase: new URL("https://sol-shield.xyz"),
+  title: "SolShield® — Non-Custodial Solana Transaction Firewall & Venice AI Guard",
   description:
-    "Continuous Solana payload simulation, DeFi Intent Copilot, Blinks Inspector, and Anchor Policy PDA Vault powered by zero-retention Venice AI.",
+    "Non-custodial Solana transaction firewall, Blinks inspector, and Anchor Policy PDA vault powered by zero-retention Venice AI to block wallet drainers before signing.",
+  alternates: {
+    canonical: "https://sol-shield.xyz",
+  },
   icons: {
-    icon: "/logo.jpg",
-    shortcut: "/logo.jpg",
-    apple: "/logo.jpg",
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
   },
   openGraph: {
-    title: "SolShield® — Adaptive AI Guard",
+    title: "SolShield® — Private Solana Transaction Firewall & Policy Vault",
     description:
-      "Continuous Solana transaction payload and behavior audit by private Venice AI.",
+      "Pre-sign bytecode firewall, Solana Blinks inspector, DeFi Intent Copilot & Anchor Policy PDA vault powered by zero-retention Venice AI.",
+    url: "https://sol-shield.xyz",
+    siteName: "SolShield Protocol",
+    images: ["/og-image.jpg"],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SolShield® — Private Solana Transaction Firewall & Policy Vault",
+    description:
+      "Non-custodial Solana tx firewall, Blinks inspector & Anchor Policy PDA vault powered by zero-retention Venice AI.",
     images: ["/og-image.jpg"],
   },
 };
