@@ -317,7 +317,7 @@ export function SpotlightCard({
       onMouseMove={handleMouseMove}
       onMouseEnter={() => setOpacity(1)}
       onMouseLeave={() => setOpacity(0)}
-      className={`relative overflow-hidden ${className}`}
+      className={`relative min-w-0 overflow-hidden ${className}`}
     >
       <div
         className="pointer-events-none absolute inset-0 z-0 transition-opacity duration-500"

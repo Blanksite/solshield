@@ -643,7 +643,7 @@ export default function SolShieldHexaCorePage() {
             SECTION 01 — HERO (1:1 HALO LAB "HEXACORE — ADAPTIVE AI GUARD" GRID)
             3 Full-Height Architectural Columns separated by crisp hairlines
             ==================================================================== */}
-        <section className="grid grid-cols-1 lg:grid-cols-[1fr_1.16fr_1fr] min-h-screen hexacore-hairline-b">
+        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] min-h-screen hexacore-hairline-b">
           {/* ------------------------------------------------------------------
               COLUMN 1 (LEFT) — Brand Mark + "Adaptive AI [●] Guard" + Social Proof
               ------------------------------------------------------------------ */}
@@ -1213,7 +1213,7 @@ export default function SolShieldHexaCorePage() {
             ==================================================================== */}
         <section
           id="technical-side"
-          className="grid grid-cols-1 lg:grid-cols-[1fr_1.16fr_1fr] min-h-screen hexacore-hairline-b"
+          className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] min-h-screen hexacore-hairline-b"
         >
           {/* COLUMN 1 (LEFT) — 01 // PAYLOAD SCENARIOS & LIVE RPC ACCOUNT/TX SCANNER */}
           <SpotlightCard
@@ -1454,7 +1454,7 @@ export default function SolShieldHexaCorePage() {
 
           {/* COLUMN 2 (CENTER MONOLITH) — 02 // TOKEN X-RAY OR PRE-SIGN SANDBOX */}
           {technicalMode === "token" ? (
-            <div className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between">
+            <div className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between min-w-0">
               <div>
                 <div className="flex items-center justify-between gap-3 pb-6 border-b border-[#0A0A0C]/15">
                   <div className="min-w-0">
@@ -1638,7 +1638,7 @@ export default function SolShieldHexaCorePage() {
                         <p className="text-[16px] font-medium text-[#0A0A0C]">
                           Token-2022 Extensions
                         </p>
-                        <p className="text-[13px] font-sans text-[#0A0A0C]/75 truncate">
+                        <p className="text-[13px] font-sans text-[#0A0A0C]/75 break-words leading-snug">
                           {!tokenScanReport?.isToken2022
                             ? "Standard SPL Token (no custom transfer hooks)"
                             : tokenScanReport.extensions.length > 0
@@ -1804,7 +1804,7 @@ export default function SolShieldHexaCorePage() {
               )}
             </div>
           ) : (
-            <div className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between">
+            <div className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between min-w-0">
               <div>
                 <div className="flex items-center justify-between pb-6 border-b border-[#0A0A0C]/15">
                   <div>
@@ -2236,7 +2236,7 @@ export default function SolShieldHexaCorePage() {
             ==================================================================== */}
         <section
           id="vault-side"
-          className="grid grid-cols-1 lg:grid-cols-[1fr_1.16fr_1fr] hexacore-hairline-b"
+          className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] hexacore-hairline-b"
         >
           {/* COLUMN 1 (LEFT) — 04 // NATURAL-LANGUAGE DEFI INTENT COPILOT */}
           <SpotlightCard
@@ -2345,7 +2345,7 @@ export default function SolShieldHexaCorePage() {
           {/* COLUMN 2 (CENTER MONOLITH) — 05 // ANCHOR SECURITYPOLICY PDA VAULT */}
           <div
             id="policy-vault"
-            className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between"
+            className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between min-w-0"
           >
             <div>
               <div className="flex items-center justify-between pb-6 border-b border-[#0A0A0C]/15">
