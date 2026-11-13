@@ -13,6 +13,16 @@
   <a href="https://sol-shield.xyz"><img src="https://img.shields.io/badge/Live_Demo-sol--shield.xyz-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
 </p>
 
+## Official $SOLSHIELD Token
+
+| | |
+|---|---|
+| **Contract Address (CA)** | `CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx` |
+| **Chain** | Solana |
+| **Links** | [Pump.fun](https://pump.fun/coin/CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx) · [DexScreener](https://dexscreener.com/solana/CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx) · [Solscan](https://solscan.io/token/CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx) · [X @usesolshield](https://x.com/usesolshield) |
+
+> Always verify the CA against this README, [sol-shield.xyz](https://sol-shield.xyz), or [@usesolshield](https://x.com/usesolshield). Any other address is not official.
+
 <p align="center">
   <a href="https://builtinvenice.ai"><img src="https://img.shields.io/badge/Built_in_Venice-Submission_Ready-14F195?style=flat-square&logo=shield" alt="Built in Venice"></a>
   <a href="https://solana.com"><img src="https://img.shields.io/badge/Solana-Actions_%26_Blinks-9945FF?style=flat-square&logo=solana" alt="Solana Actions"></a>
