@@ -32,6 +32,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    creator: "@usesolshield",
     title: "SolShield® — Private Solana Transaction Firewall & Policy Vault",
     description:
       "Non-custodial Solana tx firewall, Blinks inspector & Anchor Policy PDA vault powered by zero-retention Venice AI.",

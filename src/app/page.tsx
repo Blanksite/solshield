@@ -5,6 +5,7 @@ import { SIMULATION_PRESETS, SimulationPreset } from "@/lib/presets";
 import { VeniceSecurityAuditResult } from "@/lib/venice-ai";
 import { DeterministicSimulationReport } from "@/lib/solana-parser";
 import type { TokenScanReport } from "@/lib/token-scanner";
+import { getSolShieldTokenConfig } from "@/lib/token-config";
 import { deriveSecurityPolicyPda } from "@/lib/anchor-idl";
 import {
   buildInitializePolicyTransaction,
@@ -189,6 +190,20 @@ const TOKEN_SCAN_SAMPLES = [
   },
 ];
 
+const TOKEN_CONFIG = getSolShieldTokenConfig();
+
+const LAUNCH_TOKEN_SAMPLES =
+  TOKEN_CONFIG.isLive && TOKEN_CONFIG.ca
+    ? [
+        {
+          label: TOKEN_CONFIG.tickerBare,
+          tag: "Official Token",
+          mint: TOKEN_CONFIG.ca,
+        },
+        ...TOKEN_SCAN_SAMPLES.filter((s) => s.mint !== TOKEN_CONFIG.ca),
+      ]
+    : TOKEN_SCAN_SAMPLES;
+
 function VeniceAiLogo({ className = "w-5 h-5" }: { className?: string }) {
   return (
     <svg
@@ -313,13 +328,14 @@ export default function SolShieldHexaCorePage() {
     "payload"
   );
   const [tokenMintInput, setTokenMintInput] = useState<string>(
-    TOKEN_SCAN_SAMPLES[0].mint
+    TOKEN_CONFIG.isLive ? TOKEN_CONFIG.ca : TOKEN_SCAN_SAMPLES[0].mint
   );
   const [tokenScanLoading, setTokenScanLoading] = useState<boolean>(false);
   const [tokenScanError, setTokenScanError] = useState<string | null>(null);
   const [tokenScanReport, setTokenScanReport] =
     useState<TokenScanReport | null>(null);
   const [copiedMint, setCopiedMint] = useState<boolean>(false);
+  const [copiedLaunchCa, setCopiedLaunchCa] = useState<boolean>(false);
 
   // Live Solana Mainnet RPC & Venice AI Agent state
   const [agentAddress, setAgentAddress] = useState<string>("");
@@ -778,6 +794,123 @@ export default function SolShieldHexaCorePage() {
   return (
     <ClickSpark sparkColor="#2934FF" sparkRadius={26} sparkCount={8}>
       <div className="hexacore-canvas min-h-screen font-sans">
+        {/* ====================================================================
+            PROTOCOL LAUNCH STRIP — Official CA & Verified Ecosystem Links
+            ==================================================================== */}
+        <div className="border-b border-current/15 px-6 sm:px-10 xl:px-14 py-2.5 text-[12px] font-mono">
+          {TOKEN_CONFIG.isLive ? (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <span className="inline-flex items-center gap-2 font-semibold tracking-[0.08em] uppercase">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  </span>
+                  {TOKEN_CONFIG.symbol} OFFICIAL CA:
+                </span>
+                <span
+                  title={TOKEN_CONFIG.ca}
+                  className="px-2 py-0.5 border border-current/20 bg-current/[0.04] tracking-[0.04em]"
+                >
+                  {TOKEN_CONFIG.shortCa ?? TOKEN_CONFIG.ca}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(TOKEN_CONFIG.ca);
+                    setCopiedLaunchCa(true);
+                    window.setTimeout(() => setCopiedLaunchCa(false), 2000);
+                  }}
+                  className="px-2 py-0.5 border border-current/20 hover:border-[#2934FF] hover:text-[#2934FF] transition-colors uppercase tracking-[0.06em]"
+                >
+                  {copiedLaunchCa ? "Copied ✓" : "Copy CA"}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
+                {TOKEN_CONFIG.links.pumpfun && (
+                  <a
+                    href={TOKEN_CONFIG.links.pumpfun}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    Pump.fun ↗
+                  </a>
+                )}
+                {TOKEN_CONFIG.links.dexscreener && (
+                  <a
+                    href={TOKEN_CONFIG.links.dexscreener}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    DexScreener ↗
+                  </a>
+                )}
+                {TOKEN_CONFIG.links.solscan && (
+                  <a
+                    href={TOKEN_CONFIG.links.solscan}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    Solscan ↗
+                  </a>
+                )}
+                <a
+                  href={TOKEN_CONFIG.links.x}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  {TOKEN_CONFIG.xHandle} ↗
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-2 font-semibold tracking-[0.08em] uppercase">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2934FF] opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2934FF]" />
+                  </span>
+                  {TOKEN_CONFIG.symbol}
+                </span>
+                <span className="opacity-75 tracking-[0.05em]">
+                  PRE-LAUNCH // OFFICIAL CA PUBLISHED HERE UPON RELEASE · PRA-RILIS // CA RESMI AKAN DIPASANG DI SINI
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
+                <a
+                  href={TOKEN_CONFIG.links.devnetProgram}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Devnet Anchor Live ↗
+                </a>
+                <a
+                  href={TOKEN_CONFIG.links.x}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  {TOKEN_CONFIG.xHandle} ↗
+                </a>
+                <a
+                  href={TOKEN_CONFIG.links.github}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  GitHub ↗
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ====================================================================
             SECTION 01 — HERO (1:1 HALO LAB "HEXACORE — ADAPTIVE AI GUARD" GRID)
             3 Full-Height Architectural Columns separated by crisp hairlines
@@ -1446,10 +1579,12 @@ export default function SolShieldHexaCorePage() {
 
                   <div>
                     <span className="text-[12px] font-mono uppercase tracking-[0.1em] opacity-75 block mb-2.5">
-                      QUICK MAINNET BENCHMARKS
+                      {TOKEN_CONFIG.isLive
+                        ? "VERIFIED TOKEN & BENCHMARKS"
+                        : "QUICK MAINNET BENCHMARKS"}
                     </span>
                     <div className="grid grid-cols-2 gap-2">
-                      {TOKEN_SCAN_SAMPLES.map((sample) => {
+                      {LAUNCH_TOKEN_SAMPLES.map((sample) => {
                         const isSelected =
                           tokenScanReport?.mintAddress === sample.mint ||
                           tokenMintInput.trim() === sample.mint;
@@ -2590,21 +2725,24 @@ export default function SolShieldHexaCorePage() {
                 </div>
                 <div className="flex justify-between items-center text-white/75 pt-1 border-t border-white/10">
                   <span>DEVNET_PROGRAM</span>
-                  <span
-                    className={
+                  <a
+                    href={TOKEN_CONFIG.links.devnetProgram}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`${
                       devnetVaultStatus?.programDeployedOnDevnet
                         ? "text-emerald-400"
                         : "text-amber-300"
-                    }
+                    } hover:underline inline-flex items-center gap-1`}
                   >
                     {devnetVaultStatus
                       ? `${devnetVaultStatus.programId.slice(0, 6)}..${devnetVaultStatus.programId.slice(-4)} (${
                           devnetVaultStatus.programDeployedOnDevnet
                             ? "Deployed"
                             : "Template ID"
-                        })`
+                        }) ↗`
                       : "Checking Devnet..."}
-                  </span>
+                  </a>
                 </div>
               </div>
               {walletNotice && (
@@ -2967,6 +3105,22 @@ export default function SolShieldHexaCorePage() {
                   className="hover:text-[#2934FF] transition-colors"
                 >
                   Anchor Policy PDA
+                </a>
+                <a
+                  href={TOKEN_CONFIG.links.devnetProgram}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Devnet Explorer
+                </a>
+                <a
+                  href={TOKEN_CONFIG.links.x}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  {TOKEN_CONFIG.xHandle}
                 </a>
               </div>
 
