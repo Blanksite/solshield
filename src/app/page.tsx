@@ -883,12 +883,10 @@ export default function SolShieldHexaCorePage() {
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
                 <a
-                  href={TOKEN_CONFIG.links.devnetProgram}
-                  target="_blank"
-                  rel="noreferrer"
+                  href="#technical-side"
                   className="hover:text-[#2934FF] transition-colors"
                 >
-                  Devnet Anchor Live ↗
+                  Mainnet Firewall Live ↗
                 </a>
                 <a
                   href={TOKEN_CONFIG.links.x}
@@ -1318,7 +1316,7 @@ export default function SolShieldHexaCorePage() {
                       </span>
                       <span className="text-[13.5px] font-mono text-white font-medium">
                         {liveSlot !== null
-                          ? `#${liveSlot.toLocaleString()}`
+                          ? `#${liveSlot.toLocaleString("en-US")}`
                           : "SYNCING..."}
                       </span>
                     </div>
@@ -1436,7 +1434,7 @@ export default function SolShieldHexaCorePage() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    03 // ANCHOR POLICY VAULT
+                    03 // POLICY VAULT (DEVNET BETA)
                   </span>
                   <ArrowUpRight className="w-4 h-4 opacity-55 group-hover:opacity-100 group-hover:text-[#2934FF] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
                 </div>
@@ -1444,8 +1442,8 @@ export default function SolShieldHexaCorePage() {
                   On-Chain SecurityPolicy PDA
                 </h3>
                 <p className="text-[14.5px] opacity-80 leading-[1.6]">
-                  Deterministic Rust/Anchor guardrails enforcing 24h spend caps,
-                  risk thresholds &amp; 1-click Emergency Freeze.
+                  Optional Devnet Beta Anchor module paired with our Mainnet Tx
+                  Firewall — enforces 24h spend caps &amp; 1-click Emergency Freeze.
                 </p>
               </div>
               <span className="mt-5 text-[12px] font-sans font-semibold uppercase tracking-[0.06em] opacity-75 group-hover:text-[#2934FF] group-hover:opacity-100">
@@ -1696,7 +1694,7 @@ export default function SolShieldHexaCorePage() {
                 <span className="inline-flex items-center gap-1.5 text-[12px] font-mono text-emerald-500 whitespace-nowrap shrink-0">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   {liveSlot !== null
-                    ? `SLOT #${liveSlot.toLocaleString()}`
+                    ? `SLOT #${liveSlot.toLocaleString("en-US")}`
                     : "SYNCING RPC..."}
                 </span>
               </div>
@@ -2023,7 +2021,7 @@ export default function SolShieldHexaCorePage() {
                                       tokenScanReport?.slot ??
                                       liveSlot ??
                                       0
-                                    ).toLocaleString()}`
+                                    ).toLocaleString("en-US")}`
                                   : " via Mainnet RPC"
                               }. Largest-account queries are throttled on free shared RPC; inspect live holder distribution on Solscan:`}
                         </p>
@@ -2374,7 +2372,7 @@ export default function SolShieldHexaCorePage() {
                     ) : (
                       tokenScanReport && (
                         <p className="text-[14px] font-sans text-emerald-400 pt-1 leading-relaxed">
-                          → Zero active mint/freeze authority or malicious hook flags found at Slot #{tokenScanReport.slot.toLocaleString()}.
+                          → Zero active mint/freeze authority or malicious hook flags found at Slot #{tokenScanReport.slot.toLocaleString("en-US")}.
                         </p>
                       )
                     )}
@@ -2434,6 +2432,65 @@ export default function SolShieldHexaCorePage() {
                 </>
               )}
 
+              {/* Venice AI Inference Mode & Zero-Retention Telemetry */}
+              {(() => {
+                const activeMode =
+                  technicalMode === "token"
+                    ? tokenScanReport?.inferenceMode
+                    : auditResult?.inferenceMode;
+                const activeModel =
+                  technicalMode === "token"
+                    ? activeMode === "venice-live-api"
+                      ? "llama-3.3-70b (Live Zero-Retention)"
+                      : "llama-3.3-70b (Deterministic Pre-Filter)"
+                    : auditResult?.modelUsed ?? "llama-3.3-70b (Deterministic Pre-Filter)";
+                const activeAttestation =
+                  technicalMode === "token"
+                    ? tokenScanReport?.privacyAttestation
+                    : auditResult?.privacyAttestation;
+                const isLiveVenice = activeMode === "venice-live-api";
+
+                return (
+                  <div className="mt-5 p-3.5 border border-current/15 bg-current/[0.03] space-y-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-mono uppercase tracking-[0.08em] opacity-75">
+                        VENICE_INFERENCE_STATUS
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 text-[10.5px] font-mono uppercase border ${
+                            isLiveVenice
+                              ? "border-emerald-500/45 text-emerald-400 bg-emerald-500/10"
+                              : "border-amber-500/45 text-amber-400 bg-amber-500/10"
+                          }`}
+                        >
+                          {isLiveVenice
+                            ? "VENICE LIVE LLM"
+                            : "PRE-FILTER · KEY READY"}
+                        </span>
+                        {!isLiveVenice && (
+                          <button
+                            type="button"
+                            onClick={() => setShowKeyModal(true)}
+                            className="text-[11px] font-mono text-[#6B78FF] hover:underline cursor-pointer"
+                          >
+                            {veniceApiKey ? "Key Active ↗" : "Add Key ↗"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-[11.5px] font-mono opacity-80 break-all">
+                      MODEL: {activeModel} · API: api.venice.ai/v1 · NO_SYSTEM_PROMPT
+                    </div>
+                    {activeAttestation && (
+                      <p className="text-[12px] font-sans opacity-75 leading-snug">
+                        {activeAttestation}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Interactive Venice AI × Solana Mainnet Chat Console */}
               <div className="mt-6">
                 <div className="flex items-center justify-between mb-3">
@@ -2475,7 +2532,7 @@ export default function SolShieldHexaCorePage() {
                           <div className="mb-1.5 pb-1.5 border-b border-current/10 flex flex-wrap gap-2 text-[12px] font-mono opacity-85">
                             {msg.telemetry.slot && (
                               <span>
-                                SLOT: {msg.telemetry.slot.toLocaleString()}
+                                SLOT: {msg.telemetry.slot.toLocaleString("en-US")}
                               </span>
                             )}
                             {msg.telemetry.solBalance && (
@@ -2600,12 +2657,26 @@ export default function SolShieldHexaCorePage() {
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
+                  <span className="opacity-75">VENICE_INFERENCE</span>
+                  <span
+                    className={`text-right ${
+                      intentResponse.intent.inferenceMode === "venice-live-api"
+                        ? "text-emerald-400 font-semibold"
+                        : "opacity-85"
+                    }`}
+                  >
+                    {intentResponse.intent.inferenceMode === "venice-live-api"
+                      ? "Live LLM (llama-3.3-70b · Zero-Retention)"
+                      : "Deterministic Parser · Add Venice Key for Live LLM"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
                   <span className="opacity-75">QUOTED_OUTPUT</span>
                   {intentResponse.quote?.quoteMode === "jupiter-v1-live" &&
                   intentResponse.quote.outAmountUi !== null ? (
                     <span className="text-emerald-400 font-semibold text-right">
                       {intentResponse.quote.outAmountUi.toLocaleString(
-                        undefined,
+                        "en-US",
                         { maximumFractionDigits: 4 }
                       )}{" "}
                       {intentResponse.intent.outputToken}
@@ -2672,7 +2743,7 @@ export default function SolShieldHexaCorePage() {
               <div className="flex items-center justify-between pb-6 border-b border-[#0A0A0C]/15">
                 <div>
                   <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    05 // ANCHOR POLICY PDA VAULT
+                    05 // POLICY VAULT (OPTIONAL DEVNET BETA)
                   </span>
                   <h3 className="text-[26px] sm:text-[30px] font-normal tracking-[-0.03em] leading-tight mt-1">
                     On-Chain Spending Guardrails
@@ -2680,9 +2751,18 @@ export default function SolShieldHexaCorePage() {
                 </div>
                 <span className="px-2.5 py-1 bg-[#0A0A0C] text-white text-[12px] font-mono uppercase shrink-0">
                   {devnetVaultStatus?.programDeployedOnDevnet
-                    ? "Devnet Live · Anchor v0.30.1"
-                    : "Anchor v0.30.1 · Devnet Pending"}
+                    ? "Devnet Beta · Anchor v0.30.1"
+                    : "Anchor v0.30.1 · Devnet Beta Pending"}
                 </span>
+              </div>
+
+              <div className="mt-4 p-3.5 bg-white/80 border border-[#0A0A0C]/15 text-[13px] font-sans text-[#0A0A0C]/85 leading-relaxed">
+                <strong className="font-mono text-[11.5px] uppercase tracking-[0.06em] text-[#2934FF] block mb-1">
+                  MAINNET FIREWALL · DEVNET BETA SMART CONTRACT
+                </strong>
+                Pre-Sign Tx Firewall, Token Mint Auditor, Live Tx/Address X-Ray &amp; Blinks execute live on{" "}
+                <strong>Solana Mainnet RPC</strong>. This optional Anchor PDA Vault runs on{" "}
+                <strong>Devnet Beta</strong> so users can test spending caps without risking Mainnet funds.
               </div>
 
               {/* Derived PDA Box */}
@@ -2724,7 +2804,7 @@ export default function SolShieldHexaCorePage() {
                   <span>[&quot;solshield_policy&quot;, owner]</span>
                 </div>
                 <div className="flex justify-between items-center text-white/75 pt-1 border-t border-white/10">
-                  <span>DEVNET_PROGRAM</span>
+                  <span>VAULT_PROGRAM (DEVNET BETA)</span>
                   <a
                     href={TOKEN_CONFIG.links.devnetProgram}
                     target="_blank"
@@ -2758,7 +2838,7 @@ export default function SolShieldHexaCorePage() {
                     <span>MAX DAILY SPEND (24H ROLLING)</span>
                     <span className="font-bold text-[#2934FF] text-right">
                       {maxDailySol.toFixed(1)} SOL (
-                      {(maxDailySol * 1e9).toLocaleString()} lamports)
+                      {(maxDailySol * 1e9).toLocaleString("en-US")} lamports)
                     </span>
                   </div>
                   <input
@@ -2800,8 +2880,8 @@ export default function SolShieldHexaCorePage() {
                 className="w-full py-3 px-4 border border-[#0A0A0C]/25 bg-white/70 hover:bg-[#0A0A0C] hover:text-white text-[#0A0A0C] font-mono text-[12.5px] uppercase tracking-[0.05em] transition-colors cursor-pointer"
               >
                 {devnetVaultStatus?.programDeployedOnDevnet
-                  ? "SYNC POLICY GUARDRAILS TO DEVNET PDA ↗"
-                  : "SERIALIZE ANCHOR POLICY INSTRUCTION (DEVNET READY)"}
+                  ? "SYNC POLICY GUARDRAILS TO DEVNET BETA PDA ↗"
+                  : "SERIALIZE ANCHOR POLICY INSTRUCTION (DEVNET BETA)"}
               </button>
               <button
                 type="button"
@@ -3045,7 +3125,7 @@ export default function SolShieldHexaCorePage() {
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   <span>
                     {liveSlot !== null
-                      ? `SLOT #${liveSlot.toLocaleString()}`
+                      ? `SLOT #${liveSlot.toLocaleString("en-US")}`
                       : "MAINNET SYNC"}
                   </span>
                 </span>
@@ -3107,12 +3187,12 @@ export default function SolShieldHexaCorePage() {
                   Anchor Policy PDA
                 </a>
                 <a
-                  href={TOKEN_CONFIG.links.devnetProgram}
+                  href={TOKEN_CONFIG.links.solscan || "https://solscan.io"}
                   target="_blank"
                   rel="noreferrer"
                   className="hover:text-[#2934FF] transition-colors"
                 >
-                  Devnet Explorer
+                  Mainnet Solscan
                 </a>
                 <a
                   href={TOKEN_CONFIG.links.x}

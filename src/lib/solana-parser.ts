@@ -272,6 +272,26 @@ function inspectSplTokenInstruction(
   }
 }
 
+function base64ToUint8Array(base64: string): Uint8Array {
+  if (typeof globalThis.atob === "function") {
+    const binary = globalThis.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+  return Uint8Array.from(Buffer.from(base64, "base64"));
+}
+
+function uint8ArrayToHex(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    out += bytes[i].toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
 /**
  * Decodes a Base64-encoded Solana transaction (Legacy or Versioned V0)
  * and runs deterministic threat analysis.
@@ -280,7 +300,7 @@ export function analyzeBase64Transaction(
   base64Payload: string
 ): DeterministicSimulationReport {
   const cleaned = base64Payload.trim();
-  const buffer = Buffer.from(cleaned, "base64");
+  const buffer = base64ToUint8Array(cleaned);
 
   if (buffer.length < 32) {
     throw new Error(
@@ -395,7 +415,7 @@ export function analyzeBase64Transaction(
         isVerifiedProgram: isVerified,
         instructionName,
         accounts,
-        dataHex: Buffer.from(ix.data).toString("hex").slice(0, 64),
+        dataHex: uint8ArrayToHex(ix.data).slice(0, 64),
         warnings,
       });
     });
@@ -483,7 +503,7 @@ export function analyzeBase64Transaction(
         isVerifiedProgram: isVerified,
         instructionName,
         accounts,
-        dataHex: Buffer.from(cIx.data).toString("hex").slice(0, 64),
+        dataHex: uint8ArrayToHex(cIx.data).slice(0, 64),
         warnings,
       });
     });

@@ -11,5 +11,7 @@ test-ledger/
 .DS_Store
 
 .vercel
+extension/dist/
+
 
 *.tsbuildinfo

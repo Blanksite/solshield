@@ -120,13 +120,13 @@ export async function POST(req: NextRequest) {
             0,
             10
           )}...${sig.slice(-8)}\`:\n• **Status:** ${statusText}${
-            slotLabel ? ` (Slot #${slotLabel.toLocaleString()})` : ""
+            slotLabel ? ` (Slot #${slotLabel.toLocaleString("en-US")})` : ""
           }\n• **Network Fee:** ${(
             feeLamports / 1e9
-          ).toFixed(6)} SOL (${feeLamports.toLocaleString()} lamports)\n• **Accounts Touched:** ${keysCount} accounts\n• **Zero-Retention Audit:** Verified via Venice AI privacy pipeline.`;
+          ).toFixed(6)} SOL (${feeLamports.toLocaleString("en-US")} lamports)\n• **Accounts Touched:** ${keysCount} accounts\n• **Zero-Retention Audit:** Verified via Venice AI privacy pipeline.`;
         } else {
           txTelemetrySummary = `Queried Solana Mainnet RPC${
-            liveSlot ? ` (Slot #${liveSlot.toLocaleString()})` : ""
+            liveSlot ? ` (Slot #${liveSlot.toLocaleString("en-US")})` : ""
           } for signature \`${sig.slice(0, 10)}...${sig.slice(
             -8
           )}\`: Transaction not found on recent Mainnet history.`;
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
     const latencyMs = Date.now() - startMs;
     const slotText =
       liveSlot !== null
-        ? `Solana Mainnet Slot #${liveSlot.toLocaleString()}`
+        ? `Solana Mainnet Slot #${liveSlot.toLocaleString("en-US")}`
         : "Solana Mainnet RPC";
 
     // Optional live Venice AI inference if key is provided

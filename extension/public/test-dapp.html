@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SolShield Guard — Interactive Test dApp (M0–M3)</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #060911;
+        color: #f1f5f9;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        padding: 28px 16px;
+      }
+      .wrap {
+        max-width: 920px;
+        margin: 0 auto;
+      }
+      .hero {
+        background: linear-gradient(135deg, #0d1426 0%, #0a0f1c 100%);
+        border: 1px solid #1e293b;
+        border-radius: 16px;
+        padding: 22px;
+        margin-bottom: 18px;
+      }
+      .hero h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+      .hero p {
+        margin: 0;
+        color: #94a3b8;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 14px;
+      }
+      select {
+        background: #070b14;
+        border: 1px solid #293650;
+        color: #f8fafc;
+        border-radius: 9px;
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+      .status-pill {
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #101727;
+        border: 1px solid #26334d;
+        color: #93c5fd;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .card {
+        background: #0d1322;
+        border: 1px solid #1e293b;
+        border-radius: 14px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 800;
+        padding: 3px 8px;
+        border-radius: 999px;
+        margin-bottom: 6px;
+      }
+      .tag-safe {
+        background: rgba(16, 185, 129, 0.16);
+        color: #6ee7b7;
+      }
+      .tag-warn {
+        background: rgba(245, 158, 11, 0.16);
+        color: #fcd34d;
+      }
+      .tag-block {
+        background: rgba(239, 68, 68, 0.16);
+        color: #fca5a5;
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      .card p {
+        margin: 0;
+        font-size: 12px;
+        color: #94a3b8;
+        line-height: 1.45;
+      }
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        background: #2934ff;
+        color: #ffffff;
+      }
+      button.danger {
+        background: #dc2626;
+      }
+      button.warn {
+        background: #d97706;
+      }
+      .console-card {
+        background: #070b14;
+        border: 1px solid #1e293b;
+        border-radius: 14px;
+        padding: 16px;
+      }
+      .console-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        margin-bottom: 10px;
+      }
+      pre {
+        margin: 0;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        color: #cbd5e1;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 240px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <h1>SolShield Browser Guard — Live Test dApp (M0–M3)</h1>
+        <p>
+          Trigger real Legacy Provider &amp; Wallet Standard requests on Solana transactions to test SolShield's
+          Closed Shadow DOM overlay, M2 Dual-Lane Domain Guard, M3 RPC Simulation, and EIP-1193 <code>4001</code> rejections.
+        </p>
+        <div class="toolbar">
+          <label for="wallet-mode" style="font-size: 12px; color: #cbd5e1; font-weight: 700;">Wallet Channel:</label>
+          <select id="wallet-mode">
+            <option value="standard">Mock Wallet Standard (Recommended — Works Anytime)</option>
+            <option value="legacy">Mock Legacy Provider (window.glow)</option>
+            <option value="real">Real Browser Wallet (window.solana — Devnet)</option>
+          </select>
+          <span id="hook-indicator" class="status-pill">Initializing providers...</span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div>
+            <span class="tag tag-safe">EXPECTED: SAFE</span>
+            <h3>1. Safe SOL Transfer (0.05 SOL)</h3>
+            <p>
+              Standard SystemProgram transfer with zero authority changes or unknown drain instructions.
+            </p>
+          </div>
+          <button id="btn-safe-transfer" type="button">Trigger Safe Transfer</button>
+        </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-block">EXPECTED: BLOCK (Type ALLOW)</span>
+            <h3>2. Critical SPL SetAuthority Drainer</h3>
+            <p>
+              Attempts to silently reassign token account ownership via SPL Token SetAuthority (opcode 6).
+            </p>
+          </div>
+          <button id="btn-set-authority" class="danger" type="button">Trigger SetAuthority Drainer</button>
+        </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-warn">EXPECTED: WARNING / BLOCK</span>
+            <h3>3. Versioned V0 Token-2022 + Unknown Hook</h3>
+            <p>
+              Versioned V0 transaction invoking Token-2022 alongside an unverified external hook program.
+            </p>
+          </div>
+          <button id="btn-token2022-v0" class="warn" type="button">Trigger Token-2022 V0 Tx</button>
+        </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-warn">EXPECTED: WARNING / BLOCK</span>
+            <h3>4. Unlimited SPL Approve Delegate</h3>
+            <p>
+              Grants max u64 token delegation allowance to an external spender address.
+            </p>
+          </div>
+          <button id="btn-unlimited-approve" class="warn" type="button">Trigger Unlimited Approve</button>
+        </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-block">EXPECTED: BLOCK (Batch Trap)</span>
+            <h3>5. Hidden Batch Drain (5 Txs)</h3>
+            <p>
+              Calls <code>signAllTransactions</code> with 5 transactions where tx #4 hides a SetAuthority payload.
+            </p>
+          </div>
+          <button id="btn-batch-trap" class="danger" type="button">Trigger Batch Sign (5 Txs)</button>
+        </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-warn">EXPECTED: SUSPICIOUS MESSAGE</span>
+            <h3>6. Off-Chain Phishing signMessage</h3>
+            <p>
+              Requests signing an off-chain message disguised with "Authorize drain / SetAuthority / claim airdrop".
+            </p>
+          </div>
+          <button id="btn-sign-message" class="warn" type="button">Trigger Phishing signMessage</button>
+        </div>
+      </div>
+
+      <div class="console-card">
+        <div class="console-head">
+          <span>dApp Execution Log (Observe 4001 Rejections vs Signed Output)</span>
+          <button id="btn-clear-log" style="padding: 4px 10px; background: #1e293b;" type="button">Clear Log</button>
+        </div>
+        <pre id="dapp-log">Ready. Ensure SolShield Browser Guard extension is loaded in Chrome/Brave and click any scenario above.</pre>
+      </div>
+    </div>
+
+    <script src="test-dapp.js"></script>
+  </body>
+</html>

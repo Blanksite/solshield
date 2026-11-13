@@ -13,7 +13,7 @@
   <a href="https://sol-shield.xyz"><img src="https://img.shields.io/badge/Live_Demo-sol--shield.xyz-14F195?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo"></a>
 </p>
 
-## Official $SOLSHIELD Token
+## Official $SHIELD Token
 
 | | |
 |---|---|
@@ -46,7 +46,7 @@ It protects Solana users from blind-signing wallet drainers (`SPL SetAuthority` 
 1. **Pre-Sign Bytecode Decompiler & Sandbox:** Decompiles raw wire-format Solana transactions (`Legacy` & `Versioned V0`) and Solana Action (`solana-action:`) payloads into human-readable ASTs before signing.
 2. **Zero-Data-Retention Privacy (Venice AI):** Traditional AI security scanners leak public keys, financial net worth, and alpha into training sets. SolShield routes all transaction ASTs and natural-language DeFi intents through **Venice AI (`llama-3.3-70b`)** with `include_venice_system_prompt: false` for strict zero-retention confidential security reasoning.
 3. **Natural-Language DeFi Intent Copilot:** Users describe swaps in plain English (e.g. *"Swap 1.5 SOL to USDC on Jupiter with max 0.5% slippage"*). The AI compiles and validates the intent directly against on-chain policy limits.
-4. **Anchor On-Chain Policy Vault (`programs/solshield-policy`):** Deterministic Rust smart contract enforcing per-wallet `SecurityPolicy` PDAs:
+4. **Anchor On-Chain Policy Vault (`programs/solshield-policy`, Devnet Beta Module):** Optional Rust smart contract deployed on Solana Devnet (`ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4`) for risk-free testing of per-wallet `SecurityPolicy` PDAs (meanwhile the Pre-Sign Bytecode Decompiler, Token Mint Auditor, Live Tx/Address X-Ray, and Jupiter Blinks all operate live on **Solana Mainnet RPC**):
    - Rolling 24-hour Lamport spend limits.
    - Max allowable Venice AI risk score threshold.
    - Instant 1-click on-chain **Emergency Circuit Breaker**.

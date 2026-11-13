@@ -13,7 +13,7 @@ describe("Token Launch Config (Pre-Launch & Live CA)", () => {
     expect(emptyCfg.isLive).toBe(false);
     expect(emptyCfg.ca).toBe("");
     expect(emptyCfg.shortCa).toBeNull();
-    expect(emptyCfg.symbol).toBe("$SOLSHIELD");
+    expect(emptyCfg.symbol).toBe("$SHIELD");
     expect(emptyCfg.links.pumpfun).toBeNull();
     expect(emptyCfg.links.dexscreener).toBeNull();
     expect(emptyCfg.links.solscan).toBeNull();
@@ -53,7 +53,7 @@ describe("Token Launch Config (Pre-Launch & Live CA)", () => {
     expect(defaultCfg.isLive).toBe(true);
     expect(defaultCfg.ca).toBe(expectedCa);
     expect(defaultCfg.shortCa).toBe("CMYb1B...2Sqx");
-    expect(defaultCfg.symbol).toBe("$SOLSHIELD");
+    expect(defaultCfg.symbol).toBe("$SHIELD");
     expect(defaultCfg.links.pumpfun).toBe(
       `https://pump.fun/coin/${expectedCa}`
     );

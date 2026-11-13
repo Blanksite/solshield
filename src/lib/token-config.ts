@@ -7,7 +7,7 @@ import { SOLSHIELD_PROGRAM_ID } from "./anchor-idl";
  */
 export const DEFAULT_TOKEN_CA = "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx";
 
-export const DEFAULT_TOKEN_SYMBOL = "$SOLSHIELD";
+export const DEFAULT_TOKEN_SYMBOL = "$SHIELD";
 export const DEFAULT_X_HANDLE = "@usesolshield";
 export const DEFAULT_X_URL = "https://x.com/usesolshield";
 export const GITHUB_REPO_URL = "https://github.com/Blanksite/solshield";

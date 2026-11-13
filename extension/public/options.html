@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SolShield Guard Settings</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #07090f;
+        color: #f1f5f9;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        padding: 32px 16px;
+      }
+      .container {
+        max-width: 680px;
+        margin: 0 auto;
+        background: #0d1322;
+        border: 1px solid #1e293b;
+        border-radius: 16px;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      .sub {
+        color: #94a3b8;
+        font-size: 13px;
+        margin-bottom: 22px;
+      }
+      .field {
+        margin-bottom: 18px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        color: #cbd5e1;
+        margin-bottom: 6px;
+      }
+      input[type="text"],
+      input[type="password"],
+      select,
+      textarea {
+        width: 100%;
+        background: #070b14;
+        border: 1px solid #26334d;
+        border-radius: 10px;
+        color: #f8fafc;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-family: ui-monospace, monospace;
+      }
+      textarea {
+        min-height: 78px;
+        resize: vertical;
+      }
+      .preset-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .chip-btn {
+        background: #141d31;
+        border: 1px solid #2c3b59;
+        color: #cbd5e1;
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #101727;
+        border: 1px solid #1e293b;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .check-row input {
+        width: 16px;
+        height: 16px;
+      }
+      .save-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 22px;
+      }
+      .save-btn {
+        background: #2934ff;
+        color: #ffffff;
+        border: none;
+        border-radius: 10px;
+        padding: 11px 22px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .status-msg {
+        font-size: 12px;
+        color: #6ee7b7;
+      }
+      .privacy-note {
+        margin-top: 18px;
+        padding-top: 14px;
+        border-top: 1px solid #1e293b;
+        font-size: 11px;
+        color: #64748b;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>SolShield Browser Guard — Settings</h1>
+      <p class="sub">
+        Configure M2 Dual-Lane Privacy domain checks, M3 RPC pre-sign simulation, and local allow/block lists.
+      </p>
+
+      <div class="field">
+        <label for="api-base-url">SolShield Backend API Base URL</label>
+        <input id="api-base-url" type="text" placeholder="http://localhost:3000" />
+        <div class="preset-row">
+          <button id="preset-local" class="chip-btn" type="button">
+            Use Local Dev (http://localhost:3000)
+          </button>
+          <button id="preset-prod" class="chip-btn" type="button">
+            Use Production (https://sol-shield.xyz)
+          </button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="network">Solana Simulation Network</label>
+        <select id="network">
+          <option value="mainnet">Mainnet-Beta</option>
+          <option value="devnet">Devnet (Testing)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="custom-rpc">Custom Solana RPC URL (Optional)</label>
+        <input
+          id="custom-rpc"
+          type="text"
+          placeholder="Leave blank for default SolShield RPC / PublicNode"
+        />
+      </div>
+
+      <div class="field">
+        <label for="venice-key">Venice API Key (Optional BYOK — Stored Locally Only)</label>
+        <input id="venice-key" type="password" placeholder="vn_..." />
+      </div>
+
+      <div class="field">
+        <div class="check-row">
+          <input id="strict-mode" type="checkbox" />
+          <div>
+            <strong>Strict Mode (Fail-Closed on Server Timeout)</strong>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
+              Upgrade unverified server timeouts to BLOCK (requiring typing ALLOW) instead of WARNING.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="trusted-domains">Personal Trusted Domains (one hostname per line)</label>
+        <textarea id="trusted-domains" placeholder="example.com"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="blocked-domains">Personal Blocked Domains (one hostname per line)</label>
+        <textarea id="blocked-domains" placeholder="scam-airdrop.example"></textarea>
+      </div>
+
+      <div class="save-row">
+        <button id="save-btn" class="save-btn" type="button">Save Configuration</button>
+        <span id="save-status" class="status-msg"></span>
+      </div>
+
+      <div class="privacy-note">
+        <strong>Dual-Lane Privacy Guarantee:</strong> Only bare ASCII hostnames are queried for domain reputation, zero browsing history leaves your browser, and local history stores only the last 20 verdicts without raw transactions or keys.
+      </div>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

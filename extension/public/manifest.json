@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "SolShield Browser Guard",
+  "version": "0.3.0",
+  "description": "Non-custodial Solana pre-sign firewall, Wallet Standard guard, Dual-Lane Venice AI domain defense & pre-sign RPC simulation.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://sol-shield.xyz/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://api.mainnet-beta.solana.com/*",
+    "https://api.devnet.solana.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SolShield Browser Guard",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": true
+    }
+  ]
+}

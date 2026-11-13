@@ -460,7 +460,18 @@ const DitherVeil = ({
     if (!container) return undefined;
 
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const renderer = new Renderer({ dpr: Math.min(window.devicePixelRatio || 1, 2), alpha: false, antialias: false });
+    const renderer = (() => {
+      try {
+        return new Renderer({
+          dpr: Math.min(window.devicePixelRatio || 1, 2),
+          alpha: false,
+          antialias: false,
+        });
+      } catch {
+        return null;
+      }
+    })();
+    if (!renderer?.gl?.canvas) return undefined;
     const gl = renderer.gl;
     const canvas = gl.canvas;
     canvas.style.display = 'block';
@@ -836,7 +847,11 @@ const DitherVeil = ({
       container.removeEventListener('pointerdown', onDown);
       container.removeEventListener('pointerleave', onLeave);
       container.removeEventListener('pointercancel', onLeave);
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
+      try {
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+      } catch {
+        // Ignore WebGL context cleanup errors in headless environments
+      }
       if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
     };
   }, [src]);

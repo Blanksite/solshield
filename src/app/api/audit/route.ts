@@ -1,6 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { analyzeBase64Transaction } from "@/lib/solana-parser";
+import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import { getPresetReport, SIMULATION_PRESETS } from "@/lib/presets";
+import {
+  RpcTxSimulationReport,
+  simulateSolanaTransactionRpc,
+} from "@/lib/tx-simulator";
 import { auditTransactionWithVenice } from "@/lib/venice-ai";
 import {
   BlinkInspectionError,
@@ -56,6 +61,10 @@ async function fetchLiveSolanaSlot(): Promise<{
   };
 }
 
+export async function OPTIONS() {
+  return corsOptionsResponse();
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -70,6 +79,10 @@ export async function POST(req: NextRequest) {
       blockUnknownTransferHooks,
       emergencyLocked,
       walletAddress,
+      simulateRpc,
+      network,
+      rpcUrl,
+      inspectTokens,
     } = body;
 
     let report;
@@ -100,7 +113,12 @@ export async function POST(req: NextRequest) {
         ? Math.round(maxDailySol * 1e9)
         : 5_000_000_000;
 
-    const [veniceAudit, liveSolana] = await Promise.all([
+    const shouldSimulateRpc =
+      Boolean(simulateRpc) &&
+      typeof base64Transaction === "string" &&
+      base64Transaction.trim().length > 0;
+
+    const [veniceAudit, liveSolana, rpcSimulation] = await Promise.all([
       auditTransactionWithVenice(report, {
         apiKey: veniceApiKey,
         model: veniceModel,
@@ -114,13 +132,25 @@ export async function POST(req: NextRequest) {
         emergencyLocked: Boolean(emergencyLocked),
       }),
       fetchLiveSolanaSlot(),
+      shouldSimulateRpc
+        ? simulateSolanaTransactionRpc(base64Transaction, {
+            network: network === "devnet" ? "devnet" : "mainnet",
+            rpcUrl: typeof rpcUrl === "string" ? rpcUrl : undefined,
+            veniceApiKey:
+              typeof veniceApiKey === "string" ? veniceApiKey : undefined,
+            inspectTokens:
+              typeof inspectTokens === "boolean" ? inspectTokens : true,
+            timeoutMs: 2800,
+          })
+        : Promise.resolve<RpcTxSimulationReport | null>(null),
     ]);
 
-    return NextResponse.json({
+    return corsJson({
       ok: true,
       preset: activePreset,
       blinkMeta,
       simulation: report,
+      rpcSimulation,
       veniceAudit,
       liveSolana,
     });
@@ -128,6 +158,6 @@ export async function POST(req: NextRequest) {
     const status = err instanceof BlinkInspectionError ? err.status : 400;
     const message =
       err instanceof Error ? err.message : "Failed to audit transaction.";
-    return NextResponse.json({ ok: false, error: message }, { status });
+    return corsJson({ ok: false, error: message }, { status });
   }
 }

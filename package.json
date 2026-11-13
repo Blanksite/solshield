@@ -9,7 +9,10 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ext:typecheck": "tsc -p extension/tsconfig.json --noEmit",
+    "ext:build": "node extension/scripts/build.mjs",
+    "ext:test-dapp": "node extension/scripts/serve-test-dapp.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.9",
