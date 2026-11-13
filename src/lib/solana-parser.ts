@@ -417,7 +417,29 @@ export function analyzeBase64Transaction(
         };
       });
 
-      if (
+      if (programId === SystemProgram.programId.toBase58()) {
+        instructionName = "System::TransferOrConfigure";
+      } else if (
+        programId === "ComputeBudget111111111111111111111111111111"
+      ) {
+        instructionName = "ComputeBudget::Configure";
+      } else if (
+        programId === "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+      ) {
+        instructionName = "AssociatedToken::CreateIdempotent";
+      } else if (
+        programId === "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+      ) {
+        instructionName = "JupiterV6::Route";
+      } else if (
+        programId === "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+      ) {
+        instructionName = "SPLMemo::Write";
+      } else if (
+        programId === "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+      ) {
+        instructionName = "SolShieldPolicy::VerifyAndRecordExecution";
+      } else if (
         programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" ||
         programId === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
       ) {

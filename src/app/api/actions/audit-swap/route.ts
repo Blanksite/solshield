@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  PublicKey,
-  Transaction,
-  TransactionInstruction,
-} from "@solana/web3.js";
-import { deriveSecurityPolicyPda, SOLSHIELD_PROGRAM_ID } from "@/lib/anchor-idl";
-import { getPresetReport } from "@/lib/presets";
-import { auditTransactionWithVenice } from "@/lib/venice-ai";
+  BlinkValidationError,
+  buildAuditedJupiterBlinkSwap,
+} from "@/lib/jupiter-blink";
 
 const ACTIONS_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -35,10 +31,10 @@ export async function GET(req: NextRequest) {
 
   const payload = {
     type: "action",
-    icon: `${baseUrl}/shield-icon.svg`,
+    icon: `${baseUrl}/logo.jpg?v=2`,
     title: "SolShield — Venice AI Guarded Solana Swap",
     description:
-      "Pre-audits route instructions, Token-2022 transfer hooks, and authority mutations via Venice AI private inference before signing.",
+      "Builds a live Jupiter v6 Mainnet swap, runs pre-sign bytecode inspection & zero-retention Venice AI risk checks, and enforces a 10 SOL default guardrail before returning the tx.",
     label: "Audit & Swap via SolShield",
     links: {
       actions: [
@@ -56,7 +52,7 @@ export async function GET(req: NextRequest) {
           parameters: [
             {
               name: "amount",
-              label: "Amount in SOL to swap safely",
+              label: "Amount in SOL to swap safely (max 10 SOL guardrail)",
               required: true,
             },
           ],
@@ -70,83 +66,79 @@ export async function GET(req: NextRequest) {
 
 /**
  * Solana Actions & Blinks POST endpoint.
- * Validates the user's account, attaches the SolShield Anchor Policy PDA guard instruction,
- * audits the transaction via Venice AI, and returns a base64 transaction ready to sign.
+ * Builds a live Jupiter v6 Mainnet swap transaction with real blockhash,
+ * runs SolShield pre-sign bytecode inspection + Venice AI risk checks,
+ * and returns the audited base64 transaction ready to sign.
  */
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const amountParam = parseFloat(url.searchParams.get("amount") || "1");
-    const amountSol = Number.isFinite(amountParam) && amountParam > 0 ? amountParam : 1;
+    const rawAmount = url.searchParams.get("amount");
+    const amountUi = rawAmount === null ? 1 : Number(rawAmount);
+    const inputMintRaw = url.searchParams.get("inputMint");
+    const outputMintRaw = url.searchParams.get("outputMint");
+    const rawSlippage = url.searchParams.get("slippageBps");
+    const slippageBps = rawSlippage !== null ? Number(rawSlippage) : 50;
 
-    const body = await req.json();
-    const accountStr: string | undefined = body?.account;
-
-    if (!accountStr) {
-      return NextResponse.json(
-        { message: "Missing required 'account' public key in Blink POST payload." },
-        { status: 400, headers: ACTIONS_CORS_HEADERS }
-      );
-    }
-
-    let userPubkey: PublicKey;
+    let body: { account?: unknown } = {};
     try {
-      userPubkey = new PublicKey(accountStr);
+      body = (await req.json()) as { account?: unknown };
     } catch {
       return NextResponse.json(
-        { message: "Invalid Solana public key provided in 'account'." },
+        { message: "Invalid JSON body in Blink POST request." },
         { status: 400, headers: ACTIONS_CORS_HEADERS }
       );
     }
 
-    const { pda } = deriveSecurityPolicyPda(userPubkey);
-    const { report } = getPresetReport("safe-jupiter-swap");
-    report.estimatedSpendLamports = Math.round(amountSol * 1e9);
-
-    const audit = await auditTransactionWithVenice(report, {
-      maxAllowedRiskScore: 35,
-      maxDailyLamports: 10_000_000_000,
-    });
-
-    if (audit.classification === "CRITICAL") {
+    if (typeof body?.account !== "string" || !body.account.trim()) {
       return NextResponse.json(
         {
-          message: `Blocked by SolShield + Venice AI Firewall: ${audit.executiveSummary}`,
+          message:
+            "Missing required 'account' public key in Blink POST payload.",
         },
-        { status: 403, headers: ACTIONS_CORS_HEADERS }
+        { status: 400, headers: ACTIONS_CORS_HEADERS }
       );
     }
 
-    const tx = new Transaction({
-      feePayer: userPubkey,
-      recentBlockhash: "11111111111111111111111111111111",
+    const result = await buildAuditedJupiterBlinkSwap({
+      account: body.account.trim(),
+      amountUi,
+      inputMintRaw,
+      outputMintRaw,
+      slippageBps,
     });
 
-    tx.add(
-      new TransactionInstruction({
-        programId: SOLSHIELD_PROGRAM_ID,
-        keys: [
-          { pubkey: userPubkey, isSigner: true, isWritable: false },
-          { pubkey: new PublicKey(pda), isSigner: false, isWritable: true },
-        ],
-        data: Buffer.from([1, audit.riskScore]),
-      })
-    );
+    const outFormatted =
+      result.outAmountUi !== null
+        ? ` -> ~${result.outAmountUi.toFixed(
+            result.outAmountUi >= 1 ? 2 : 4
+          )} ${result.outputToken.symbol}`
+        : ` -> ${result.outputToken.symbol}`;
 
-    const serializedTx = tx
-      .serialize({ requireAllSignatures: false, verifySignatures: false })
-      .toString("base64");
+    const routeSuffix =
+      result.routeLabels.length > 0
+        ? ` via Jupiter (${result.routeLabels.join(" -> ")})`
+        : " via Jupiter v6";
 
     return NextResponse.json(
       {
-        transaction: serializedTx,
-        message: `SolShield + Venice AI Audit Passed (Risk Score: ${audit.riskScore}/100 ${audit.classification}). Guarded by Policy PDA ${pda.slice(0, 8)}...`,
+        type: "transaction",
+        transaction: result.transactionBase64,
+        message: `SolShield + Venice AI Audit Passed (${result.audit.riskScore}/100 ${result.audit.classification}): ${result.inAmountUi} ${result.inputToken.symbol}${outFormatted}${routeSuffix}. Policy PDA ${result.policyPda.slice(0, 8)}...`,
       },
       { headers: ACTIONS_CORS_HEADERS }
     );
   } catch (err: unknown) {
+    if (err instanceof BlinkValidationError) {
+      return NextResponse.json(
+        { message: err.message },
+        { status: err.status, headers: ACTIONS_CORS_HEADERS }
+      );
+    }
     const message =
-      err instanceof Error ? err.message : "Failed to construct Blink transaction.";
+      err instanceof Error
+        ? err.message
+        : "Failed to construct audited Jupiter Blink transaction.";
     return NextResponse.json(
       { message },
       { status: 500, headers: ACTIONS_CORS_HEADERS }
