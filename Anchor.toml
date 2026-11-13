@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-solshield_policy = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+solshield_policy = "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
 
 [programs.devnet]
-solshield_policy = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+solshield_policy = "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
 
 [registry]
 url = "https://api.apr.dev"

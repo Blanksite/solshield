@@ -29,6 +29,7 @@ import {
   deriveUsdcAssociatedTokenAccount,
   fetchDevnetPolicyVaultStatus,
 } from "../src/lib/anchor-vault";
+import { SOLSHIELD_PROGRAM_ID } from "../src/lib/anchor-idl";
 import { analyzeBase64Transaction } from "../src/lib/solana-parser";
 
 function buildMockV0Tx(
@@ -258,7 +259,9 @@ describe("Anchor Policy Vault Borsh Serializer, Devnet Probe & SPL Tag 5 Revoke"
       maxAllowedRiskScore: 30,
       blockUnknownTransferHooks: true,
     });
-    expect(artifact.programId).toBe(ANCHOR_PLACEHOLDER_PROGRAM_ID);
+    expect(artifact.programId).toBe(SOLSHIELD_PROGRAM_ID.toBase58());
+    expect(artifact.programId).toBe("ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4");
+    expect(artifact.programId).not.toBe(ANCHOR_PLACEHOLDER_PROGRAM_ID);
     expect(artifact.accountCount).toBe(3);
     expect(Buffer.from(artifact.instructionDataHex, "hex").length).toBe(18);
 
@@ -283,32 +286,40 @@ describe("Anchor Policy Vault Borsh Serializer, Devnet Probe & SPL Tag 5 Revoke"
     expect(parsed.instructions[0].instructionName).toContain("Revoke");
   });
 
-  it("reports Devnet deployment status truthfully without falsifying template Program IDs", async () => {
-    const mockDevnetFetch: typeof fetch = (async (_url, init) => {
-      const parsedBody = JSON.parse(String(init?.body ?? "{}")) as {
-        method?: string;
-      };
-      if (parsedBody.method === "getMultipleAccounts") {
+  it("reports Devnet deployment status truthfully for live Devnet Program ID", async () => {
+    const buildMockRpc =
+      (programAccountValue: { executable: boolean } | null): typeof fetch =>
+      (async (_url, init) => {
+        const parsedBody = JSON.parse(String(init?.body ?? "{}")) as {
+          method?: string;
+        };
+        if (parsedBody.method === "getMultipleAccounts") {
+          return new Response(
+            JSON.stringify({ result: { value: [programAccountValue] } }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
         return new Response(
-          JSON.stringify({ result: { value: [null] } }),
+          JSON.stringify({
+            result: { value: { blockhash: Keypair.generate().publicKey.toBase58() } },
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
-      }
-      return new Response(
-        JSON.stringify({
-          result: { value: { blockhash: Keypair.generate().publicKey.toBase58() } },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }) as typeof fetch;
+      }) as typeof fetch;
 
-    const status = await fetchDevnetPolicyVaultStatus({
+    const deployedStatus = await fetchDevnetPolicyVaultStatus({
       ownerAddress: owner.toBase58(),
-      fetchImpl: mockDevnetFetch,
+      fetchImpl: buildMockRpc({ executable: true }),
     });
+    expect(deployedStatus.isPlaceholderTemplateId).toBe(false);
+    expect(deployedStatus.programDeployedOnDevnet).toBe(true);
+    expect(deployedStatus.latestDevnetBlockhash).toBeTruthy();
 
-    expect(status.isPlaceholderTemplateId).toBe(true);
-    expect(status.programDeployedOnDevnet).toBe(false);
-    expect(status.latestDevnetBlockhash).toBeTruthy();
+    const missingStatus = await fetchDevnetPolicyVaultStatus({
+      ownerAddress: owner.toBase58(),
+      fetchImpl: buildMockRpc(null),
+    });
+    expect(missingStatus.isPlaceholderTemplateId).toBe(false);
+    expect(missingStatus.programDeployedOnDevnet).toBe(false);
   });
 });

@@ -203,7 +203,7 @@ async function fetchActionJson(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
-  timeoutMs = 4000
+  timeoutMs = 8500
 ): Promise<{ status: number; json: Record<string, unknown> | null }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

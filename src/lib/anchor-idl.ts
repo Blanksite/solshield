@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 
 export const SOLSHIELD_PROGRAM_ID = new PublicKey(
-  "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+  "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
 );
 
 export const SOLSHIELD_POLICY_SEED = "solshield_policy";

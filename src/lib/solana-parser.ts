@@ -105,7 +105,7 @@ export const KNOWN_SOLANA_PROGRAMS: Record<
     verified: true,
     category: "Utility",
   },
-  Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS: {
+  ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4: {
     name: "SolShield Policy Guard Program (Anchor)",
     verified: true,
     category: "Security",
@@ -372,7 +372,7 @@ export function analyzeBase64Transaction(
       ) {
         instructionName = "ComputeBudget::SetComputeUnitPrice";
       } else if (
-        programId === "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+        programId === "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
       ) {
         instructionName = "SolShieldPolicy::VerifyAndRecordExecution";
       } else if (!isVerified) {
@@ -446,7 +446,7 @@ export function analyzeBase64Transaction(
       ) {
         instructionName = "SPLMemo::Write";
       } else if (
-        programId === "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+        programId === "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
       ) {
         instructionName = "SolShieldPolicy::VerifyAndRecordExecution";
       } else if (

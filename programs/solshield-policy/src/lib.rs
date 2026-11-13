@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4");
 
 /// Maximum number of whitelisted target programs stored per user policy PDA.
 pub const MAX_WHITELISTED_PROGRAMS: usize = 16;
