@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { buildDeterministicBuildCheck } from "../src/lib/buildcheck/venice-buildcheck";
 import {
   canSendDailyReply,
@@ -14,7 +14,11 @@ import {
   recordReplySent,
   saveBotState,
 } from "../worker/bot-state";
-import { buildEvidenceCardHtml, escapeHtml } from "../worker/card-renderer";
+import {
+  buildEvidenceCardHtml,
+  escapeHtml,
+  loadTokenLogoDataUri,
+} from "../worker/card-renderer";
 import {
   fetchBotMentions,
   fetchBotUserId,
@@ -730,5 +734,225 @@ describe("@usesolshield / @SolShieldCheck X Bot Mention Resolution & Safety", ()
     expect(
       resolveMentionTarget(mentions[0], "usesolshield", "2120976003053023232")
     ).toBeNull();
+  });
+
+  it("includes token name and ticker symbol on both X reply tweets and Evidence Cards", () => {
+    const det = buildDeterministicBuildCheck({
+      id: "bc_token_meta_1",
+      createdAt: new Date().toISOString(),
+      elapsedMs: 1800,
+      target: {
+        rawInput: "F3K9mo611vPLWM19QztPU94w23tU5m6D3hw9h41YYbM2",
+        kind: "token_ca",
+        mintAddress: "F3K9mo611vPLWM19QztPU94w23tU5m6D3hw9h41YYbM2",
+      },
+      browser: {
+        mode: "local-chromium",
+        executableLabel: "Chromium",
+        stops: [],
+        discoveredGithubRepos: [],
+        discoveredXUrls: [],
+        discoveredSolanaAddresses: [],
+        discoveredWebsiteUrls: [],
+        totalXhrObserved: 0,
+        notes: [],
+      },
+      github: null,
+      chain: {
+        mintAddress: "F3K9mo611vPLWM19QztPU94w23tU5m6D3hw9h41YYbM2",
+        tokenReport: {
+          mintAddress: "F3K9mo611vPLWM19QztPU94w23tU5m6D3hw9h41YYbM2",
+          tokenProgram: "SPL Token",
+          programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          isToken2022: false,
+          isPumpFunSuffix: false,
+          name: "GTA INU",
+          symbol: "GI",
+          decimals: 6,
+          rawSupply: "1000000000000000",
+          supplyUi: 1000000000,
+          mintAuthority: null,
+          freezeAuthority: null,
+          extensions: [],
+          transferFeeBps: null,
+          permanentDelegate: null,
+          transferHookProgramId: null,
+          defaultAccountState: null,
+          topHolders: [],
+          top5Pct: 14.5,
+          top10Pct: 21.0,
+          riskScore: 10,
+          classification: "SAFE",
+          recommendedAction: "VERIFIED_SAFE",
+          executiveSummary: "Authorities revoked.",
+          flags: [],
+          slot: 1,
+          latencyMs: 120,
+          inferenceMode: "deterministic-fallback",
+          privacyAttestation: "Zero Data Retention",
+        },
+        dexPair: null,
+        accountRecentTxCount: 10,
+      },
+      domain: null,
+      xPost: null,
+    });
+
+    const report = {
+      ...det,
+      inferenceMode: "venice-live-api" as const,
+      modelsUsed: ["llama-3.3-70b"],
+      visionSummary: null,
+      privacyAttestation: "Zero Data Retention",
+    };
+
+    const tweet = formatBuildCheckReplyTweet(report, "https://sol-shield.xyz");
+    expect(tweet.length).toBeLessThanOrEqual(280);
+    expect(tweet).toContain("GTA INU ($GI)");
+    expect(tweet).toContain("F3K9mo...YbM2");
+
+    const html = buildEvidenceCardHtml(report, { botHandle: "usesolshield" });
+    expect(html).toContain("GTA INU ($GI)");
+    expect(html).toContain("F3K9mo611vPLWM19QztPU94w23tU5m6D3hw9h41YYbM2");
+    expect(html).toContain("GREEN FLAGS");
+    expect(html).toContain("RED FLAGS &amp; GAPS");
+    expect(html).toContain("token-avatar-fallback\">GI</div>");
+  });
+
+  it("renders tokenLogoDataUri, sanitizes unsafe URIs, and escapes green/red flags on Evidence Card", () => {
+    const det = buildDeterministicBuildCheck({
+      id: "bc_token_meta_2",
+      createdAt: new Date().toISOString(),
+      elapsedMs: 1200,
+      target: {
+        rawInput: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+        kind: "token_ca",
+        mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+      },
+      browser: {
+        mode: "local-chromium",
+        executableLabel: "Chromium",
+        stops: [],
+        discoveredGithubRepos: [],
+        discoveredXUrls: [],
+        discoveredSolanaAddresses: [],
+        discoveredWebsiteUrls: [],
+        totalXhrObserved: 0,
+        notes: [],
+      },
+      github: null,
+      chain: {
+        mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+        tokenReport: {
+          mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+          tokenProgram: "SPL Token",
+          programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          isToken2022: false,
+          isPumpFunSuffix: false,
+          name: "TestShield",
+          symbol: "SHLD",
+          decimals: 6,
+          rawSupply: "1000000000000000",
+          supplyUi: 1000000000,
+          mintAuthority: null,
+          freezeAuthority: null,
+          extensions: [],
+          transferFeeBps: null,
+          permanentDelegate: null,
+          transferHookProgramId: null,
+          defaultAccountState: null,
+          topHolders: [],
+          top5Pct: 12,
+          top10Pct: 19,
+          riskScore: 15,
+          classification: "SAFE",
+          recommendedAction: "VERIFIED_SAFE",
+          executiveSummary: "Authorities revoked.",
+          flags: [],
+          slot: 1,
+          latencyMs: 90,
+          inferenceMode: "deterministic-fallback",
+          privacyAttestation: "Zero Data Retention",
+        },
+        dexPair: null,
+        accountRecentTxCount: 5,
+      },
+      domain: null,
+      xPost: null,
+    });
+
+    const report = {
+      ...det,
+      inferenceMode: "venice-live-api" as const,
+      modelsUsed: ["llama-3.3-70b"],
+      visionSummary: null,
+      privacyAttestation: "Zero Data Retention",
+      verifiedSignals: [
+        "Mint & freeze authorities revoked",
+        "Liquidity locked > 12 months <script>alert(1)</script>",
+      ],
+      keyRedFlags: [
+        "Dev wallet still holds 8% supply",
+        "Unverified marketing claim \"soon\"",
+      ],
+    };
+
+    const validPngUri = "data:image/png;base64,iVBORw0KGgo=";
+    const htmlWithLogo = buildEvidenceCardHtml(report, {
+      botHandle: "usesolshield",
+      tokenLogoDataUri: validPngUri,
+    });
+    expect(htmlWithLogo).toContain(`class="token-avatar-img" src="${validPngUri}"`);
+    expect(htmlWithLogo).toContain("Mint &amp; freeze authorities revoked");
+    expect(htmlWithLogo).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(htmlWithLogo).not.toContain("<script>alert(1)");
+    expect(htmlWithLogo).toContain("Dev wallet still holds 8% supply");
+    expect(htmlWithLogo).toContain("Unverified marketing claim &quot;soon&quot;");
+
+    const svgUri = "data:image/svg+xml;base64,PHN2Zz4=";
+    const htmlRejectedSvg = buildEvidenceCardHtml(report, {
+      botHandle: "usesolshield",
+      tokenLogoDataUri: svgUri,
+    });
+    expect(htmlRejectedSvg).not.toContain("image/svg+xml");
+    expect(htmlRejectedSvg).toContain("token-avatar-fallback\">SH</div>");
+
+    const htmlEmptyFlags = buildEvidenceCardHtml(
+      { ...report, verifiedSignals: [], keyRedFlags: [] },
+      { botHandle: "usesolshield" }
+    );
+    expect(htmlEmptyFlags).toContain("No strong green flags recorded yet");
+    expect(htmlEmptyFlags).toContain("No critical red flags detected");
+  });
+
+  it("loadTokenLogoDataUri blocks loopback/metadata URLs, rejects SVGs, and encodes safe raster PNGs", async () => {
+    expect(await loadTokenLogoDataUri(null)).toBeNull();
+    expect(await loadTokenLogoDataUri("http://127.0.0.1/logo.png")).toBeNull();
+    expect(await loadTokenLogoDataUri("http://169.254.169.254/latest/meta-data")).toBeNull();
+
+    const pngHeader = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("<svg></svg>", {
+          status: 200,
+          headers: { "content-type": "image/svg+xml" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(pngHeader, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        })
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await loadTokenLogoDataUri("https://1.1.1.1/bad.svg")).toBeNull();
+      const validDataUri = await loadTokenLogoDataUri("https://1.1.1.1/good.png");
+      expect(validDataUri).toBe(`data:image/png;base64,${Buffer.from(pngHeader).toString("base64")}`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

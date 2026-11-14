@@ -281,6 +281,41 @@ export function resolveMentionTarget(
 }
 
 /**
+ * Extracts a compact `Name ($SYMBOL)` label from BuildCheck on-chain/DEX metadata.
+ */
+export function formatTokenIdentityLabel(
+  report: BuildCheckReport,
+  maxNameLen = 28
+): string | null {
+  const rawName = (
+    report.chain?.deep?.metadata?.name ||
+    report.chain?.tokenReport?.name ||
+    ""
+  ).trim();
+  const rawSymbol = (
+    report.chain?.deep?.metadata?.symbol ||
+    report.chain?.tokenReport?.symbol ||
+    ""
+  )
+    .trim()
+    .replace(/^\$+/, "");
+
+  const cleanName =
+    rawName.length > maxNameLen
+      ? `${rawName.slice(0, maxNameLen - 1).trim()}…`
+      : rawName;
+  const cleanSymbol = rawSymbol ? `$${rawSymbol.slice(0, 12)}` : "";
+
+  if (cleanName && cleanSymbol) {
+    if (rawName.toLowerCase() === rawSymbol.toLowerCase()) {
+      return cleanSymbol;
+    }
+    return `${cleanName} (${cleanSymbol})`;
+  }
+  return cleanSymbol || cleanName || null;
+}
+
+/**
  * Formats a concise <= 280 character X reply for SolShield BuildCheck evidence card replies.
  * Set `options.includeUrl = false` to omit external links when optimizing Pay-Per-Use costs
  * (the public URL remains rendered inside the attached Evidence Card PNG).
@@ -297,11 +332,13 @@ export function formatBuildCheckReplyTweet(
         ? "UNPROVEN HYPE"
         : "HIGH FABRICATION RISK";
 
+  const tokenIdentity = formatTokenIdentityLabel(report, 22);
+  const shortMint = report.target.mintAddress
+    ? `${report.target.mintAddress.slice(0, 6)}...${report.target.mintAddress.slice(-4)}`
+    : null;
   const targetName =
     report.target.githubOwnerRepo ||
-    (report.target.mintAddress
-      ? `${report.target.mintAddress.slice(0, 6)}...${report.target.mintAddress.slice(-4)}`
-      : null) ||
+    (shortMint && tokenIdentity ? `${tokenIdentity} · ${shortMint}` : shortMint) ||
     report.target.hostname ||
     "target";
 

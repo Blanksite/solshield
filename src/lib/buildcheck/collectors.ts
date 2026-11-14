@@ -490,6 +490,7 @@ export async function collectChainTokenIntel(
         volume?: { h24?: number };
         pairCreatedAt?: number;
         info?: {
+          imageUrl?: string;
           websites?: Array<{ url?: string }>;
           socials?: Array<{ type?: string; url?: string }>;
         };
@@ -513,12 +514,14 @@ export async function collectChainTokenIntel(
   }
 
   let dexPair: DexPairSummary | null = null;
+  let dexImageUrl: string | null = null;
   if (dexRes.status === "fulfilled" && dexRes.value.ok && dexRes.value.data?.pairs) {
     const solPairs = dexRes.value.data.pairs
       .filter((p) => p.chainId === "solana")
       .sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
     const top = solPairs[0];
     if (top) {
+      dexImageUrl = top.info?.imageUrl?.trim() || null;
       const createdMs = top.pairCreatedAt ?? null;
       const ageHours = createdMs
         ? Number(((Date.now() - createdMs) / 3_600_000).toFixed(1))
@@ -612,6 +615,10 @@ export async function collectChainTokenIntel(
             .toFixed(1)
         );
       }
+    }
+
+    if (!deep.metadata.imageUrl && dexImageUrl) {
+      deep.metadata.imageUrl = dexImageUrl;
     }
 
     if (tokenReport) {
