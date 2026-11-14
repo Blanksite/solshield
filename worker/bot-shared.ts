@@ -89,6 +89,24 @@ export async function syncScannedTokenToWeb(
   }
 }
 
+export function sleepInterruptible(
+  ms: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /**
  * Starts a lightweight `/health` HTTP server for Railway / container liveness checks.
  */

@@ -3,6 +3,7 @@ import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
 import {
   parseBooleanEnv,
   parsePositiveIntEnv,
+  sleepInterruptible,
   startBotHealthServer,
   syncScannedTokenToWeb,
 } from "./bot-shared";
@@ -191,8 +192,11 @@ async function runDaemonLoop(): Promise<void> {
       : null;
 
   let stopping = false;
+  const shutdownController = new AbortController();
   const shutdown = () => {
+    if (stopping) return;
     stopping = true;
+    shutdownController.abort();
     console.log("\n[SolShield X Bot] Gracefully shutting down...");
     healthServer?.close();
   };
@@ -316,7 +320,7 @@ async function runDaemonLoop(): Promise<void> {
     }
 
     if (!stopping) {
-      await new Promise((r) => setTimeout(r, nextSleepMs));
+      await sleepInterruptible(nextSleepMs, shutdownController.signal);
     }
   }
 }

@@ -24,6 +24,7 @@ export interface TgApiTransportOptions {
   sleepImpl?: (ms: number) => Promise<void>;
   maxRateLimitRetries?: number;
   requestTimeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface TgUser {
@@ -634,6 +635,13 @@ async function tgFetchJson<T>(
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    if (transport.signal?.aborted) {
+      clearTimeout(timer);
+      throw new TgApiError(`Telegram ${method} aborted`, 499);
+    }
+    transport.signal?.addEventListener("abort", onExternalAbort, { once: true });
+
     let res: Response;
     try {
       res = await fetchFn(url, {
@@ -642,6 +650,10 @@ async function tgFetchJson<T>(
       });
     } catch (err) {
       clearTimeout(timer);
+      transport.signal?.removeEventListener("abort", onExternalAbort);
+      if (transport.signal?.aborted) {
+        throw new TgApiError(`Telegram ${method} aborted`, 499);
+      }
       const rawMsg = err instanceof Error ? err.message : String(err);
       throw new TgApiError(
         `Telegram ${method} network error: ${sanitizeTgErrorMessage(rawMsg, config.botToken)}`,
@@ -649,6 +661,7 @@ async function tgFetchJson<T>(
       );
     }
     clearTimeout(timer);
+    transport.signal?.removeEventListener("abort", onExternalAbort);
 
     const parsed = (await res.json().catch(() => null)) as {
       ok?: boolean;

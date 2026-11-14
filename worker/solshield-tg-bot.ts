@@ -5,6 +5,7 @@ import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
 import {
   parseBooleanEnv,
   parsePositiveIntEnv,
+  sleepInterruptible,
   startBotHealthServer,
   syncScannedTokenToWeb,
 } from "./bot-shared";
@@ -355,9 +356,12 @@ async function runDaemonLoop(): Promise<void> {
       : null;
 
   let stopping = false;
+  const shutdownController = new AbortController();
   const inFlightChats = new Set<string>();
   const shutdown = () => {
+    if (stopping) return;
     stopping = true;
+    shutdownController.abort();
     console.log("\n[SolShield TG Bot] Gracefully shutting down...");
     healthServer?.close();
   };
@@ -373,7 +377,8 @@ async function runDaemonLoop(): Promise<void> {
       const updates: TgUpdate[] = await fetchTgUpdates(
         config,
         offset,
-        pollTimeoutSec
+        pollTimeoutSec,
+        { signal: shutdownController.signal }
       );
       state.lastError = null;
       saveTgBotState(stateFile, state);
@@ -549,6 +554,9 @@ async function runDaemonLoop(): Promise<void> {
         });
       }
     } catch (err) {
+      if (stopping || shutdownController.signal.aborted) {
+        break;
+      }
       const msg = sanitizeTgErrorMessage(
         err instanceof Error ? err.message : String(err),
         botToken
@@ -576,7 +584,7 @@ async function runDaemonLoop(): Promise<void> {
     }
 
     if (!stopping && errorSleepMs > 0) {
-      await new Promise((r) => setTimeout(r, errorSleepMs));
+      await sleepInterruptible(errorSleepMs, shutdownController.signal);
     }
   }
 }
