@@ -632,6 +632,11 @@ async function analyzeHoldersAndCabal(params: {
   if (params.mintReport) {
     if (params.mintReport.mintAuthority === null && params.mintReport.freezeAuthority === null) {
       checks.push({ label: "Mint & freeze authority revoked", status: "clear" });
+    } else if (params.mintReport.verifiedAsset?.custodialIssuerAuthorities) {
+      checks.push({
+        label: `Issuer authorities (${params.mintReport.verifiedAsset.issuer})`,
+        status: "clear",
+      });
     } else {
       score -= 26;
       checks.push({ label: "Mint or freeze authority active", status: "flag" });

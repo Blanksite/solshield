@@ -4,7 +4,6 @@ import {
   runGuardedCachedOperation,
 } from "@/lib/api-guard";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
-import { getPresetReport } from "@/lib/presets";
 import { createCacheKeyHash } from "@/lib/scan-cache";
 import { VENICE_API_BASE_URL, DEFAULT_VENICE_MODEL } from "@/lib/venice-ai";
 
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
       message,
       lang: rawLang,
       language,
-      presetId = "safe-jupiter-swap",
+      activeScanSummary,
       veniceApiKey: rawVeniceKey,
       apiKey: rawApiKey,
       address,
@@ -69,7 +68,7 @@ export async function POST(req: NextRequest) {
       message?: string;
       lang?: "en" | "id";
       language?: "en" | "id";
-      presetId?: string;
+      activeScanSummary?: string;
       veniceApiKey?: string;
       apiKey?: string;
       address?: string;
@@ -79,6 +78,10 @@ export async function POST(req: NextRequest) {
     const lang = rawLang || language || "en";
     const veniceApiKey = rawVeniceKey || rawApiKey;
     const userQuestion = (question || message || address || "").trim();
+    const cleanScanSummary =
+      typeof activeScanSummary === "string"
+        ? activeScanSummary.trim().slice(0, 800)
+        : "";
 
     if (userQuestion.length > 1500) {
       return corsJson(
@@ -91,7 +94,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify({
         q: userQuestion.toLowerCase(),
         lang,
-        presetId,
+        activeScanSummary: cleanScanSummary,
       })
     );
 
@@ -109,7 +112,7 @@ export async function POST(req: NextRequest) {
         computeAgentChatPayload({
           userQuestion,
           lang,
-          presetId,
+          activeScanSummary: cleanScanSummary,
           veniceApiKey,
         })
     );
@@ -138,12 +141,11 @@ export async function POST(req: NextRequest) {
 async function computeAgentChatPayload(params: {
   userQuestion: string;
   lang: "en" | "id";
-  presetId: string;
+  activeScanSummary: string;
   veniceApiKey?: string;
 }) {
   const startMs = Date.now();
-  const { userQuestion, lang, presetId, veniceApiKey } = params;
-  const { preset, report } = getPresetReport(presetId);
+  const { userQuestion, lang, activeScanSummary, veniceApiKey } = params;
 
     // Check if the user pasted a Solana Transaction Signature (80-90 base58 chars)
     const txSigMatch = userQuestion.match(/\b[1-9A-HJ-NP-Za-km-z]{84,90}\b/);
@@ -261,12 +263,17 @@ async function computeAgentChatPayload(params: {
               },
               {
                 role: "user",
-                content: `Scenario: ${preset.name}. Balance changes: ${JSON.stringify(
-                  report.balanceDeltas
-                )}. Threats: ${JSON.stringify(
-                  report.threatFlags
-                )}. Live Solana Slot: ${
+                content: `${
+                  activeScanSummary
+                    ? `Active Session Scan Context: ${activeScanSummary}. `
+                    : "No transaction or token scan loaded in session yet. "
+                }Live Solana Slot: ${
                   liveSlot ?? "unavailable"
+                }. Live RPC Inspection: ${
+                  txTelemetrySummary ||
+                  (addressToInspect
+                    ? `Address ${addressToInspect} found=${accountFound}, owner=${accountOwnerProgram ?? "none"}, lamports=${accountLamports ?? 0}`
+                    : "none")
                 }. User question: ${userQuestion}`,
               },
             ],
@@ -345,34 +352,16 @@ async function computeAgentChatPayload(params: {
       qLower.includes("what happens") ||
       qLower.includes("apa yang terjadi")
     ) {
-      const deltaSummary = report.balanceDeltas
-        .map((d) => `${d.direction === "IN" ? "+" : ""}${d.deltaUiAmount} ${d.asset}`)
-        .join(", ");
-      if (report.deterministicClassification === "CRITICAL") {
+      if (activeScanSummary) {
         reply =
           lang === "id"
-            ? `Jika kamu menekan tombol **Approve / Confirm** di wallet Phantom atau Solflare pada transaksi ini (**${slotText}**):\n\n• **Perubahan Aset Terdeteksi:** ${deltaSummary}\n• **Penyebab:** ${
-                report.threatFlags[0]?.title ||
-                "Instruksi berbahaya terdeteksi dalam transaksi"
-              } — ${
-                report.threatFlags[0]?.description || ""
-              }\n\n**Keputusan SolShield:** **JANGAN DITANDATANGANI.** Tutup halaman dApp tersebut sekarang juga.`
-            : `If you click **Approve / Confirm** in Phantom or Solflare on this transaction (**${slotText}**):\n\n• **Simulated Balance Impact:** ${deltaSummary}\n• **Why:** ${
-                report.threatFlags[0]?.title ||
-                "Hidden malicious instruction inside the transaction"
-              } — ${
-                report.threatFlags[0]?.description || ""
-              }\n\n**SolShield Verdict:** **DO NOT SIGN.** Close that website immediately.`;
-      } else if (report.deterministicClassification === "WARNING") {
-        reply =
-          lang === "id"
-            ? `Jika kamu menekan **Approve** pada transaksi ini:\n\n• Uangmu tidak langsung hilang detik ini, **TETAPI** kamu memberikan **izin penarikan (Delegate/Allowance)** kepada kontrak pihak ketiga.\n• Kontrak tersebut bisa menarik token kamu nanti tanpa meminta tanda tangan lagi.\n\n**Saran Agent:** Batasi jumlah izin (*allowance*) sesuai kebutuhan saja.`
-            : `If you click **Approve** on this transaction:\n\n• Your tokens aren't taken immediately, **BUT** you are granting a **Token Delegate Allowance** to an external contract.\n• That delegate could pull approved tokens later without another prompt.\n\n**Agent Advice:** Restrict delegate approvals strictly to the exact amount needed.`;
+            ? `Ringkasan audit aktif saat ini (**${slotText}**):\n\n${activeScanSummary}\n\nSelalu periksa instruksi & perubahan saldo nyata sebelum menekan **Approve / Confirm** di wallet.`
+            : `Active session inspection (**${slotText}**):\n\n${activeScanSummary}\n\nAlways verify every decoded instruction and simulated balance delta before clicking **Approve / Confirm** in your wallet.`;
       } else {
         reply =
           lang === "id"
-            ? `Jika kamu menekan **Approve** pada skenario **${preset.name}** (**${slotText}**):\n\n• **Simulasi Perubahan Aset:** ${deltaSummary || "Sesuai instruksi"}\n• **Keamanan:** Semua instruksi menggunakan program terverifikasi tanpa transfer otoritas wallet.\n\n**Keputusan SolShield:** **Aman untuk ditandatangani.**`
-            : `If you click **Approve** on scenario **${preset.name}** (**${slotText}**):\n\n• **Simulated Asset Deltas:** ${deltaSummary || "As inspected"}\n• **Safety Check:** Instructions match verified programs with no authority takeover.\n\n**SolShield Verdict:** **Safe to sign.**`;
+            ? `Belum ada transaksi yang di-audit pada sesi ini (**${slotText}**). Tempel **Base64 Transaction** atau **Solana Action Blink URL** di panel **01 // Pre-Sign Tx Firewall**, atau pasang ekstensi **Browser Guard** agar transaksi wallet dicek otomatis sebelum popup muncul.`
+            : `No transaction payload has been inspected in this session yet (**${slotText}**). Paste a **Base64 Transaction** or **Blink Action URL** in **01 // Pre-Sign Tx Firewall**, or install the **Browser Guard** extension to intercept wallet sign prompts automatically.`;
       }
     } else if (
       qLower.includes("venice") ||
@@ -386,8 +375,12 @@ async function computeAgentChatPayload(params: {
     } else {
       reply =
         lang === "id"
-          ? `Status inspeksi pada **${slotText}** (${latencyMs}ms):\n\n• **Skenario Aktif:** ${preset.name}\n• **Instruksi Terbaca:** ${report.instructions.length} instruksi program\n• **Verdict Keamanan:** **${report.deterministicClassification}** (Skor Risiko: ${report.deterministicRiskScore}/100)\n\nTempel alamat Token Mint, Program ID, Wallet, atau 88-char Tx Signature di kolom X-Ray untuk mengecek data Mainnet secara real-time.`
-          : `Live status at **${slotText}** (${latencyMs}ms):\n\n• **Active Scenario:** ${preset.name}\n• **Instructions Decoded:** ${report.instructions.length} Solana program instructions\n• **Safety Verdict:** **${report.deterministicClassification}** (Risk Score: ${report.deterministicRiskScore}/100)\n\nPaste any Token Mint, Program ID, Wallet address, or 88-char Tx Signature to inspect live Mainnet data.`;
+          ? `Terhubung ke **${slotText}** (${latencyMs}ms).\n\nTempel alamat Token Mint CA, Wallet/Program ID, atau 88-char Tx Signature di kolom X-Ray / chat untuk pemeriksaan on-chain Mainnet secara real-time.${
+              activeScanSummary ? `\n\n**Scan Aktif:** ${activeScanSummary}` : ""
+            }`
+          : `Connected to **${slotText}** (${latencyMs}ms).\n\nPaste any Token Mint CA, Wallet/Program ID, or 88-char Tx Signature in X-Ray or chat for live Mainnet inspection.${
+              activeScanSummary ? `\n\n**Active Scan:** ${activeScanSummary}` : ""
+            }`;
     }
 
     return {

@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import puppeteer, { type Browser, type Page } from "puppeteer-core";
-import { extractEntitiesFromText } from "./input-parser";
+import {
+  decodeHtmlEntities,
+  extractEntitiesFromText,
+  extractVisibleTextFromHtml,
+} from "./input-parser";
 import type {
   BrowserRunSummary,
   BrowserStopCapture,
@@ -266,6 +270,327 @@ async function captureStop(
   }
 }
 
+const THIRD_PARTY_CAMPAIGN_REPOS = new Set([
+  "veniceai/builtinvenice",
+  "vercel/next.js",
+  "solana-labs/solana",
+]);
+
+const STATIC_ASSET_EXT_RE =
+  /\.(css|js|mjs|cjs|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|eot|map)(\?|#|$)/i;
+
+function extractMetaDescription(html: string): string {
+  const metaMatches = html.matchAll(/<meta\b([^>]+)>/gi);
+  for (const m of metaMatches) {
+    const attrs = m[1];
+    const keyMatch = attrs.match(/(?:name|property)\s*=\s*["']([^"']+)["']/i);
+    const key = keyMatch?.[1]?.trim().toLowerCase();
+    if (key !== "description" && key !== "og:description") continue;
+    const contentMatch = attrs.match(/content\s*=\s*["']([^"']*)["']/i);
+    if (contentMatch?.[1]) {
+      return decodeHtmlEntities(contentMatch[1]).replace(/\s+/g, " ").trim();
+    }
+  }
+  return "";
+}
+
+/**
+ * Extracts title, human-readable text, and prioritized outbound links from raw SSR HTML
+ * so HTTP fallback yields accurate repository, X, and copy telemetry without Chromium.
+ */
+export function extractHtmlStopSignals(
+  html: string,
+  baseUrl: string
+): {
+  title: string;
+  textExcerpt: string;
+  hasPlaceholderCopy: boolean;
+  outboundGithub: string[];
+  outboundX: string[];
+  outboundSolanaAddresses: string[];
+  websiteUrls: string[];
+} {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch?.[1]
+    ? decodeHtmlEntities(titleMatch[1]).replace(/\s+/g, " ").trim()
+    : "";
+
+  const metaDescription = extractMetaDescription(html);
+
+  const priorityLinks = new Set<string>();
+  const generalLinks = new Set<string>();
+  for (const match of html.matchAll(/href\s*=\s*["']([^"'#]+)["']/gi)) {
+    const rawHref = match[1].trim();
+    if (
+      !rawHref ||
+      rawHref.startsWith("mailto:") ||
+      rawHref.startsWith("tel:") ||
+      rawHref.startsWith("javascript:")
+    ) {
+      continue;
+    }
+    try {
+      const resolved = new URL(rawHref, baseUrl);
+      if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+      const hrefStr = resolved.toString();
+      const host = resolved.hostname.toLowerCase();
+      if (
+        host === "github.com" ||
+        host === "www.github.com" ||
+        host === "x.com" ||
+        host === "www.x.com" ||
+        host === "twitter.com" ||
+        host === "www.twitter.com"
+      ) {
+        priorityLinks.add(hrefStr);
+      } else if (!STATIC_ASSET_EXT_RE.test(resolved.pathname)) {
+        generalLinks.add(hrefStr);
+      }
+    } catch {
+      // Ignore malformed relative href
+    }
+  }
+
+  const bodyText = extractVisibleTextFromHtml(html);
+  const combinedCopy =
+    metaDescription && !bodyText.toLowerCase().includes(metaDescription.toLowerCase().slice(0, 48))
+      ? `${metaDescription} ${bodyText}`.trim()
+      : bodyText;
+  const textExcerpt = combinedCopy.slice(0, 3200);
+
+  const orderedLinks = [
+    ...Array.from(priorityLinks).slice(0, 24),
+    ...Array.from(generalLinks).slice(0, 36),
+  ];
+  const entities = extractEntitiesFromText(`${orderedLinks.join(" ")}\n${textExcerpt}`);
+
+  return {
+    title,
+    textExcerpt,
+    hasPlaceholderCopy: PLACEHOLDER_RE.test(textExcerpt),
+    outboundGithub: entities.githubRepos,
+    outboundX: entities.xUrls,
+    outboundSolanaAddresses: entities.solanaAddresses,
+    websiteUrls: entities.websiteUrls,
+  };
+}
+
+async function readResponseTextCapped(res: Response, maxChars = 600_000): Promise<string> {
+  if (!res.body) {
+    return (await res.text()).slice(0, maxChars);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let result = "";
+  try {
+    while (result.length < maxChars) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      result += decoder.decode(value, { stream: true });
+    }
+    result += decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return result.slice(0, maxChars);
+}
+
+async function captureHttpStop(
+  targetUrl: string,
+  stepLabel: string,
+  timeoutMs = 6800
+): Promise<{ stop: BrowserStopCapture; websiteUrls: string[] }> {
+  const startMs = Date.now();
+  let currentUrl = (await assertSafePublicHttpUrl(targetUrl)).toString();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    let res: Response | null = null;
+    for (let hop = 0; hop <= 3; hop += 1) {
+      res = await fetch(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          "User-Agent": "SolShield-BuildCheck/1.0",
+          Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+        },
+        signal: controller.signal,
+        cache: "no-store",
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        await res.body?.cancel().catch(() => {});
+        if (!location) {
+          throw new Error(`HTTP ${res.status} redirect without Location header`);
+        }
+        const nextUrl = new URL(location, currentUrl).toString();
+        currentUrl = (await assertSafePublicHttpUrl(nextUrl)).toString();
+        continue;
+      }
+      break;
+    }
+
+    if (!res) {
+      throw new Error("HTTP request failed without response");
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (
+      contentType &&
+      !contentType.includes("text/html") &&
+      !contentType.includes("application/xhtml+xml") &&
+      !contentType.includes("text/plain")
+    ) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`Unsupported HTTP content-type: ${contentType}`);
+    }
+
+    const html = await readResponseTextCapped(res, 600_000);
+    const extracted = extractHtmlStopSignals(html, currentUrl);
+    const host = new URL(currentUrl).hostname.toLowerCase();
+
+    return {
+      stop: {
+        url: currentUrl,
+        title: extracted.title,
+        stepLabel,
+        screenshotBase64: "",
+        textExcerpt: extracted.textExcerpt,
+        outboundGithub: extracted.outboundGithub,
+        outboundX: extracted.outboundX,
+        outboundSolanaAddresses: extracted.outboundSolanaAddresses,
+        networkHosts: host ? [host] : [],
+        xhrCount: 0,
+        loadTimeMs: Date.now() - startMs,
+        hasPlaceholderCopy: extracted.hasPlaceholderCopy,
+        consoleErrors: [],
+        apiPayloads: [],
+      },
+      websiteUrls: extracted.websiteUrls,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function executeStopPlan(
+  options: BrowserObserveOptions,
+  notes: string[],
+  fetchStop: (
+    url: string,
+    stepLabel: string
+  ) => Promise<{ stop: BrowserStopCapture; websiteUrls: string[] }>
+): Promise<Omit<BrowserRunSummary, "mode" | "executableLabel">> {
+  const maxStops = options.maxStops ?? 2;
+  const stops: BrowserStopCapture[] = [];
+  const githubSet = new Set<string>();
+  const xSet = new Set<string>();
+  const solSet = new Set<string>();
+  const webSet = new Set<string>();
+
+  const recordStop = (stop: BrowserStopCapture) => {
+    stops.push(stop);
+    if (stop.screenshotBase64) {
+      options.onFrame?.(stop);
+    } else {
+      options.onNote?.(
+        `HTTP inspected ${stop.url} (${stop.textExcerpt.length} chars, ${stop.outboundGithub.length} repo link(s))`
+      );
+    }
+  };
+
+  for (let i = 0; i < Math.min(options.initialUrls.length, maxStops); i += 1) {
+    const target = options.initialUrls[i];
+    try {
+      const { stop, websiteUrls } = await fetchStop(target.url, target.label);
+      recordStop(stop);
+      stop.outboundGithub.forEach((g) => githubSet.add(g));
+      stop.outboundX.forEach((x) => xSet.add(x));
+      stop.outboundSolanaAddresses.forEach((s) => solSet.add(s));
+      websiteUrls.forEach((w) => webSet.add(w));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Stop fetch failed";
+      notes.push(`Skipped ${target.url}: ${msg}`);
+      options.onNote?.(msg);
+    }
+  }
+
+  // Opportunistically follow newly discovered GitHub repo or linked project site if under cap
+  if (stops.length < maxStops && githubSet.size > 0) {
+    const candidates = Array.from(githubSet).filter(
+      (repo) => !stops.some((s) => s.url.toLowerCase().includes(repo.toLowerCase()))
+    );
+    const nextGh =
+      candidates.find((r) => !THIRD_PARTY_CAMPAIGN_REPOS.has(r.toLowerCase())) ||
+      candidates[0];
+    if (nextGh) {
+      const ghUrl = `https://github.com/${nextGh}`;
+      try {
+        const { stop, websiteUrls } = await fetchStop(ghUrl, `GitHub · ${nextGh}`);
+        recordStop(stop);
+        websiteUrls.forEach((w) => webSet.add(w));
+      } catch (err) {
+        notes.push(
+          `Could not open linked GitHub repo ${nextGh}: ${
+            err instanceof Error ? err.message : "timeout"
+          }`
+        );
+      }
+    }
+  }
+
+  if (stops.length < maxStops && webSet.size > 0) {
+    const nextSite = Array.from(webSet).find((u) => {
+      try {
+        const h = new URL(u).hostname.toLowerCase();
+        return !stops.some((s) => s.url.toLowerCase().includes(h));
+      } catch {
+        return false;
+      }
+    });
+    if (nextSite) {
+      try {
+        const hostLabel = new URL(nextSite).hostname;
+        const { stop } = await fetchStop(nextSite, `Linked Site · ${hostLabel}`);
+        recordStop(stop);
+      } catch (err) {
+        notes.push(
+          `Could not open linked site ${nextSite}: ${
+            err instanceof Error ? err.message : "timeout"
+          }`
+        );
+      }
+    }
+  }
+
+  for (const s of stops) {
+    if (s.url.startsWith("http")) webSet.add(s.url);
+  }
+
+  return {
+    stops,
+    discoveredGithubRepos: Array.from(githubSet).slice(0, 5),
+    discoveredXUrls: Array.from(xSet).slice(0, 5),
+    discoveredSolanaAddresses: Array.from(solSet).slice(0, 5),
+    discoveredWebsiteUrls: Array.from(webSet).slice(0, 5),
+    totalXhrObserved: stops.reduce((sum, s) => sum + s.xhrCount, 0),
+    pageErrorsCount: stops.reduce(
+      (sum, s) => sum + (s.consoleErrors?.length ?? 0),
+      0
+    ),
+    inspectedApiPayloads: stops
+      .flatMap((s) => s.apiPayloads || [])
+      .slice(0, 12),
+    notes,
+  };
+}
+
 export interface BrowserObserveOptions {
   initialUrls: Array<{ url: string; label: string }>;
   maxStops?: number;
@@ -274,38 +599,40 @@ export interface BrowserObserveOptions {
 }
 
 /**
- * Runs a real headless Chromium session (local Chromium or remote CDP) to render
- * target sites, track outbound claims/links, observe XHR traffic, and emit live JPEG frames.
+ * SSRF-guarded HTTP HTML & outbound entity fallback used when headless Chromium
+ * or a remote CDP endpoint is unavailable (e.g. serverless deployments).
+ */
+export async function runHttpFallbackObservation(
+  options: BrowserObserveOptions
+): Promise<BrowserRunSummary> {
+  const notes = [
+    "No local Chromium executable or BUILDCHECK_BROWSER_WS_ENDPOINT configured; running SSRF-guarded HTTP HTML & entity fallback.",
+  ];
+  const summary = await executeStopPlan(options, notes, (url, label) =>
+    captureHttpStop(url, label)
+  );
+  return {
+    mode: "http-fallback",
+    executableLabel: "HTTP Fallback",
+    ...summary,
+  };
+}
+
+/**
+ * Runs a headless Chromium session (local Chromium or remote CDP) or SSRF-guarded
+ * HTTP HTML fallback to inspect target pages, extract outbound repo/social claims,
+ * observe XHR payloads, and emit live JPEG frames when Chromium is present.
  */
 export async function runLiveBrowserObservation(
   options: BrowserObserveOptions
 ): Promise<BrowserRunSummary> {
-  const maxStops = options.maxStops ?? 2;
-  const stops: BrowserStopCapture[] = [];
-  const githubSet = new Set<string>();
-  const xSet = new Set<string>();
-  const solSet = new Set<string>();
-  const webSet = new Set<string>();
   const notes: string[] = [];
 
   const remoteWs = process.env.BUILDCHECK_BROWSER_WS_ENDPOINT?.trim();
   const localExec = !remoteWs ? findLocalChromiumExecutable() : null;
 
   if (!remoteWs && !localExec) {
-    notes.push(
-      "No local Chromium executable or BUILDCHECK_BROWSER_WS_ENDPOINT configured; falling back to API/HTTP collectors."
-    );
-    return {
-      mode: "http-fallback",
-      executableLabel: "HTTP Fallback",
-      stops,
-      discoveredGithubRepos: [],
-      discoveredXUrls: [],
-      discoveredSolanaAddresses: [],
-      discoveredWebsiteUrls: [],
-      totalXhrObserved: 0,
-      notes,
-    };
+    return runHttpFallbackObservation(options);
   }
 
   let browser: Browser | null = null;
@@ -334,103 +661,18 @@ export async function runLiveBrowserObservation(
     }
 
     const page = await openGuardedPage(browser);
-
-    for (let i = 0; i < Math.min(options.initialUrls.length, maxStops); i += 1) {
-      const target = options.initialUrls[i];
-      try {
-        const { stop, websiteUrls } = await captureStop(page, target.url, target.label);
-        stops.push(stop);
-        stop.outboundGithub.forEach((g) => githubSet.add(g));
-        stop.outboundX.forEach((x) => xSet.add(x));
-        stop.outboundSolanaAddresses.forEach((s) => solSet.add(s));
-        websiteUrls.forEach((w) => webSet.add(w));
-        options.onFrame?.(stop);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Browser stop failed";
-        notes.push(`Skipped ${target.url}: ${msg}`);
-        options.onNote?.(msg);
-      }
-    }
-
-    // Opportunistically follow newly discovered GitHub repo or linked project site if under cap
-    if (stops.length < maxStops && githubSet.size > 0) {
-      const thirdPartyCampaignRepos = new Set([
-        "veniceai/builtinvenice",
-        "vercel/next.js",
-        "solana-labs/solana",
-      ]);
-      const candidates = Array.from(githubSet).filter(
-        (repo) => !stops.some((s) => s.url.toLowerCase().includes(repo.toLowerCase()))
+    try {
+      const summary = await executeStopPlan(options, notes, (url, label) =>
+        captureStop(page, url, label)
       );
-      const nextGh =
-        candidates.find((r) => !thirdPartyCampaignRepos.has(r.toLowerCase())) ||
-        candidates[0];
-      if (nextGh) {
-        const ghUrl = `https://github.com/${nextGh}`;
-        try {
-          const { stop, websiteUrls } = await captureStop(page, ghUrl, `GitHub · ${nextGh}`);
-          stops.push(stop);
-          websiteUrls.forEach((w) => webSet.add(w));
-          options.onFrame?.(stop);
-        } catch (err) {
-          notes.push(
-            `Could not open linked GitHub repo ${nextGh}: ${
-              err instanceof Error ? err.message : "timeout"
-            }`
-          );
-        }
-      }
+      return {
+        mode: remoteWs ? "remote-cdp" : "local-chromium",
+        executableLabel: remoteWs ? "Remote CDP Browser" : localExec?.label || "Chromium",
+        ...summary,
+      };
+    } finally {
+      await page.close().catch(() => {});
     }
-
-    if (stops.length < maxStops && webSet.size > 0) {
-      const nextSite = Array.from(webSet).find((u) => {
-        try {
-          const h = new URL(u).hostname.toLowerCase();
-          return !stops.some((s) => s.url.toLowerCase().includes(h));
-        } catch {
-          return false;
-        }
-      });
-      if (nextSite) {
-        try {
-          const hostLabel = new URL(nextSite).hostname;
-          const { stop } = await captureStop(page, nextSite, `Linked Site · ${hostLabel}`);
-          stops.push(stop);
-          options.onFrame?.(stop);
-        } catch (err) {
-          notes.push(
-            `Could not open linked site ${nextSite}: ${
-              err instanceof Error ? err.message : "timeout"
-            }`
-          );
-        }
-      }
-    }
-
-    await page.close().catch(() => {});
-
-    for (const s of stops) {
-      if (s.url.startsWith("http")) webSet.add(s.url);
-    }
-
-    return {
-      mode: remoteWs ? "remote-cdp" : "local-chromium",
-      executableLabel: remoteWs ? "Remote CDP Browser" : localExec?.label || "Chromium",
-      stops,
-      discoveredGithubRepos: Array.from(githubSet).slice(0, 5),
-      discoveredXUrls: Array.from(xSet).slice(0, 5),
-      discoveredSolanaAddresses: Array.from(solSet).slice(0, 5),
-      discoveredWebsiteUrls: Array.from(webSet).slice(0, 5),
-      totalXhrObserved: stops.reduce((sum, s) => sum + s.xhrCount, 0),
-      pageErrorsCount: stops.reduce(
-        (sum, s) => sum + (s.consoleErrors?.length ?? 0),
-        0
-      ),
-      inspectedApiPayloads: stops
-        .flatMap((s) => s.apiPayloads || [])
-        .slice(0, 12),
-      notes,
-    };
   } finally {
     if (browser) {
       if (ownsBrowser) {

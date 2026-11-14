@@ -46,7 +46,7 @@ export interface ThreatFlag {
 }
 
 export interface DeterministicSimulationReport {
-  sourceType: "BASE64_TX" | "BLINK_URL" | "PRESET_SCENARIO" | "INTENT_BUILD";
+  sourceType: "BASE64_TX" | "BLINK_URL" | "INTENT_BUILD" | "TEST_FIXTURE";
   feePayer: string;
   recentBlockhash: string;
   instructions: DecodedInstructionInfo[];

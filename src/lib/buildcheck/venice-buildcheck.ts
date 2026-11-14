@@ -105,7 +105,11 @@ export function buildDeterministicBuildCheck(
     const tok = input.chain.tokenReport;
     if (tok) {
       s = Math.max(10, 100 - tok.riskScore);
-      if (tok.mintAuthority === null && tok.freezeAuthority === null) {
+      if (tok.verifiedAsset) {
+        verifiedSignals.push(
+          `Canonical verified asset (${tok.symbol || tok.mintAddress.slice(0, 8)} issued by ${tok.verifiedAsset.issuer}).`
+        );
+      } else if (tok.mintAuthority === null && tok.freezeAuthority === null) {
         verifiedSignals.push(
           `Token mint & freeze authorities are revoked (${tok.symbol || tok.mintAddress.slice(0, 8)}).`
         );
@@ -141,9 +145,11 @@ export function buildDeterministicBuildCheck(
       status:
         chainProof >= 68 ? "VERIFIED" : chainProof >= 40 ? "MIXED" : "CONTRADICTED",
       evidence: tok
-        ? `${tok.tokenProgram} · MintAuth=${tok.mintAuthority ? "ACTIVE" : "Null"} · FreezeAuth=${
-            tok.freezeAuthority ? "ACTIVE" : "Null"
-          } · Top5=${tok.top5Pct.toFixed(1)}%`
+        ? tok.verifiedAsset
+          ? `${tok.tokenProgram} · Canonical ${tok.verifiedAsset.issuer} ${tok.symbol || "asset"} · Regulated/verified authorities`
+          : `${tok.tokenProgram} · MintAuth=${tok.mintAuthority ? "ACTIVE" : "Null"} · FreezeAuth=${
+              tok.freezeAuthority ? "ACTIVE" : "Null"
+            } · Top5=${tok.top5Pct.toFixed(1)}%`
         : input.chain.error || "Unable to verify SPL mint structure.",
     });
   }
@@ -481,6 +487,7 @@ export async function synthesizeWithVeniceBuildCheck(
     chain: input.chain
       ? {
           mintAddress: input.chain.mintAddress,
+          verifiedAsset: input.chain.tokenReport?.verifiedAsset ?? null,
           tokenProgram: input.chain.tokenReport?.tokenProgram,
           mintAuthority: input.chain.tokenReport?.mintAuthority,
           freezeAuthority: input.chain.tokenReport?.freezeAuthority,

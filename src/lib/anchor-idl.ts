@@ -1,8 +1,31 @@
 import { PublicKey } from "@solana/web3.js";
 
-export const SOLSHIELD_PROGRAM_ID = new PublicKey(
-  "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
-);
+export const DEFAULT_SOLSHIELD_PROGRAM_ID =
+  "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4";
+
+function resolveConfiguredProgramId(): PublicKey {
+  const candidates =
+    typeof process !== "undefined"
+      ? [
+          process.env.NEXT_PUBLIC_SOLSHIELD_PROGRAM_ID,
+          process.env.SOLSHIELD_PROGRAM_ID,
+        ]
+      : [];
+
+  for (const raw of candidates) {
+    const trimmed = raw?.trim();
+    if (!trimmed) continue;
+    try {
+      return new PublicKey(trimmed);
+    } catch {
+      // Ignore invalid env overrides and fall back to default deployed ID
+    }
+  }
+
+  return new PublicKey(DEFAULT_SOLSHIELD_PROGRAM_ID);
+}
+
+export const SOLSHIELD_PROGRAM_ID = resolveConfiguredProgramId();
 
 export const SOLSHIELD_POLICY_SEED = "solshield_policy";
 
@@ -10,7 +33,10 @@ export const SOLSHIELD_POLICY_SEED = "solshield_policy";
  * Deterministically derives the `SecurityPolicy` PDA address and canonical bump seed
  * for a given wallet owner public key.
  */
-export function deriveSecurityPolicyPda(ownerPubkey: string | PublicKey): {
+export function deriveSecurityPolicyPda(
+  ownerPubkey: string | PublicKey,
+  programIdOverride?: string | PublicKey
+): {
   pda: string;
   bump: number;
 } {
@@ -18,10 +44,15 @@ export function deriveSecurityPolicyPda(ownerPubkey: string | PublicKey): {
     typeof ownerPubkey === "string"
       ? new PublicKey(ownerPubkey)
       : ownerPubkey;
+  const programKey = programIdOverride
+    ? typeof programIdOverride === "string"
+      ? new PublicKey(programIdOverride)
+      : programIdOverride
+    : SOLSHIELD_PROGRAM_ID;
 
   const [pdaKey, bump] = PublicKey.findProgramAddressSync(
     [new TextEncoder().encode(SOLSHIELD_POLICY_SEED), ownerKey.toBuffer()],
-    SOLSHIELD_PROGRAM_ID
+    programKey
   );
 
   return {

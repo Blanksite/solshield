@@ -15,10 +15,16 @@ import {
   SOLSHIELD_PROGRAM_ID,
 } from "./anchor-idl";
 
+export const SOLANA_MAINNET_RPC_URL =
+  (typeof process !== "undefined" ? process.env.SOLANA_RPC_URL?.trim() : undefined) ||
+  "https://api.mainnet-beta.solana.com";
 export const SOLANA_DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const ANCHOR_PLACEHOLDER_PROGRAM_ID =
   "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS";
 const PLACEHOLDER_BLOCKHASH = "11111111111111111111111111111111";
+
+export type PolicyVaultCluster = "mainnet" | "devnet";
+export type PolicyVaultProbeMode = "auto" | PolicyVaultCluster;
 
 export interface SerializedInstructionArtifact {
   programId: string;
@@ -29,23 +35,28 @@ export interface SerializedInstructionArtifact {
   transactionBase64: string;
   accountCount: number;
   recentBlockhashUsed: string;
-  clusterTarget: "devnet";
+  clusterTarget: PolicyVaultCluster;
 }
 
-export interface DevnetPolicyVaultStatus {
-  cluster: "devnet";
+export interface PolicyVaultStatus {
+  cluster: PolicyVaultCluster;
   rpcUrl: string;
   programId: string;
   isPlaceholderTemplateId: boolean;
   programAccountExists: boolean;
   programExecutable: boolean;
+  programDeployedOnMainnet: boolean;
   programDeployedOnDevnet: boolean;
   policyPda: string | null;
+  policyInitialized: boolean;
   policyInitializedOnDevnet: boolean;
+  latestBlockhash: string | null;
   latestDevnetBlockhash: string | null;
   checkedAt: string;
   error?: string;
 }
+
+export type DevnetPolicyVaultStatus = PolicyVaultStatus;
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
@@ -127,6 +138,7 @@ export async function buildInitializePolicyTransaction(params: {
   maxAllowedRiskScore: number;
   blockUnknownTransferHooks?: boolean;
   recentBlockhash?: string;
+  clusterTarget?: PolicyVaultCluster;
 }): Promise<SerializedInstructionArtifact> {
   const ownerKey =
     typeof params.owner === "string"
@@ -168,7 +180,7 @@ export async function buildInitializePolicyTransaction(params: {
     transactionBase64,
     accountCount: ix.keys.length,
     recentBlockhashUsed: blockhashUsed,
-    clusterTarget: "devnet",
+    clusterTarget: params.clusterTarget ?? "devnet",
   };
 }
 
@@ -181,6 +193,7 @@ export async function buildUpdatePolicyTransaction(params: {
   maxAllowedRiskScore: number;
   blockUnknownTransferHooks?: boolean;
   recentBlockhash?: string;
+  clusterTarget?: PolicyVaultCluster;
 }): Promise<SerializedInstructionArtifact> {
   const ownerKey =
     typeof params.owner === "string"
@@ -221,7 +234,7 @@ export async function buildUpdatePolicyTransaction(params: {
     transactionBase64,
     accountCount: ix.keys.length,
     recentBlockhashUsed: blockhashUsed,
-    clusterTarget: "devnet",
+    clusterTarget: params.clusterTarget ?? "devnet",
   };
 }
 
@@ -232,6 +245,7 @@ export async function buildSetEmergencyLockTransaction(params: {
   owner: string | PublicKey;
   locked: boolean;
   recentBlockhash?: string;
+  clusterTarget?: PolicyVaultCluster;
 }): Promise<SerializedInstructionArtifact> {
   const ownerKey =
     typeof params.owner === "string"
@@ -269,7 +283,7 @@ export async function buildSetEmergencyLockTransaction(params: {
     transactionBase64,
     accountCount: ix.keys.length,
     recentBlockhashUsed: blockhashUsed,
-    clusterTarget: "devnet",
+    clusterTarget: params.clusterTarget ?? "devnet",
   };
 }
 
@@ -278,20 +292,33 @@ const USDC_MINT_KEY = new PublicKey(
 );
 
 /**
+ * Deterministically derives the owner's Associated Token Account (ATA) for any SPL or Token-2022 mint.
+ */
+export function deriveAssociatedTokenAccountForMint(
+  mint: string | PublicKey,
+  owner: string | PublicKey,
+  useToken2022 = false
+): string {
+  const mintKey = typeof mint === "string" ? new PublicKey(mint) : mint;
+  const ownerKey = typeof owner === "string" ? new PublicKey(owner) : owner;
+  const programId = useToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+  return getAssociatedTokenAddressSync(mintKey, ownerKey, false, programId).toBase58();
+}
+
+/**
  * Deterministically derives the owner's Associated Token Account (ATA) for USDC.
  */
 export function deriveUsdcAssociatedTokenAccount(
   owner: string | PublicKey
 ): string {
-  const ownerKey = typeof owner === "string" ? new PublicKey(owner) : owner;
-  return getAssociatedTokenAddressSync(USDC_MINT_KEY, ownerKey).toBase58();
+  return deriveAssociatedTokenAccountForMint(USDC_MINT_KEY, owner, false);
 }
 
 /**
  * Decodes a base64-serialized unsigned Legacy transaction and submits it to a
  * connected browser wallet provider (`window.solana.signAndSendTransaction`).
  */
-export async function submitDevnetArtifactWithWallet(
+export async function submitPolicyArtifactWithWallet(
   artifact: SerializedInstructionArtifact,
   provider: {
     signAndSendTransaction: (tx: Transaction) => Promise<{ signature: string }>;
@@ -303,6 +330,8 @@ export async function submitDevnetArtifactWithWallet(
   return res.signature;
 }
 
+export const submitDevnetArtifactWithWallet = submitPolicyArtifactWithWallet;
+
 /**
  * Constructs a real SPL Token / Token-2022 Instruction Tag 5 (`Revoke`) transaction
  * to clear a delegated spender from an SPL token account.
@@ -312,6 +341,7 @@ export function buildSplDelegateRevokeTransaction(params: {
   owner: string | PublicKey;
   useToken2022?: boolean;
   recentBlockhash?: string;
+  clusterTarget?: PolicyVaultCluster;
 }): SerializedInstructionArtifact {
   const tokenAccountKey =
     typeof params.tokenAccount === "string"
@@ -347,26 +377,22 @@ export function buildSplDelegateRevokeTransaction(params: {
     transactionBase64,
     accountCount: ix.keys.length,
     recentBlockhashUsed: blockhashUsed,
-    clusterTarget: "devnet",
+    clusterTarget: params.clusterTarget ?? "devnet",
   };
 }
 
-/**
- * Probes Solana Devnet RPC to report truthfully whether `SOLSHIELD_PROGRAM_ID`
- * is deployed and executable on-chain (and whether owner's Policy PDA exists).
- */
-export async function fetchDevnetPolicyVaultStatus(params?: {
+async function probeClusterPolicyVault(params: {
+  cluster: PolicyVaultCluster;
+  rpcUrl: string;
   ownerAddress?: string;
-  fetchImpl?: typeof fetch;
-  rpcUrl?: string;
-}): Promise<DevnetPolicyVaultStatus> {
-  const fetchImpl = params?.fetchImpl ?? fetch;
-  const rpcUrl = params?.rpcUrl ?? SOLANA_DEVNET_RPC_URL;
+  fetchImpl: typeof fetch;
+}): Promise<PolicyVaultStatus> {
+  const { cluster, rpcUrl, fetchImpl } = params;
   const programId = SOLSHIELD_PROGRAM_ID.toBase58();
   const isPlaceholderTemplateId = programId === ANCHOR_PLACEHOLDER_PROGRAM_ID;
 
   let policyPda: string | null = null;
-  if (params?.ownerAddress?.trim()) {
+  if (params.ownerAddress?.trim()) {
     try {
       policyPda = deriveSecurityPolicyPda(params.ownerAddress.trim()).pda;
     } catch {
@@ -419,41 +445,119 @@ export async function fetchDevnetPolicyVaultStatus(params?: {
 
     const programAccountExists = Boolean(programInfo);
     const programExecutable = Boolean(programInfo?.executable);
-    const programDeployedOnDevnet =
+    const programDeployed =
       programAccountExists && programExecutable && !isPlaceholderTemplateId;
+    const policyInitialized = Boolean(policyInfo);
+    const latestBlockhash = bhJson?.result?.value?.blockhash ?? null;
 
     return {
-      cluster: "devnet",
+      cluster,
       rpcUrl,
       programId,
       isPlaceholderTemplateId,
       programAccountExists,
       programExecutable,
-      programDeployedOnDevnet,
+      programDeployedOnMainnet: cluster === "mainnet" && programDeployed,
+      programDeployedOnDevnet: cluster === "devnet" && programDeployed,
       policyPda,
-      policyInitializedOnDevnet: Boolean(policyInfo),
-      latestDevnetBlockhash: bhJson?.result?.value?.blockhash ?? null,
+      policyInitialized,
+      policyInitializedOnDevnet: cluster === "devnet" && policyInitialized,
+      latestBlockhash,
+      latestDevnetBlockhash: cluster === "devnet" ? latestBlockhash : null,
       checkedAt: new Date().toISOString(),
     };
   } catch (err: unknown) {
     return {
-      cluster: "devnet",
+      cluster,
       rpcUrl,
       programId,
       isPlaceholderTemplateId,
       programAccountExists: false,
       programExecutable: false,
+      programDeployedOnMainnet: false,
       programDeployedOnDevnet: false,
       policyPda,
+      policyInitialized: false,
       policyInitializedOnDevnet: false,
+      latestBlockhash: null,
       latestDevnetBlockhash: null,
       checkedAt: new Date().toISOString(),
       error:
         err instanceof Error
           ? err.message
-          : "Unable to reach Solana Devnet RPC.",
+          : `Unable to reach Solana ${cluster === "mainnet" ? "Mainnet" : "Devnet"} RPC.`,
     };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Probes Solana RPC to report truthfully whether `SOLSHIELD_PROGRAM_ID`
+ * is deployed and executable on Mainnet (first) or Devnet Beta.
+ * Never reports `"mainnet"` unless an executable program account is verified on Mainnet RPC.
+ */
+export async function fetchPolicyVaultStatus(params?: {
+  ownerAddress?: string;
+  cluster?: PolicyVaultProbeMode;
+  fetchImpl?: typeof fetch;
+  rpcUrl?: string;
+  mainnetRpcUrl?: string;
+  devnetRpcUrl?: string;
+}): Promise<PolicyVaultStatus> {
+  const fetchImpl = params?.fetchImpl ?? fetch;
+  const mode: PolicyVaultProbeMode = params?.cluster ?? "auto";
+  const mainnetRpc =
+    params?.mainnetRpcUrl ?? params?.rpcUrl ?? SOLANA_MAINNET_RPC_URL;
+  const devnetRpc =
+    params?.devnetRpcUrl ?? params?.rpcUrl ?? SOLANA_DEVNET_RPC_URL;
+
+  if (mode === "mainnet") {
+    return probeClusterPolicyVault({
+      cluster: "mainnet",
+      rpcUrl: mainnetRpc,
+      ownerAddress: params?.ownerAddress,
+      fetchImpl,
+    });
+  }
+
+  if (mode === "devnet") {
+    return probeClusterPolicyVault({
+      cluster: "devnet",
+      rpcUrl: devnetRpc,
+      ownerAddress: params?.ownerAddress,
+      fetchImpl,
+    });
+  }
+
+  const mainnetStatus = await probeClusterPolicyVault({
+    cluster: "mainnet",
+    rpcUrl: mainnetRpc,
+    ownerAddress: params?.ownerAddress,
+    fetchImpl,
+  });
+  if (mainnetStatus.programDeployedOnMainnet) {
+    return mainnetStatus;
+  }
+
+  return probeClusterPolicyVault({
+    cluster: "devnet",
+    rpcUrl: devnetRpc,
+    ownerAddress: params?.ownerAddress,
+    fetchImpl,
+  });
+}
+
+/**
+ * Explicit Devnet RPC probe wrapper preserved for Devnet Beta tooling & tests.
+ */
+export async function fetchDevnetPolicyVaultStatus(params?: {
+  ownerAddress?: string;
+  fetchImpl?: typeof fetch;
+  rpcUrl?: string;
+}): Promise<PolicyVaultStatus> {
+  return fetchPolicyVaultStatus({
+    ...params,
+    cluster: "devnet",
+  });
 }

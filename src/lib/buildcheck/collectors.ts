@@ -1,7 +1,12 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { evaluateDomainSafety, normalizeHostname } from "../domain-guard";
 import { scanSolanaTokenMint } from "../token-scanner";
-import { extractEntitiesFromText, parseXUrl } from "./input-parser";
+import {
+  decodeHtmlEntities,
+  extractEntitiesFromText,
+  extractVisibleTextFromHtml,
+  parseXUrl,
+} from "./input-parser";
 import { collectTokenDeepIntel } from "./token-forensics";
 import type {
   ChainTokenIntelReport,
@@ -40,6 +45,281 @@ async function fetchJsonWithTimeout<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchTextWithTimeout(
+  url: string,
+  timeoutMs = 5500
+): Promise<{ ok: boolean; status: number; text: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: false, status: res.status, text: "" };
+    }
+    const text = await res.text();
+    return { ok: true, status: res.status, text };
+  } catch {
+    return { ok: false, status: 0, text: "" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function finalizeGitHubForensicReport(params: {
+  ownerRepo: string;
+  url: string;
+  description: string | null;
+  stars: number;
+  forks: number;
+  openIssues: number;
+  isFork: boolean;
+  forkParent: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  ageDays: number | null;
+  ownerAccountAgeDays: number | null;
+  commitTimestamps: number[];
+  authors: Set<string>;
+  files: string[];
+  topLanguages: string[];
+  extraSignals?: GitHubForensicReport["signals"];
+}): GitHubForensicReport {
+  const {
+    ownerRepo,
+    url,
+    description,
+    stars,
+    forks,
+    openIssues,
+    isFork,
+    forkParent,
+    createdAt,
+    updatedAt,
+    ageDays,
+    ownerAccountAgeDays,
+    commitTimestamps,
+    authors,
+    files,
+    topLanguages,
+    extraSignals = [],
+  } = params;
+
+  // Sliding 4-hour window burst detector
+  let maxCluster = 0;
+  const sortedTimestamps = [...commitTimestamps].sort((a, b) => a - b);
+  for (let i = 0; i < sortedTimestamps.length; i += 1) {
+    let cluster = 0;
+    for (let j = i; j < sortedTimestamps.length; j += 1) {
+      if (sortedTimestamps[j] - sortedTimestamps[i] <= 4 * 3_600_000) {
+        cluster += 1;
+      }
+    }
+    if (cluster > maxCluster) maxCluster = cluster;
+  }
+  const burstCommitRatio =
+    sortedTimestamps.length > 0
+      ? Number((maxCluster / sortedTimestamps.length).toFixed(2))
+      : 0;
+
+  const lowerFiles = files.map((f) => f.toLowerCase());
+  const hasTestsOrCi = lowerFiles.some((f) =>
+    ["test", "tests", "__tests__", ".github", "vitest.config.ts", "jest.config.js"].includes(
+      f
+    )
+  );
+  const hasPackageManifest = lowerFiles.some((f) =>
+    ["package.json", "cargo.toml", "pyproject.toml", "go.mod", "anchor.toml"].includes(f)
+  );
+
+  const signals: GitHubForensicReport["signals"] = [...extraSignals];
+  if (isFork) {
+    signals.push({
+      code: "REPO_IS_FORK",
+      severity: "WARNING",
+      message: `Repository is forked from ${forkParent || "an upstream repo"}.`,
+    });
+  }
+  if (ageDays !== null && ageDays <= 7) {
+    signals.push({
+      code: "BRAND_NEW_REPO",
+      severity: "WARNING",
+      message: `Repository was created only ${ageDays} day(s) ago.`,
+    });
+  } else if (ageDays !== null && ageDays >= 30) {
+    signals.push({
+      code: "ESTABLISHED_REPO_AGE",
+      severity: "INFO",
+      message: `Repository age is ${ageDays} days with ${sortedTimestamps.length} recent sampled commits.`,
+    });
+  }
+  if (sortedTimestamps.length >= 3 && burstCommitRatio >= 0.85 && (ageDays ?? 0) <= 14) {
+    signals.push({
+      code: "SINGLE_BURST_PUSH",
+      severity: "CRITICAL",
+      message: `${Math.round(burstCommitRatio * 100)}% of sampled commits landed in a single 4-hour window on a fresh repo.`,
+    });
+  }
+  if (!hasPackageManifest && files.length <= 4) {
+    signals.push({
+      code: "README_OR_STUB_ONLY",
+      severity: "CRITICAL",
+      message: `Only ${files.length} top-level entry(s) and no build manifest (package.json / Cargo.toml / pyproject.toml).`,
+    });
+  }
+  if (hasTestsOrCi) {
+    signals.push({
+      code: "TESTS_OR_CI_PRESENT",
+      severity: "INFO",
+      message: "Repository contains automated test suites or CI configuration.",
+    });
+  }
+  if (ownerAccountAgeDays !== null && ownerAccountAgeDays <= 14) {
+    signals.push({
+      code: "FRESH_GITHUB_OWNER",
+      severity: "WARNING",
+      message: `GitHub owner account is only ${ownerAccountAgeDays} day(s) old.`,
+    });
+  }
+
+  return {
+    queried: true,
+    exists: true,
+    fullName: ownerRepo,
+    url,
+    description,
+    stars,
+    forks,
+    openIssues,
+    isFork,
+    forkParent,
+    createdAt,
+    updatedAt,
+    ageDays,
+    ownerAccountAgeDays,
+    recentCommitCount: sortedTimestamps.length,
+    uniqueAuthorCount: authors.size,
+    burstCommitRatio,
+    topLanguages,
+    topLevelFiles: files.slice(0, 14),
+    hasTestsOrCi,
+    hasPackageManifest,
+    signals,
+  };
+}
+
+/**
+ * Fallback verifier used ONLY when GitHub REST API is rate-limited (403/429)
+ * or transiently unreachable from shared egress IPs.
+ */
+async function collectGitHubFromPublicWeb(
+  ownerRepo: string
+): Promise<GitHubForensicReport | null> {
+  const repoUrl = `https://github.com/${ownerRepo}`;
+  const [htmlRes, atomRes] = await Promise.all([
+    fetchTextWithTimeout(repoUrl),
+    fetchTextWithTimeout(`${repoUrl}/commits.atom`),
+  ]);
+
+  if (!htmlRes.ok || !htmlRes.text) {
+    return null;
+  }
+
+  const html = htmlRes.text;
+  const escapedOwnerRepo = ownerRepo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const fileHrefRe = new RegExp(
+    `href=["']\\/${escapedOwnerRepo}\\/(?:blob|tree)\\/[^/"']+\\/([^/"'?#]+)["']`,
+    "gi"
+  );
+  const filesSet = new Set<string>();
+  for (const m of html.matchAll(fileHrefRe)) {
+    try {
+      const name = decodeURIComponent(m[1]).trim();
+      if (name) filesSet.add(name);
+    } catch {
+      // Ignore malformed path segment
+    }
+  }
+
+  const ogDescMatch = html.match(
+    /<meta\b[^>]*property=["']og:description["'][^>]*content=["']([^"']*)["']/i
+  );
+  const rawDesc = ogDescMatch?.[1] ? decodeHtmlEntities(ogDescMatch[1]).trim() : null;
+  const description =
+    rawDesc && !rawDesc.startsWith("Contribute to ") ? rawDesc : null;
+
+  const forkMatch = html.match(/forked from\s*<a[^>]*href=["']\/([^"']+)["']/i);
+  const isFork = Boolean(forkMatch);
+  const forkParent = forkMatch?.[1] || null;
+
+  const starsMatch =
+    html.match(/id=["']repo-stars-counter-star["'][^>]*>([\d,.kKmM]+)</i) ||
+    html.match(/title=["']([\d,]+)["'][^>]*id=["']repo-stars-counter-star["']/i);
+  const parseCompactCount = (raw?: string) => {
+    if (!raw) return 0;
+    const cleaned = raw.trim().toLowerCase().replace(/,/g, "");
+    if (cleaned.endsWith("k")) return Math.round(Number.parseFloat(cleaned) * 1000) || 0;
+    if (cleaned.endsWith("m")) return Math.round(Number.parseFloat(cleaned) * 1_000_000) || 0;
+    return Number.parseInt(cleaned, 10) || 0;
+  };
+
+  const langSet = new Set<string>();
+  for (const m of html.matchAll(
+    /(?:itemprop=["']programmingLanguage["']|color-fg-default text-bold mr-1["'])[^>]*>([^<]+)</gi
+  )) {
+    const lang = decodeHtmlEntities(m[1]).trim();
+    if (lang && lang.length <= 32) langSet.add(lang);
+  }
+
+  const authors = new Set<string>();
+  const commitTimestamps: number[] = [];
+  let updatedAt: string | null = null;
+  if (atomRes.ok && atomRes.text) {
+    for (const entry of atomRes.text.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)) {
+      const block = entry[1];
+      const upd = block.match(/<updated>([^<]+)<\/updated>/i)?.[1];
+      if (upd) {
+        if (!updatedAt) updatedAt = upd;
+        const ms = Date.parse(upd);
+        if (Number.isFinite(ms)) commitTimestamps.push(ms);
+      }
+      const author = block.match(/<author>\s*<name>([^<]+)<\/name>/i)?.[1]?.trim();
+      if (author) authors.add(author.toLowerCase());
+    }
+  }
+
+  return finalizeGitHubForensicReport({
+    ownerRepo,
+    url: repoUrl,
+    description,
+    stars: parseCompactCount(starsMatch?.[1]),
+    forks: 0,
+    openIssues: 0,
+    isFork,
+    forkParent,
+    createdAt: null,
+    updatedAt,
+    ageDays: null,
+    ownerAccountAgeDays: null,
+    commitTimestamps,
+    authors,
+    files: Array.from(filesSet),
+    topLanguages: Array.from(langSet).slice(0, 4),
+    extraSignals: [
+      {
+        code: "GITHUB_PUBLIC_WEB_FALLBACK",
+        severity: "INFO",
+        message:
+          "Verified repository tree & recent commits via public GitHub HTML/Atom fallback (REST API rate-limited).",
+      },
+    ],
+  });
 }
 
 /**
@@ -92,6 +372,13 @@ export async function collectGitHubForensics(
   ]);
 
   if (!repoRes.ok || !repoRes.data) {
+    if (repoRes.status === 403 || repoRes.status === 429 || repoRes.status === 0) {
+      const publicWebReport = await collectGitHubFromPublicWeb(ownerRepo);
+      if (publicWebReport) {
+        return publicWebReport;
+      }
+    }
+
     return {
       queried: true,
       exists: false,
@@ -153,37 +440,9 @@ export async function collectGitHubForensics(
     if (Number.isFinite(ts)) commitTimestamps.push(ts);
   }
 
-  // Sliding 4-hour window burst detector
-  let maxCluster = 0;
-  commitTimestamps.sort((a, b) => a - b);
-  for (let i = 0; i < commitTimestamps.length; i += 1) {
-    let cluster = 0;
-    for (let j = i; j < commitTimestamps.length; j += 1) {
-      if (commitTimestamps[j] - commitTimestamps[i] <= 4 * 3_600_000) {
-        cluster += 1;
-      }
-    }
-    if (cluster > maxCluster) maxCluster = cluster;
-  }
-  const burstCommitRatio =
-    commitTimestamps.length > 0
-      ? Number((maxCluster / commitTimestamps.length).toFixed(2))
-      : 0;
-
   const files = Array.isArray(contentsRes.data)
     ? contentsRes.data.map((item) => item.name || "").filter(Boolean)
     : [];
-  const lowerFiles = files.map((f) => f.toLowerCase());
-
-  const hasTestsOrCi = lowerFiles.some((f) =>
-    ["test", "tests", "__tests__", ".github", "vitest.config.ts", "jest.config.js"].includes(
-      f
-    )
-  );
-  const hasPackageManifest = lowerFiles.some((f) =>
-    ["package.json", "cargo.toml", "pyproject.toml", "go.mod", "anchor.toml"].includes(f)
-  );
-
   const topLanguages = langsRes.data
     ? Object.entries(langsRes.data)
         .sort((a, b) => b[1] - a[1])
@@ -191,60 +450,8 @@ export async function collectGitHubForensics(
         .map(([lang]) => lang)
     : [];
 
-  const signals: GitHubForensicReport["signals"] = [];
-  if (repo.fork) {
-    signals.push({
-      code: "REPO_IS_FORK",
-      severity: "WARNING",
-      message: `Repository is forked from ${repo.parent?.full_name || "an upstream repo"}.`,
-    });
-  }
-  if (ageDays !== null && ageDays <= 7) {
-    signals.push({
-      code: "BRAND_NEW_REPO",
-      severity: "WARNING",
-      message: `Repository was created only ${ageDays} day(s) ago.`,
-    });
-  } else if (ageDays !== null && ageDays >= 30) {
-    signals.push({
-      code: "ESTABLISHED_REPO_AGE",
-      severity: "INFO",
-      message: `Repository age is ${ageDays} days with ${commits.length} recent sampled commits.`,
-    });
-  }
-  if (commits.length >= 3 && burstCommitRatio >= 0.85 && (ageDays ?? 0) <= 14) {
-    signals.push({
-      code: "SINGLE_BURST_PUSH",
-      severity: "CRITICAL",
-      message: `${Math.round(burstCommitRatio * 100)}% of sampled commits landed in a single 4-hour window on a fresh repo.`,
-    });
-  }
-  if (!hasPackageManifest && files.length <= 4) {
-    signals.push({
-      code: "README_OR_STUB_ONLY",
-      severity: "CRITICAL",
-      message: `Only ${files.length} top-level entry(s) and no build manifest (package.json / Cargo.toml / pyproject.toml).`,
-    });
-  }
-  if (hasTestsOrCi) {
-    signals.push({
-      code: "TESTS_OR_CI_PRESENT",
-      severity: "INFO",
-      message: "Repository contains automated test suites or CI configuration.",
-    });
-  }
-  if (ownerAccountAgeDays !== null && ownerAccountAgeDays <= 14) {
-    signals.push({
-      code: "FRESH_GITHUB_OWNER",
-      severity: "WARNING",
-      message: `GitHub owner account is only ${ownerAccountAgeDays} day(s) old.`,
-    });
-  }
-
-  return {
-    queried: true,
-    exists: true,
-    fullName: repo.full_name || ownerRepo,
+  return finalizeGitHubForensicReport({
+    ownerRepo: repo.full_name || ownerRepo,
     url: repo.html_url || `https://github.com/${ownerRepo}`,
     description: repo.description ?? null,
     stars: repo.stargazers_count ?? 0,
@@ -256,15 +463,11 @@ export async function collectGitHubForensics(
     updatedAt: repo.pushed_at ?? null,
     ageDays,
     ownerAccountAgeDays,
-    recentCommitCount: commits.length,
-    uniqueAuthorCount: authors.size,
-    burstCommitRatio,
+    commitTimestamps,
+    authors,
+    files,
     topLanguages,
-    topLevelFiles: files.slice(0, 14),
-    hasTestsOrCi,
-    hasPackageManifest,
-    signals,
-  };
+  });
 }
 
 /**
@@ -485,18 +688,6 @@ export async function collectDomainIntel(
   };
 }
 
-function stripHtmlTags(raw: string): string {
-  return raw
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 /**
  * Collects X/Twitter post text & embedded entities via Twitter syndication / oEmbed
  * endpoints (and enriches with headless browser text when available).
@@ -553,7 +744,7 @@ export async function collectXPostIntel(
       4500
     );
     if (oembedRes.ok && oembedRes.data?.html) {
-      const plain = stripHtmlTags(oembedRes.data.html);
+      const plain = extractVisibleTextFromHtml(oembedRes.data.html);
       const entities = extractEntitiesFromText(plain);
       return {
         url: canonicalUrl,

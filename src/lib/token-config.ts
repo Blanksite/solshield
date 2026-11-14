@@ -22,6 +22,7 @@ export interface SolShieldTokenConfig {
   links: {
     x: string;
     github: string;
+    mainnetProgram: string;
     devnetProgram: string;
     pumpfun: string | null;
     dexscreener: string | null;
@@ -94,6 +95,7 @@ export function getSolShieldTokenConfig(overrides?: {
     links: {
       x: xUrl,
       github: GITHUB_REPO_URL,
+      mainnetProgram: `https://explorer.solana.com/address/${SOLSHIELD_PROGRAM_ID.toBase58()}`,
       devnetProgram: `https://explorer.solana.com/address/${SOLSHIELD_PROGRAM_ID.toBase58()}?cluster=devnet`,
       pumpfun: isLive ? customPump || `https://pump.fun/coin/${ca}` : null,
       dexscreener: isLive

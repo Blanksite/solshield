@@ -7,9 +7,9 @@ import {
 import {
   DeterministicSimulationReport,
   analyzeBase64Transaction,
-} from "./solana-parser";
+} from "../../src/lib/solana-parser";
 
-export interface SimulationPreset {
+export interface TxTestFixture {
   id: string;
   name: string;
   subtitle: string;
@@ -26,13 +26,13 @@ export interface SimulationPreset {
   contextNotes: string;
 }
 
-const DUMMY_WALLET = new PublicKey(
+const TEST_WALLET = new PublicKey(
   "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
 );
-const DUMMY_ATTACKER = new PublicKey(
+const TEST_ATTACKER = new PublicKey(
   "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 );
-const DUMMY_HOOK_PROGRAM = new PublicKey(
+const TEST_HOOK_PROGRAM = new PublicKey(
   "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
 );
 const SPL_TOKEN_PROGRAM = new PublicKey(
@@ -50,15 +50,14 @@ const COMPUTE_BUDGET_PROGRAM = new PublicKey(
 const SOLSHIELD_POLICY_PROGRAM = new PublicKey(
   "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4"
 );
-const RECENT_BLOCKHASH = "11111111111111111111111111111111";
+const TEST_BLOCKHASH = "11111111111111111111111111111111";
 
 function buildSafeJupiterSwapBase64(): string {
   const tx = new Transaction({
-    feePayer: DUMMY_WALLET,
-    recentBlockhash: RECENT_BLOCKHASH,
+    feePayer: TEST_WALLET,
+    recentBlockhash: TEST_BLOCKHASH,
   });
 
-  // 1. ComputeBudget priority fee instruction
   tx.add(
     new TransactionInstruction({
       programId: COMPUTE_BUDGET_PROGRAM,
@@ -67,24 +66,22 @@ function buildSafeJupiterSwapBase64(): string {
     })
   );
 
-  // 2. SolShield Policy Guard verification CPI
   tx.add(
     new TransactionInstruction({
       programId: SOLSHIELD_POLICY_PROGRAM,
       keys: [
-        { pubkey: DUMMY_WALLET, isSigner: true, isWritable: false },
+        { pubkey: TEST_WALLET, isSigner: true, isWritable: false },
         { pubkey: SOLSHIELD_POLICY_PROGRAM, isSigner: false, isWritable: true },
       ],
       data: Buffer.from([1, 0, 200, 10]),
     })
   );
 
-  // 3. Jupiter v6 SharedAccountsRoute instruction
   tx.add(
     new TransactionInstruction({
       programId: JUPITER_V6_PROGRAM,
       keys: [
-        { pubkey: DUMMY_WALLET, isSigner: true, isWritable: true },
+        { pubkey: TEST_WALLET, isSigner: true, isWritable: true },
         { pubkey: SPL_TOKEN_PROGRAM, isSigner: false, isWritable: false },
       ],
       data: Buffer.from([193, 32, 155, 51, 65, 214, 156, 129, 50, 0]),
@@ -98,33 +95,31 @@ function buildSafeJupiterSwapBase64(): string {
 
 function buildSetAuthorityDrainerBase64(): string {
   const tx = new Transaction({
-    feePayer: DUMMY_WALLET,
-    recentBlockhash: RECENT_BLOCKHASH,
+    feePayer: TEST_WALLET,
+    recentBlockhash: TEST_BLOCKHASH,
   });
 
-  // Disguised as a "Free NFT Claim Blink", but contains SPL Token SetAuthority (tag = 6, AccountOwner = 2)
   const setAuthData = Buffer.concat([
-    Buffer.from([6, 2, 1]), // Tag 6 = SetAuthority, Type 2 = AccountOwner, Option = Some(1)
-    DUMMY_ATTACKER.toBuffer(),
+    Buffer.from([6, 2, 1]),
+    TEST_ATTACKER.toBuffer(),
   ]);
 
   tx.add(
     new TransactionInstruction({
       programId: SPL_TOKEN_PROGRAM,
       keys: [
-        { pubkey: DUMMY_WALLET, isSigner: false, isWritable: true }, // User's USDC ATA
-        { pubkey: DUMMY_WALLET, isSigner: true, isWritable: false }, // Current Owner Signer
-        { pubkey: DUMMY_ATTACKER, isSigner: false, isWritable: false }, // New Owner (Attacker)
+        { pubkey: TEST_WALLET, isSigner: false, isWritable: true },
+        { pubkey: TEST_WALLET, isSigner: true, isWritable: false },
+        { pubkey: TEST_ATTACKER, isSigner: false, isWritable: false },
       ],
       data: setAuthData,
     })
   );
 
-  // Also drains 12.5 SOL via SystemProgram::Transfer
   tx.add(
     SystemProgram.transfer({
-      fromPubkey: DUMMY_WALLET,
-      toPubkey: DUMMY_ATTACKER,
+      fromPubkey: TEST_WALLET,
+      toPubkey: TEST_ATTACKER,
       lamports: 12_500_000_000,
     })
   );
@@ -136,32 +131,30 @@ function buildSetAuthorityDrainerBase64(): string {
 
 function buildToken2022MaliciousHookBase64(): string {
   const tx = new Transaction({
-    feePayer: DUMMY_WALLET,
-    recentBlockhash: RECENT_BLOCKHASH,
+    feePayer: TEST_WALLET,
+    recentBlockhash: TEST_BLOCKHASH,
   });
 
-  // 1. Token-2022 TransferChecked (tag = 12) invoking an unverified 5th account (TransferHook program)
   tx.add(
     new TransactionInstruction({
       programId: TOKEN_2022_PROGRAM,
       keys: [
-        { pubkey: DUMMY_WALLET, isSigner: false, isWritable: true }, // Source
-        { pubkey: TOKEN_2022_PROGRAM, isSigner: false, isWritable: false }, // Mint
-        { pubkey: DUMMY_ATTACKER, isSigner: false, isWritable: true }, // Destination
-        { pubkey: DUMMY_WALLET, isSigner: true, isWritable: false }, // Owner
-        { pubkey: DUMMY_HOOK_PROGRAM, isSigner: false, isWritable: false }, // Unverified TransferHook CPI Program!
+        { pubkey: TEST_WALLET, isSigner: false, isWritable: true },
+        { pubkey: TOKEN_2022_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: TEST_ATTACKER, isSigner: false, isWritable: true },
+        { pubkey: TEST_WALLET, isSigner: true, isWritable: false },
+        { pubkey: TEST_HOOK_PROGRAM, isSigner: false, isWritable: false },
       ],
       data: Buffer.from([12, 0, 225, 245, 5, 0, 0, 0, 0, 9]),
     })
   );
 
-  // 2. Token-2022 PermanentDelegate instruction (tag = 35)
   tx.add(
     new TransactionInstruction({
       programId: TOKEN_2022_PROGRAM,
       keys: [
         { pubkey: TOKEN_2022_PROGRAM, isSigner: false, isWritable: true },
-        { pubkey: DUMMY_ATTACKER, isSigner: false, isWritable: false },
+        { pubkey: TEST_ATTACKER, isSigner: false, isWritable: false },
       ],
       data: Buffer.from([35, 1]),
     })
@@ -174,18 +167,17 @@ function buildToken2022MaliciousHookBase64(): string {
 
 function buildUnlimitedApproveBlinkBase64(): string {
   const tx = new Transaction({
-    feePayer: DUMMY_WALLET,
-    recentBlockhash: RECENT_BLOCKHASH,
+    feePayer: TEST_WALLET,
+    recentBlockhash: TEST_BLOCKHASH,
   });
 
-  // SPL Token ApproveChecked (tag = 13) granting u64::MAX allowance to an external contract
   tx.add(
     new TransactionInstruction({
       programId: SPL_TOKEN_PROGRAM,
       keys: [
-        { pubkey: DUMMY_WALLET, isSigner: false, isWritable: true }, // Token Account
-        { pubkey: DUMMY_HOOK_PROGRAM, isSigner: false, isWritable: false }, // Delegate
-        { pubkey: DUMMY_WALLET, isSigner: true, isWritable: false }, // Owner Signer
+        { pubkey: TEST_WALLET, isSigner: false, isWritable: true },
+        { pubkey: TEST_HOOK_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: TEST_WALLET, isSigner: true, isWritable: false },
       ],
       data: Buffer.from([13, 255, 255, 255, 255, 255, 255, 255, 255, 6]),
     })
@@ -196,7 +188,7 @@ function buildUnlimitedApproveBlinkBase64(): string {
     .toString("base64");
 }
 
-export const SIMULATION_PRESETS: SimulationPreset[] = [
+export const TX_TEST_FIXTURES: TxTestFixture[] = [
   {
     id: "safe-jupiter-swap",
     name: "Safe Jupiter v6 Swap (SOL -> USDC)",
@@ -291,16 +283,16 @@ export const SIMULATION_PRESETS: SimulationPreset[] = [
   },
 ];
 
-export function getPresetReport(presetId: string): {
-  preset: SimulationPreset;
+export function getTestFixtureReport(fixtureId: string): {
+  fixture: TxTestFixture;
   report: DeterministicSimulationReport;
 } {
-  const preset =
-    SIMULATION_PRESETS.find((p) => p.id === presetId) ?? SIMULATION_PRESETS[0];
-  const report = analyzeBase64Transaction(preset.base64Transaction);
-  report.sourceType = "PRESET_SCENARIO";
-  if (preset.simulatedBalanceDeltas.length > 0) {
-    report.balanceDeltas = preset.simulatedBalanceDeltas;
+  const fixture =
+    TX_TEST_FIXTURES.find((p) => p.id === fixtureId) ?? TX_TEST_FIXTURES[0];
+  const report = analyzeBase64Transaction(fixture.base64Transaction);
+  report.sourceType = "TEST_FIXTURE";
+  if (fixture.simulatedBalanceDeltas.length > 0) {
+    report.balanceDeltas = fixture.simulatedBalanceDeltas;
   }
-  return { preset, report };
+  return { fixture, report };
 }

@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import dns from "node:dns/promises";
+import { describe, it, expect, vi } from "vitest";
 import {
   assertSafePublicHttpUrl,
   isBlockedHostname,
@@ -10,6 +11,11 @@ import {
   parseGitHubOwnerRepo,
   parseXUrl,
 } from "../src/lib/buildcheck/input-parser";
+import {
+  extractHtmlStopSignals,
+  runHttpFallbackObservation,
+} from "../src/lib/buildcheck/browser-agent";
+import { collectGitHubForensics } from "../src/lib/buildcheck/collectors";
 import { buildDeterministicBuildCheck } from "../src/lib/buildcheck/venice-buildcheck";
 import { classifyDevTx } from "../src/lib/buildcheck/token-forensics";
 
@@ -707,5 +713,143 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
       dev
     );
     expect(deployRes.action).toBe("deploy");
+  });
+
+  it("extracts SSR title, copy, and outbound GitHub/X links while stripping script payloads", () => {
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <title>SolShield &amp; Firewall</title>
+          <meta name="description" content="Non-custodial Solana transaction firewall &amp; Devnet Policy Vault." />
+        </head>
+        <body>
+          <script>self.__next_f.push([1,"coming soon dummy https://github.com/evil/fake"]);</script>
+          <main>
+            <h1>Adaptive AI Guard</h1>
+            <p>Live bytecode simulator and Devnet Beta Policy Vault.</p>
+            <a href="https://x.com/usesolshield">X</a>
+            <a href="https://github.com/Blanksite/solshield">Repo</a>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const extracted = extractHtmlStopSignals(html, "https://sol-shield.xyz/");
+    expect(extracted.title).toBe("SolShield & Firewall");
+    expect(extracted.hasPlaceholderCopy).toBe(false);
+    expect(extracted.textExcerpt).toContain("Non-custodial Solana transaction firewall");
+    expect(extracted.textExcerpt).toContain("Adaptive AI Guard");
+    expect(extracted.outboundGithub).toEqual(["Blanksite/solshield"]);
+    expect(extracted.outboundX).toEqual(["https://x.com/usesolshield"]);
+  });
+
+  it("fetches public SSR HTML in http-fallback mode and blocks SSRF redirects", async () => {
+    const dnsSpy = vi
+      .spyOn(dns, "lookup")
+      .mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "https://sol-shield.xyz/") {
+        return new Response(
+          `<html><head><title>SolShield</title></head><body><main>05 // DEVNET POLICY VAULT (BETA)</main><a href="https://github.com/Blanksite/solshield">Code</a></body></html>`,
+          { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+        );
+      }
+      if (url === "https://github.com/Blanksite/solshield") {
+        return new Response(
+          `<html><head><title>GitHub - Blanksite/solshield</title></head><body><main>Solana firewall repo</main></body></html>`,
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
+      }
+      if (url === "https://redirect-trap.test/") {
+        return new Response("", {
+          status: 302,
+          headers: { location: "http://169.254.169.254/latest/meta-data/" },
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    const frames: unknown[] = [];
+    const notes: string[] = [];
+    try {
+      const summary = await runHttpFallbackObservation({
+        initialUrls: [
+          { url: "https://sol-shield.xyz/", label: "Project Site · sol-shield.xyz" },
+          { url: "https://redirect-trap.test/", label: "Redirect Trap" },
+        ],
+        maxStops: 3,
+        onFrame: (f) => frames.push(f),
+        onNote: (n) => notes.push(n),
+      });
+
+      expect(summary.mode).toBe("http-fallback");
+      expect(summary.discoveredGithubRepos).toContain("Blanksite/solshield");
+      expect(summary.stops.length).toBe(2);
+      expect(summary.stops[0].title).toBe("SolShield");
+      expect(summary.stops[1].url).toBe("https://github.com/Blanksite/solshield");
+      expect(frames.length).toBe(0);
+      expect(notes.some((n) => n.includes("HTTP inspected"))).toBe(true);
+      expect(
+        summary.notes.some(
+          (n) => n.includes("redirect-trap.test") && n.includes("Blocked internal/private host")
+        )
+      ).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+      dnsSpy.mockRestore();
+    }
+  });
+
+  it("falls back to public GitHub HTML/Atom when REST API returns 403 rate limit, but respects 404", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith("https://api.github.com/repos/Blanksite/solshield")) {
+        return new Response("rate limit exceeded", { status: 403 });
+      }
+      if (url.startsWith("https://api.github.com/users/Blanksite")) {
+        return new Response("rate limit exceeded", { status: 403 });
+      }
+      if (url === "https://github.com/Blanksite/solshield") {
+        return new Response(
+          `<html><head><meta property="og:description" content="SolShield Protocol" /></head>
+          <body>
+            <a href="/Blanksite/solshield/blob/main/package.json">package.json</a>
+            <a href="/Blanksite/solshield/tree/main/tests">tests</a>
+            <span class="color-fg-default text-bold mr-1">TypeScript</span>
+          </body></html>`,
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
+      }
+      if (url === "https://github.com/Blanksite/solshield/commits.atom") {
+        return new Response(
+          `<feed>
+            <entry><updated>2026-11-10T10:00:00Z</updated><author><name>alice</name></author></entry>
+            <entry><updated>2026-11-11T10:00:00Z</updated><author><name>bob</name></author></entry>
+          </feed>`,
+          { status: 200, headers: { "content-type": "application/atom+xml" } }
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    try {
+      const rateLimitedFallback = await collectGitHubForensics("Blanksite/solshield");
+      expect(rateLimitedFallback.exists).toBe(true);
+      expect(rateLimitedFallback.hasPackageManifest).toBe(true);
+      expect(rateLimitedFallback.hasTestsOrCi).toBe(true);
+      expect(rateLimitedFallback.recentCommitCount).toBe(2);
+      expect(rateLimitedFallback.uniqueAuthorCount).toBe(2);
+      expect(rateLimitedFallback.topLanguages).toContain("TypeScript");
+      expect(
+        rateLimitedFallback.signals.some((s) => s.code === "GITHUB_PUBLIC_WEB_FALLBACK")
+      ).toBe(true);
+
+      const missingRepo = await collectGitHubForensics("missing/does-not-exist");
+      expect(missingRepo.exists).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

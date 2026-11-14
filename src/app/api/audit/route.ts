@@ -5,8 +5,8 @@ import {
 } from "@/lib/api-guard";
 import { analyzeBase64Transaction } from "@/lib/solana-parser";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
-import { getPresetReport, SIMULATION_PRESETS } from "@/lib/presets";
 import { createCacheKeyHash } from "@/lib/scan-cache";
+import { recordScannedToken } from "@/lib/scanned-tokens";
 import {
   RpcTxSimulationReport,
   simulateSolanaTransactionRpc,
@@ -74,7 +74,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      presetId,
       base64Transaction,
       blinkUrl,
       veniceApiKey,
@@ -91,17 +90,28 @@ export async function POST(req: NextRequest) {
       forceRefresh,
     } = body;
 
-    const shouldSimulateRpc =
-      Boolean(simulateRpc) &&
-      typeof base64Transaction === "string" &&
-      base64Transaction.trim().length > 0;
+    const cleanBase64 =
+      typeof base64Transaction === "string" ? base64Transaction.trim() : "";
+    const cleanBlinkUrl =
+      typeof blinkUrl === "string" ? blinkUrl.trim() : "";
+
+    if (!cleanBase64 && !cleanBlinkUrl) {
+      return corsJson(
+        {
+          ok: false,
+          error:
+            "Provide a serialized base64Transaction or a Solana Action blinkUrl to inspect.",
+        },
+        { status: 400, req, policy: "extension" }
+      );
+    }
+
+    const shouldSimulateRpc = Boolean(simulateRpc);
 
     const cacheKey = createCacheKeyHash(
       JSON.stringify({
-        presetId: presetId || null,
-        base64Transaction:
-          typeof base64Transaction === "string" ? base64Transaction.trim() : null,
-        blinkUrl: typeof blinkUrl === "string" ? blinkUrl.trim() : null,
+        base64Transaction: cleanBase64 || null,
+        blinkUrl: cleanBlinkUrl || null,
         walletAddress: typeof walletAddress === "string" ? walletAddress.trim() : null,
         veniceModel: veniceModel || null,
         maxAllowedRiskScore:
@@ -130,26 +140,21 @@ export async function POST(req: NextRequest) {
       },
       async () => {
         let report;
-        let activePreset = null;
         let blinkMeta: BlinkActionInspectionMeta | null = null;
+        let txToSimulate = cleanBase64;
 
-        if (presetId) {
-          const presetBundle = getPresetReport(presetId);
-          report = presetBundle.report;
-          activePreset = presetBundle.preset;
-        } else if (base64Transaction && typeof base64Transaction === "string") {
-          report = analyzeBase64Transaction(base64Transaction);
-        } else if (blinkUrl && typeof blinkUrl === "string") {
+        if (cleanBase64) {
+          report = analyzeBase64Transaction(cleanBase64);
+        } else {
           const inspected = await inspectLiveBlinkUrl({
-            blinkUrl,
+            blinkUrl: cleanBlinkUrl,
             account: typeof walletAddress === "string" ? walletAddress : undefined,
           });
           report = inspected.report;
           blinkMeta = inspected.blinkMeta;
-        } else {
-          const bundle = getPresetReport(SIMULATION_PRESETS[0].id);
-          report = bundle.report;
-          activePreset = bundle.preset;
+          if (!txToSimulate && inspected.txBase64) {
+            txToSimulate = inspected.txBase64;
+          }
         }
 
         const maxDailyLamports =
@@ -171,8 +176,8 @@ export async function POST(req: NextRequest) {
             emergencyLocked: Boolean(emergencyLocked),
           }),
           fetchLiveSolanaSlot(),
-          shouldSimulateRpc
-            ? simulateSolanaTransactionRpc(base64Transaction, {
+          shouldSimulateRpc && txToSimulate
+            ? simulateSolanaTransactionRpc(txToSimulate, {
                 network: network === "devnet" ? "devnet" : "mainnet",
                 rpcUrl: typeof rpcUrl === "string" ? rpcUrl : undefined,
                 veniceApiKey:
@@ -185,7 +190,6 @@ export async function POST(req: NextRequest) {
         ]);
 
         return {
-          preset: activePreset,
           blinkMeta,
           simulation: report,
           rpcSimulation,
@@ -197,6 +201,13 @@ export async function POST(req: NextRequest) {
 
     if (!guarded.ok) {
       return buildGuardErrorResponse(guarded);
+    }
+
+    const tokenAudits = guarded.value.rpcSimulation?.tokenAudits ?? [];
+    if (tokenAudits.length > 0) {
+      await Promise.all(
+        tokenAudits.map((audit) => recordScannedToken(audit, "tx-firewall"))
+      );
     }
 
     return corsJson(

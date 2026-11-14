@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getPresetReport } from "../src/lib/presets";
+import { getTestFixtureReport } from "./fixtures/tx-payloads";
 import { deriveSecurityPolicyPda } from "../src/lib/anchor-idl";
 import {
   auditTransactionWithVenice,
@@ -8,7 +8,7 @@ import {
 
 describe("SolShield Transaction Firewall & Venice AI Security Engine", () => {
   it("approves a valid Jupiter v6 swap guarded by SolShield Policy PDA", async () => {
-    const { report } = getPresetReport("safe-jupiter-swap");
+    const { report } = getTestFixtureReport("safe-jupiter-swap");
 
     expect(report.deterministicClassification).toBe("SAFE");
     expect(report.deterministicRiskScore).toBeLessThan(20);
@@ -27,7 +27,7 @@ describe("SolShield Transaction Firewall & Venice AI Security Engine", () => {
   });
 
   it("detects and blocks an SPL SetAuthority (AccountOwner) wallet drainer Blink", async () => {
-    const { report } = getPresetReport("drainer-set-authority");
+    const { report } = getTestFixtureReport("drainer-set-authority");
 
     expect(report.deterministicClassification).toBe("CRITICAL");
     expect(report.deterministicRiskScore).toBeGreaterThanOrEqual(85);
@@ -49,7 +49,7 @@ describe("SolShield Transaction Firewall & Venice AI Security Engine", () => {
   });
 
   it("detects and blocks Token-2022 unverified TransferHook and PermanentDelegate extensions", async () => {
-    const { report } = getPresetReport("token2022-malicious-hook");
+    const { report } = getTestFixtureReport("token2022-malicious-hook");
 
     expect(report.hasUnverifiedTransferHook).toBe(true);
     expect(
@@ -76,7 +76,7 @@ describe("SolShield Transaction Firewall & Venice AI Security Engine", () => {
   });
 
   it("flags unlimited SPL ApproveChecked delegate allowance and enforces policy threshold", async () => {
-    const { report } = getPresetReport("warning-unlimited-approve");
+    const { report } = getTestFixtureReport("warning-unlimited-approve");
 
     expect(
       report.threatFlags.some((f) => f.code === "UNLIMITED_DELEGATE_APPROVAL")
@@ -90,7 +90,7 @@ describe("SolShield Transaction Firewall & Venice AI Security Engine", () => {
   });
 
   it("enforces 24h rolling daily lamport spend limit in Anchor Policy evaluation", async () => {
-    const { report } = getPresetReport("safe-jupiter-swap");
+    const { report } = getTestFixtureReport("safe-jupiter-swap");
     report.estimatedSpendLamports = 8_000_000_000; // 8 SOL spend
 
     const audit = await auditTransactionWithVenice(report, {

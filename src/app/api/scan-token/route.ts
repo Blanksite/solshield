@@ -4,6 +4,7 @@ import {
   runGuardedCachedOperation,
 } from "@/lib/api-guard";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
+import { recordScannedToken } from "@/lib/scanned-tokens";
 import { scanSolanaTokenMint } from "@/lib/token-scanner";
 
 async function handleScanTokenRequest(
@@ -43,6 +44,8 @@ async function handleScanTokenRequest(
     if (!guarded.ok) {
       return buildGuardErrorResponse(guarded);
     }
+
+    await recordScannedToken(guarded.value, "token-xray");
 
     return corsJson(
       {

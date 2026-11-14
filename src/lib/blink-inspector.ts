@@ -31,6 +31,7 @@ export interface BlinkActionInspectionMeta {
 export interface AuditedBlinkReportBundle {
   report: DeterministicSimulationReport;
   blinkMeta: BlinkActionInspectionMeta;
+  txBase64?: string;
 }
 
 export class BlinkInspectionError extends Error {
@@ -405,6 +406,7 @@ export async function inspectLiveBlinkUrl(params: {
       report.sourceType = "BLINK_URL";
       return {
         report,
+        txBase64,
         blinkMeta: {
           inspectionMode: "live-action-tx-audited",
           actionUrl: actionUrl.toString(),

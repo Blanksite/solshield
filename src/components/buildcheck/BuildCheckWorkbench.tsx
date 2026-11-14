@@ -46,6 +46,13 @@ import type {
   BuildCheckReport,
   BuildCheckStreamEvent,
 } from "@/lib/buildcheck/types";
+import {
+  clearLocalScannedTokens,
+  mergeScannedTokenLists,
+  readLocalScannedTokens,
+  saveLocalScannedToken,
+  type ScannedTokenSummary,
+} from "@/lib/scanned-token-types";
 import { DevHistoryPanel } from "./DevHistoryPanel";
 import { generateBuildCheckEvidencePng } from "./evidence-card-canvas";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
@@ -143,11 +150,26 @@ export default function BuildCheckWorkbench() {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [copiedCa, setCopiedCa] = useState(false);
   const [guestChecksUsed, setGuestChecksUsed] = useState(0);
+  const [recentTokens, setRecentTokens] = useState<ScannedTokenSummary[]>([]);
   const [forensicTab, setForensicTab] = useState<
     "proof" | "holders" | "dev" | "browser" | "telemetry"
   >("proof");
 
   const abortRef = useRef<AbortController | null>(null);
+
+  const loadRecentScannedTokens = async () => {
+    const localList = readLocalScannedTokens();
+    setRecentTokens(localList);
+    try {
+      const res = await fetch("/api/scanned-tokens?limit=12");
+      const data = await res.json();
+      if (data?.ok && Array.isArray(data.tokens)) {
+        setRecentTokens(mergeScannedTokenLists(localList, data.tokens, 12));
+      }
+    } catch {
+      // Keep local list on transient network failure
+    }
+  };
 
   useEffect(() => {
     try {
@@ -160,6 +182,7 @@ export default function BuildCheckWorkbench() {
     } catch {
       // Storage unavailable
     }
+    void loadRecentScannedTokens();
   }, []);
 
   useEffect(() => {
@@ -294,6 +317,10 @@ export default function BuildCheckWorkbench() {
             }));
           } else if (event.type === "verdict") {
             setReport(event.report);
+            if (event.report.chain?.tokenReport) {
+              saveLocalScannedToken(event.report.chain.tokenReport, "buildcheck");
+              void loadRecentScannedTokens();
+            }
             setGuestChecksUsed((prev) => {
               const next = prev + 1;
               try {
@@ -1252,6 +1279,63 @@ export default function BuildCheckWorkbench() {
                   Correlates real-time OHLCV candlesticks with verified dev burn &amp; launch
                   events alongside live Jupiter valuation quotes.
                 </p>
+              </div>
+            </section>
+          )}
+
+          {/* RECENTLY SCANNED TOKENS (Real Audits Only — Zero Dummy Presets) */}
+          {!isRunning && !report && recentTokens.length > 0 && (
+            <section className="rounded-xl border border-white/[0.08] bg-[#0D1017] p-5 space-y-3.5 rb-fade-up">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-[0.08em] text-[#93C5FD]">
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>Recently Scanned Tokens ({recentTokens.length})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearLocalScannedTokens();
+                    void loadRecentScannedTokens();
+                  }}
+                  className="text-[11px] font-mono text-slate-400 hover:text-white cursor-pointer"
+                >
+                  Clear Local History
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {recentTokens.slice(0, 8).map((tok) => (
+                  <button
+                    key={tok.mintAddress}
+                    type="button"
+                    onClick={() => void runCheck(tok.mintAddress)}
+                    className="p-3 rounded-lg border border-white/[0.08] bg-[#090B10] hover:border-[#2934FF]/70 text-left transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-sm font-semibold text-white truncate">
+                        {tok.symbol ? `$${tok.symbol}` : `${tok.mintAddress.slice(0, 6)}...`}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border shrink-0 ${
+                          tok.classification === "CRITICAL"
+                            ? "border-red-500/40 bg-red-500/10 text-red-400"
+                            : tok.classification === "CAUTION"
+                              ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                        }`}
+                      >
+                        {tok.classification} · {tok.riskScore}/100
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-[11px] font-mono text-slate-400">
+                      <span className="truncate">
+                        {tok.mintAddress.slice(0, 6)}...{tok.mintAddress.slice(-4)}
+                      </span>
+                      <span className="text-slate-500 shrink-0">
+                        {tok.verifiedIssuer || tok.source}
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
             </section>
           )}

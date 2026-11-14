@@ -28,6 +28,7 @@ import {
   computeAnchorInstructionDiscriminator,
   deriveUsdcAssociatedTokenAccount,
   fetchDevnetPolicyVaultStatus,
+  fetchPolicyVaultStatus,
 } from "../src/lib/anchor-vault";
 import { SOLSHIELD_PROGRAM_ID } from "../src/lib/anchor-idl";
 import { analyzeBase64Transaction } from "../src/lib/solana-parser";
@@ -321,5 +322,59 @@ describe("Anchor Policy Vault Borsh Serializer, Devnet Probe & SPL Tag 5 Revoke"
     });
     expect(missingStatus.isPlaceholderTemplateId).toBe(false);
     expect(missingStatus.programDeployedOnDevnet).toBe(false);
+  });
+
+  it("reports cluster 'mainnet' only when executable on Mainnet RPC and falls back cleanly to Devnet otherwise", async () => {
+    const mainnetUrl = "https://mock-mainnet.solana.local";
+    const devnetUrl = "https://mock-devnet.solana.local";
+
+    const mockRpcBothClusters = (
+      mainnetProgram: { executable: boolean } | null,
+      devnetProgram: { executable: boolean } | null
+    ): typeof fetch =>
+      (async (url, init) => {
+        const isMainnet = String(url) === mainnetUrl;
+        const parsedBody = JSON.parse(String(init?.body ?? "{}")) as {
+          method?: string;
+        };
+        if (parsedBody.method === "getMultipleAccounts") {
+          return new Response(
+            JSON.stringify({
+              result: {
+                value: [isMainnet ? mainnetProgram : devnetProgram, null],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            result: {
+              value: { blockhash: Keypair.generate().publicKey.toBase58() },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+    const mainnetLive = await fetchPolicyVaultStatus({
+      ownerAddress: owner.toBase58(),
+      mainnetRpcUrl: mainnetUrl,
+      devnetRpcUrl: devnetUrl,
+      fetchImpl: mockRpcBothClusters({ executable: true }, { executable: true }),
+    });
+    expect(mainnetLive.cluster).toBe("mainnet");
+    expect(mainnetLive.programDeployedOnMainnet).toBe(true);
+    expect(mainnetLive.latestBlockhash).toBeTruthy();
+
+    const devnetFallback = await fetchPolicyVaultStatus({
+      ownerAddress: owner.toBase58(),
+      mainnetRpcUrl: mainnetUrl,
+      devnetRpcUrl: devnetUrl,
+      fetchImpl: mockRpcBothClusters(null, { executable: true }),
+    });
+    expect(devnetFallback.cluster).toBe("devnet");
+    expect(devnetFallback.programDeployedOnMainnet).toBe(false);
+    expect(devnetFallback.programDeployedOnDevnet).toBe(true);
   });
 });

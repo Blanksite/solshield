@@ -260,3 +260,40 @@ export function extractEntitiesFromText(text: string): {
     solanaAddresses: Array.from(solSet).slice(0, 4),
   };
 }
+
+/**
+ * Decodes common named and numeric HTML entities into plain UTF-8 characters.
+ */
+export function decodeHtmlEntities(raw: string): string {
+  return raw
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const code = Number(dec);
+      return Number.isFinite(code) && code >= 32 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : " ";
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) && code >= 32 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : " ";
+    });
+}
+
+/**
+ * Strips scripts, styles, SVGs, comments, and markup tags from HTML to extract readable visible copy.
+ */
+export function extractVisibleTextFromHtml(rawHtml: string): string {
+  const withoutBlocks = rawHtml
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, " ");
+  return decodeHtmlEntities(withoutBlocks.replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}

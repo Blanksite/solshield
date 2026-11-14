@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   buildExtensionVerdict,
   inspectOffchainSignMessage,
 } from "../src/lib/extension-verdict";
-import { SIMULATION_PRESETS } from "../src/lib/presets";
+import { analyzeMintState } from "../src/lib/token-scanner";
+import { TX_TEST_FIXTURES } from "./fixtures/tx-payloads";
 
 function getPresetBase64(id: string): string {
-  const found = SIMULATION_PRESETS.find((p) => p.id === id);
+  const found = TX_TEST_FIXTURES.find((p) => p.id === id);
   if (!found) throw new Error(`Preset ${id} not found`);
   return found.base64Transaction;
 }
@@ -128,5 +131,96 @@ describe("M1/M2/M3 Merged Extension Verdict Engine", () => {
     expect(spoofSiwsVerdict.decision).toBe("BLOCK");
     expect(spoofSiwsVerdict.riskScore).toBeGreaterThanOrEqual(92);
     expect(spoofSiwsVerdict.requiresTypedConfirmation).toBe(true);
+  });
+
+  it("allows swaps touching canonical USDC while blocking spoofed USDC mints", () => {
+    const safeB64 = getPresetBase64("safe-jupiter-swap");
+
+    const usdcAudit = analyzeMintState({
+      mint: {
+        address: new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+        mintAuthority: new PublicKey("BJE5MMbqXjVwjAF7oxwPYXnTXDyspzZyt4vwenNw5ruG"),
+        supply: BigInt(5_000_000_000) * BigInt(1_000_000),
+        decimals: 6,
+        isInitialized: true,
+        freezeAuthority: new PublicKey("7dGbd2QZcCKcTndnHcTL8q7SMVXAkp688NTQYwrRCrar"),
+        tlvData: Buffer.alloc(0),
+      },
+      programOwner: TOKEN_PROGRAM_ID.toBase58(),
+      largestAccounts: [],
+      slot: 329000010,
+      metadata: { name: "USD Coin", symbol: "USDC" },
+    });
+
+    const canonicalSwapVerdict = buildExtensionVerdict({
+      walletMethod: "signTransaction",
+      hostname: "app.jup.ag",
+      base64Transactions: [safeB64],
+      remote: {
+        attempted: true,
+        verified: true,
+        timedOutOrError: null,
+        veniceAudit: null,
+        domainReputation: null,
+        rpcSimulation: {
+          status: "SIMULATED_OK",
+          network: "mainnet",
+          rpcError: null,
+          unitsConsumed: 52000,
+          balanceDiffs: [],
+          authorityChanges: [],
+          hiddenCpiPrograms: [],
+          discoveredMints: [usdcAudit.mintAddress],
+          tokenAudits: [usdcAudit],
+          logsPreview: [],
+        },
+      },
+    });
+
+    expect(canonicalSwapVerdict.decision).toBe("SAFE");
+    expect(canonicalSwapVerdict.requiresTypedConfirmation).toBe(false);
+
+    const fakeUsdcAudit = analyzeMintState({
+      mint: {
+        address: new PublicKey("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"),
+        mintAuthority: new PublicKey("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"),
+        supply: BigInt(1_000_000_000) * BigInt(1_000_000),
+        decimals: 6,
+        isInitialized: true,
+        freezeAuthority: new PublicKey("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"),
+        tlvData: Buffer.alloc(0),
+      },
+      programOwner: TOKEN_PROGRAM_ID.toBase58(),
+      largestAccounts: [],
+      slot: 329000011,
+      metadata: { name: "USD Coin", symbol: "USDC" },
+    });
+
+    const spoofSwapVerdict = buildExtensionVerdict({
+      walletMethod: "signTransaction",
+      hostname: "app.jup.ag",
+      base64Transactions: [safeB64],
+      remote: {
+        attempted: true,
+        verified: true,
+        timedOutOrError: null,
+        veniceAudit: null,
+        domainReputation: null,
+        rpcSimulation: {
+          status: "SIMULATED_OK",
+          network: "mainnet",
+          rpcError: null,
+          unitsConsumed: 52000,
+          balanceDiffs: [],
+          authorityChanges: [],
+          hiddenCpiPrograms: [],
+          discoveredMints: [fakeUsdcAudit.mintAddress],
+          tokenAudits: [fakeUsdcAudit],
+          logsPreview: [],
+        },
+      },
+    });
+
+    expect(spoofSwapVerdict.decision).toBe("BLOCK");
   });
 });

@@ -48,12 +48,131 @@ export interface TopHolderEntry {
   pctOfSupply: number;
 }
 
+export type VerifiedAssetCategory =
+  | "REGULATED_STABLECOIN"
+  | "LIQUID_STAKING"
+  | "NATIVE_WRAPPED";
+
+export interface VerifiedCanonicalAsset {
+  mint: string;
+  symbol: string;
+  name: string;
+  issuer: string;
+  category: VerifiedAssetCategory;
+  officialDomain?: string;
+  custodialIssuerAuthorities: boolean;
+  custodyNote: string;
+}
+
+/**
+ * Exact Base58 registry of canonical institutional stablecoins, wrapped native SOL,
+ * and blue-chip LSTs on Solana Mainnet. Matched strictly by mint address (never by
+ * token name/symbol) so spoofed lookalike mints are still flagged as CRITICAL rug risks.
+ */
+export const VERIFIED_CANONICAL_MINTS: Record<string, VerifiedCanonicalAsset> = {
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: {
+    mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    symbol: "USDC",
+    name: "USD Coin",
+    issuer: "Circle",
+    category: "REGULATED_STABLECOIN",
+    officialDomain: "circle.com",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical Circle USDC on Solana. Active mint and freeze authorities are expected for fiat-backed issuance and regulatory compliance rather than rug-pull risk.",
+  },
+  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: {
+    mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    symbol: "USDT",
+    name: "Tether USD",
+    issuer: "Tether",
+    category: "REGULATED_STABLECOIN",
+    officialDomain: "tether.to",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical Tether USDT on Solana. Active mint and freeze authorities are maintained by Tether for reserve issuance and compliance enforcement.",
+  },
+  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": {
+    mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+    symbol: "PYUSD",
+    name: "PayPal USD",
+    issuer: "Paxos / PayPal",
+    category: "REGULATED_STABLECOIN",
+    officialDomain: "paypal.com",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical PayPal USD (Token-2022). Mint, freeze, PermanentDelegate, and TransferHook extensions are NYDFS-regulated issuer compliance controls.",
+  },
+  HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr: {
+    mint: "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+    symbol: "EURC",
+    name: "Euro Coin",
+    issuer: "Circle",
+    category: "REGULATED_STABLECOIN",
+    officialDomain: "circle.com",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical Circle EURC on Solana. Active mint and freeze authorities belong to Circle's regulated euro reserve operations.",
+  },
+  USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA: {
+    mint: "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
+    symbol: "USDS",
+    name: "USDS",
+    issuer: "Sky Protocol",
+    category: "REGULATED_STABLECOIN",
+    officialDomain: "sky.money",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical USDS on Solana. Protocol-managed mint and compliance authorities are expected.",
+  },
+  So11111111111111111111111111111111111111112: {
+    mint: "So11111111111111111111111111111111111111112",
+    symbol: "SOL",
+    name: "Wrapped SOL",
+    issuer: "Solana Native SPL",
+    category: "NATIVE_WRAPPED",
+    officialDomain: "solana.com",
+    custodialIssuerAuthorities: false,
+    custodyNote:
+      "Canonical Native Wrapped SOL mint on Solana. Supply reflects wrapped lamport accounts dynamically.",
+  },
+  J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn: {
+    mint: "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+    symbol: "JitoSOL",
+    name: "Jito Staked SOL",
+    issuer: "Jito Stake Pool",
+    category: "LIQUID_STAKING",
+    officialDomain: "jito.network",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical JitoSOL liquid staking token. Mint authority is controlled by the audited SPL Stake Pool program for deposits and epoch rewards.",
+  },
+  mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So: {
+    mint: "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+    symbol: "mSOL",
+    name: "Marinade Staked SOL",
+    issuer: "Marinade Finance",
+    category: "LIQUID_STAKING",
+    officialDomain: "marinade.finance",
+    custodialIssuerAuthorities: true,
+    custodyNote:
+      "Canonical Marinade mSOL liquid staking token. Mint authority is governed by Marinade's on-chain staking program.",
+  },
+};
+
+export function getVerifiedCanonicalAsset(
+  mintAddress: string
+): VerifiedCanonicalAsset | null {
+  return VERIFIED_CANONICAL_MINTS[mintAddress.trim()] ?? null;
+}
+
 export interface TokenScanReport {
   mintAddress: string;
   tokenProgram: "SPL Token" | "Token-2022";
   programId: string;
   isToken2022: boolean;
   isPumpFunSuffix: boolean;
+  verifiedAsset?: VerifiedCanonicalAsset | null;
   name: string | null;
   symbol: string | null;
   decimals: number;
@@ -156,42 +275,83 @@ export function analyzeMintState(params: {
   const mintAddress = mint.address.toBase58();
   const isToken2022 = programOwner === TOKEN_2022_PROGRAM_ID.toBase58();
   const isPumpFunSuffix = mintAddress.endsWith("pump");
+  const verifiedAsset = getVerifiedCanonicalAsset(mintAddress);
+  const isExpectedCustody = Boolean(verifiedAsset?.custodialIssuerAuthorities);
   const flags: TokenRiskFlag[] = [];
   let riskScore = 0;
+
+  const pushCustodyAwareFlag = (cfg: {
+    code: TokenRiskFlag["code"];
+    custodialTitle: string;
+    custodialDescription: string;
+    riskSeverity: TokenRiskFlag["severity"];
+    riskTitle: string;
+    riskDescription: string;
+    riskPoints: number;
+  }) => {
+    if (isExpectedCustody && verifiedAsset) {
+      flags.push({
+        code: cfg.code,
+        severity: "LOW",
+        title: cfg.custodialTitle,
+        description: cfg.custodialDescription,
+      });
+      return;
+    }
+    flags.push({
+      code: cfg.code,
+      severity: cfg.riskSeverity,
+      title: cfg.riskTitle,
+      description: cfg.riskDescription,
+    });
+    riskScore += cfg.riskPoints;
+  };
 
   const divisor = Math.pow(10, mint.decimals);
   const supplyUi =
     divisor > 0 ? Number(mint.supply) / divisor : Number(mint.supply);
 
   if (mint.supply === BigInt(0)) {
+    const isNativeWrapped = verifiedAsset?.category === "NATIVE_WRAPPED";
     flags.push({
       code: "ZERO_SUPPLY",
-      severity: "MEDIUM",
-      title: "Zero Circulating Supply",
-      description:
-        "Mint currently reports 0 total supply on-chain (either pre-minted or fully burned).",
+      severity: isNativeWrapped ? "LOW" : "MEDIUM",
+      title: isNativeWrapped
+        ? "Dynamic Wrapped Native Supply"
+        : "Zero Circulating Supply",
+      description: isNativeWrapped
+        ? "Native Wrapped SOL mirrors underlying SOL lamports held in wrapped token accounts."
+        : "Mint currently reports 0 total supply on-chain (either pre-minted or fully burned).",
     });
-    riskScore += 15;
+    if (!isNativeWrapped) {
+      riskScore += 15;
+    }
   }
 
   if (mint.mintAuthority) {
-    flags.push({
+    const authAddr = mint.mintAuthority.toBase58();
+    pushCustodyAwareFlag({
       code: "MINT_AUTHORITY_ACTIVE",
-      severity: "CRITICAL",
-      title: "Mint Authority Still Active",
-      description: `Authority ${mint.mintAuthority.toBase58()} can mint unlimited new tokens and dilute holders at any time.`,
+      custodialTitle: `Expected Issuer Mint Authority (${verifiedAsset?.issuer})`,
+      custodialDescription: `Retained by canonical ${verifiedAsset?.symbol} issuer (${authAddr}) for reserve-backed issuance/redemption or stake-pool minting.`,
+      riskSeverity: "CRITICAL",
+      riskTitle: "Mint Authority Still Active",
+      riskDescription: `Authority ${authAddr} can mint unlimited new tokens and dilute holders at any time.`,
+      riskPoints: 35,
     });
-    riskScore += 35;
   }
 
   if (mint.freezeAuthority) {
-    flags.push({
+    const authAddr = mint.freezeAuthority.toBase58();
+    pushCustodyAwareFlag({
       code: "FREEZE_AUTHORITY_ACTIVE",
-      severity: "CRITICAL",
-      title: "Freeze Authority Active (Blacklist Risk)",
-      description: `Authority ${mint.freezeAuthority.toBase58()} can freeze buyer token accounts and block selling.`,
+      custodialTitle: `Expected Compliance Freeze Authority (${verifiedAsset?.issuer})`,
+      custodialDescription: `Maintained by ${verifiedAsset?.issuer} (${authAddr}) for regulatory/OFAC compliance — expected behavior for canonical ${verifiedAsset?.symbol}.`,
+      riskSeverity: "CRITICAL",
+      riskTitle: "Freeze Authority Active (Blacklist Risk)",
+      riskDescription: `Authority ${authAddr} can freeze buyer token accounts and block selling.`,
+      riskPoints: 40,
     });
-    riskScore += 40;
   }
 
   const extensions: string[] = [];
@@ -213,13 +373,15 @@ export function analyzeMintState(params: {
       !permDelegate.delegate.equals(PublicKey.default)
     ) {
       permanentDelegate = permDelegate.delegate.toBase58();
-      flags.push({
+      pushCustodyAwareFlag({
         code: "TOKEN_2022_PERMANENT_DELEGATE",
-        severity: "CRITICAL",
-        title: "Token-2022 Permanent Delegate Enabled",
-        description: `Delegate ${permanentDelegate} has protocol-level clawback authority to burn or transfer tokens directly out of any holder wallet.`,
+        custodialTitle: `Regulated Token-2022 Permanent Delegate (${verifiedAsset?.issuer})`,
+        custodialDescription: `Compliance recovery delegate (${permanentDelegate}) configured by ${verifiedAsset?.issuer} under regulated stablecoin supervision.`,
+        riskSeverity: "CRITICAL",
+        riskTitle: "Token-2022 Permanent Delegate Enabled",
+        riskDescription: `Delegate ${permanentDelegate} has protocol-level clawback authority to burn or transfer tokens directly out of any holder wallet.`,
+        riskPoints: 45,
       });
-      riskScore += 45;
     }
 
     const hook = getTransferHook(mint);
@@ -229,13 +391,15 @@ export function analyzeMintState(params: {
       !hook.programId.equals(PublicKey.default)
     ) {
       transferHookProgramId = hook.programId.toBase58();
-      flags.push({
+      pushCustodyAwareFlag({
         code: "TOKEN_2022_TRANSFER_HOOK",
-        severity: "HIGH",
-        title: "Token-2022 Custom TransferHook Program",
-        description: `Every buy/sell executes custom CPI logic in ${transferHookProgramId}, which can restrict or block transfers.`,
+        custodialTitle: `Verified Compliance TransferHook (${verifiedAsset?.issuer})`,
+        custodialDescription: `Token-2022 TransferHook program (${transferHookProgramId}) operated by canonical ${verifiedAsset?.symbol} issuer.`,
+        riskSeverity: "HIGH",
+        riskTitle: "Token-2022 Custom TransferHook Program",
+        riskDescription: `Every buy/sell executes custom CPI logic in ${transferHookProgramId}, which can restrict or block transfers.`,
+        riskPoints: 30,
       });
-      riskScore += 30;
     }
 
     const feeConfig = getTransferFeeConfig(mint);
@@ -337,21 +501,23 @@ export function analyzeMintState(params: {
   if (top5Pct >= 80 && topHolders.length >= 2) {
     flags.push({
       code: "HIGH_TOP5_CONCENTRATION",
-      severity: "HIGH",
+      severity: verifiedAsset ? "LOW" : "HIGH",
       title: `High Top-5 Concentration (${top5Pct}%)`,
-      description:
-        "Top 5 token accounts hold >= 80% of supply (verify whether the #1 account is a Raydium/Orca LP or liquidity vault before interacting).",
+      description: verifiedAsset
+        ? `Large balances are primarily institutional custody cold wallets or DEX vaults for canonical ${verifiedAsset.symbol}.`
+        : "Top 5 token accounts hold >= 80% of supply (verify whether the #1 account is a Raydium/Orca LP or liquidity vault before interacting).",
     });
-    riskScore += 18;
+    if (!verifiedAsset) riskScore += 18;
   } else if (top5Pct >= 55 && topHolders.length >= 2) {
     flags.push({
       code: "MODERATE_TOP5_CONCENTRATION",
-      severity: "MEDIUM",
+      severity: verifiedAsset ? "LOW" : "MEDIUM",
       title: `Elevated Top-5 Concentration (${top5Pct}%)`,
-      description:
-        "Top 5 accounts hold more than 55% of supply — inspect holder #1 to confirm it belongs to an LP/bonding pool.",
+      description: verifiedAsset
+        ? `Reflects exchange custody and liquidity vaults for canonical ${verifiedAsset.symbol}.`
+        : "Top 5 accounts hold more than 55% of supply — inspect holder #1 to confirm it belongs to an LP/bonding pool.",
     });
-    riskScore += 8;
+    if (!verifiedAsset) riskScore += 8;
   }
 
   const cappedScore = Math.min(100, Math.max(0, riskScore));
@@ -365,7 +531,9 @@ export function analyzeMintState(params: {
       : "VERIFIED_SAFE";
 
   let executiveSummary =
-    "Clean mint telemetry: both Mint Authority and Freeze Authority are revoked, with no malicious Token-2022 clawback extensions detected.";
+    verifiedAsset && classification === "SAFE"
+      ? `Verified canonical ${verifiedAsset.name} (${verifiedAsset.symbol}) issued by ${verifiedAsset.issuer}: ${verifiedAsset.custodyNote}`
+      : "Clean mint telemetry: both Mint Authority and Freeze Authority are revoked, with no malicious Token-2022 clawback extensions detected.";
 
   if (classification === "CRITICAL") {
     const criticalTitles = flags
@@ -386,8 +554,9 @@ export function analyzeMintState(params: {
     programId: programOwner,
     isToken2022,
     isPumpFunSuffix,
-    name: params.metadata?.name ?? null,
-    symbol: params.metadata?.symbol ?? null,
+    verifiedAsset,
+    name: params.metadata?.name ?? verifiedAsset?.name ?? null,
+    symbol: params.metadata?.symbol ?? verifiedAsset?.symbol ?? null,
     decimals: mint.decimals,
     rawSupply: mint.supply.toString(),
     supplyUi,
@@ -560,7 +729,7 @@ export async function scanSolanaTokenMint(
             {
               role: "system",
               content:
-                "You are SolShield Token Auditor running on Venice AI zero-retention inference. Summarize the on-chain risk of this Solana token in 1-2 crisp, objective sentences for traders. Mention Mint/Freeze authorities, Token-2022 hooks/fees if any, and top holder concentration.",
+                "You are SolShield Token Auditor running on Venice AI zero-retention inference. Summarize the on-chain risk of this Solana token in 1-2 crisp, objective sentences for traders. Mention Mint/Freeze authorities, Token-2022 hooks/fees if any, and top holder concentration. If verifiedCanonicalIssuer is provided, state clearly that it matches the official canonical mint address and any active issuer/compliance authorities are expected (not rug-pull risk).",
             },
             {
               role: "user",
@@ -569,6 +738,11 @@ export async function scanSolanaTokenMint(
                 name: report.name,
                 symbol: report.symbol,
                 tokenProgram: report.tokenProgram,
+                verifiedCanonicalIssuer: report.verifiedAsset
+                  ? `${report.verifiedAsset.issuer} (${report.verifiedAsset.category})`
+                  : null,
+                custodialIssuerAuthorities:
+                  report.verifiedAsset?.custodialIssuerAuthorities ?? false,
                 mintAuthorityRevoked: report.mintAuthority === null,
                 freezeAuthorityRevoked: report.freezeAuthority === null,
                 extensions: report.extensions,
@@ -577,6 +751,7 @@ export async function scanSolanaTokenMint(
                 transferHookProgramId: report.transferHookProgramId,
                 top5Pct: report.top5Pct,
                 riskScore: report.riskScore,
+                classification: report.classification,
               }),
             },
           ],

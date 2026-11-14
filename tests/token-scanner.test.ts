@@ -205,4 +205,95 @@ describe("SolShield SPL & Token-2022 Audit Engine", () => {
       symbol: null,
     });
   });
+
+  it("verifies canonical USDC and Token-2022 PYUSD as SAFE without rug-pull false positives", () => {
+    const canonicalUsdc: Mint = {
+      address: new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+      mintAuthority: new PublicKey("BJE5MMbqXjVwjAF7oxwPYXnTXDyspzZyt4vwenNw5ruG"),
+      supply: BigInt(5_000_000_000) * BigInt(1_000_000),
+      decimals: 6,
+      isInitialized: true,
+      freezeAuthority: new PublicKey("7dGbd2QZcCKcTndnHcTL8q7SMVXAkp688NTQYwrRCrar"),
+      tlvData: Buffer.alloc(0),
+    };
+
+    const usdcReport = analyzeMintState({
+      mint: canonicalUsdc,
+      programOwner: TOKEN_PROGRAM_ID.toBase58(),
+      largestAccounts: [
+        { address: "CexVault11111111111111111111111111111111111", uiAmount: 2_500_000_000 },
+        { address: "CexVault22222222222222222222222222222222222", uiAmount: 1_800_000_000 },
+      ],
+      slot: 329000001,
+      metadata: { name: "USD Coin", symbol: "USDC" },
+    });
+
+    expect(usdcReport.verifiedAsset?.issuer).toBe("Circle");
+    expect(usdcReport.classification).toBe("SAFE");
+    expect(usdcReport.recommendedAction).toBe("VERIFIED_SAFE");
+    expect(usdcReport.riskScore).toBe(0);
+    expect(usdcReport.flags.every((f) => f.severity === "LOW")).toBe(true);
+
+    const pdBuf = Buffer.alloc(PermanentDelegateLayout.span);
+    SAMPLE_AUTH.toBuffer().copy(pdBuf, 0);
+    const hookBuf = Buffer.alloc(TransferHookLayout.span);
+    SAMPLE_AUTH.toBuffer().copy(hookBuf, 0);
+    SAMPLE_HOOK.toBuffer().copy(hookBuf, 32);
+
+    const canonicalPyusd: Mint = {
+      address: new PublicKey("2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"),
+      mintAuthority: SAMPLE_AUTH,
+      supply: BigInt(400_000_000) * BigInt(1_000_000),
+      decimals: 6,
+      isInitialized: true,
+      freezeAuthority: SAMPLE_AUTH,
+      tlvData: Buffer.concat([
+        buildTlvEntry(ExtensionType.PermanentDelegate, pdBuf),
+        buildTlvEntry(ExtensionType.TransferHook, hookBuf),
+      ]),
+    };
+
+    const pyusdReport = analyzeMintState({
+      mint: canonicalPyusd,
+      programOwner: TOKEN_2022_PROGRAM_ID.toBase58(),
+      largestAccounts: [
+        { address: "Custody111111111111111111111111111111111111", uiAmount: 300_000_000 },
+      ],
+      slot: 329000002,
+      metadata: { name: "PayPal USD", symbol: "PYUSD" },
+    });
+
+    expect(pyusdReport.verifiedAsset?.custodialIssuerAuthorities).toBe(true);
+    expect(pyusdReport.classification).toBe("SAFE");
+    expect(pyusdReport.recommendedAction).toBe("VERIFIED_SAFE");
+    expect(pyusdReport.riskScore).toBe(0);
+    expect(pyusdReport.flags.every((f) => f.severity === "LOW")).toBe(true);
+  });
+
+  it("still flags spoofed USDC lookalike mints with active authorities as CRITICAL HIGH_RUG_RISK", () => {
+    const spoofUsdc: Mint = {
+      address: SAMPLE_MINT_PUMP,
+      mintAuthority: SAMPLE_AUTH,
+      supply: BigInt(1_000_000_000) * BigInt(1_000_000),
+      decimals: 6,
+      isInitialized: true,
+      freezeAuthority: SAMPLE_AUTH,
+      tlvData: Buffer.alloc(0),
+    };
+
+    const spoofReport = analyzeMintState({
+      mint: spoofUsdc,
+      programOwner: TOKEN_PROGRAM_ID.toBase58(),
+      largestAccounts: [
+        { address: "Attacker11111111111111111111111111111111111", uiAmount: 850_000_000 },
+      ],
+      slot: 329000003,
+      metadata: { name: "USD Coin", symbol: "USDC" },
+    });
+
+    expect(spoofReport.verifiedAsset ?? null).toBeNull();
+    expect(spoofReport.classification).toBe("CRITICAL");
+    expect(spoofReport.recommendedAction).toBe("HIGH_RUG_RISK");
+    expect(spoofReport.riskScore).toBeGreaterThanOrEqual(75);
+  });
 });

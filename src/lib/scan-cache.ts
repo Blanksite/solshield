@@ -51,13 +51,21 @@ function getCacheStore(): GlobalScanCacheStore {
   return g.__solshieldScanCacheStore;
 }
 
-function getCacheDir(): string {
+export function getScanCacheDir(): string {
   const configured = process.env.SOLSHIELD_CACHE_DIR?.trim();
   return configured || path.join(os.tmpdir(), "solshield-scan-cache");
 }
 
-function isDiskPersistenceEnabled(): boolean {
+export function isScanDiskPersistenceEnabled(): boolean {
   return process.env.SOLSHIELD_DISABLE_DISK_CACHE !== "true";
+}
+
+function getCacheDir(): string {
+  return getScanCacheDir();
+}
+
+function isDiskPersistenceEnabled(): boolean {
+  return isScanDiskPersistenceEnabled();
 }
 
 /**

@@ -1,0 +1,217 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { TokenScanReport } from "../src/lib/token-scanner";
+import {
+  clearLocalScannedTokens,
+  mergeScannedTokenLists,
+  readLocalScannedTokens,
+  saveLocalScannedToken,
+  SCANNED_TOKENS_STORAGE_KEY,
+  tokenReportToSummary,
+} from "../src/lib/scanned-token-types";
+import {
+  clearScannedTokens,
+  listScannedTokens,
+  recordScannedToken,
+} from "../src/lib/scanned-tokens";
+
+function makeSampleTokenReport(
+  overrides: Partial<TokenScanReport> = {}
+): TokenScanReport {
+  return {
+    mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    tokenProgram: "SPL Token",
+    programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    isToken2022: false,
+    isPumpFunSuffix: false,
+    verifiedAsset: null,
+    name: "USD Coin",
+    symbol: "USDC",
+    decimals: 6,
+    rawSupply: "1000000000",
+    supplyUi: 1000,
+    mintAuthority: null,
+    freezeAuthority: null,
+    extensions: [],
+    transferFeeBps: null,
+    permanentDelegate: null,
+    transferHookProgramId: null,
+    defaultAccountState: null,
+    topHolders: [],
+    top5Pct: 0,
+    top10Pct: 0,
+    riskScore: 0,
+    classification: "SAFE",
+    recommendedAction: "VERIFIED_SAFE",
+    executiveSummary: "Verified SPL token.",
+    flags: [],
+    slot: 330000000,
+    latencyMs: 42,
+    inferenceMode: "deterministic-fallback",
+    privacyAttestation: "Zero-retention check",
+    ...overrides,
+  };
+}
+
+describe("Recently Scanned Tokens Ledger & Persistence", () => {
+  let tempDir: string;
+  let prevCacheDir: string | undefined;
+
+  beforeEach(async () => {
+    prevCacheDir = process.env.SOLSHIELD_CACHE_DIR;
+    tempDir = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "solshield-scanned-test-")
+    );
+    process.env.SOLSHIELD_CACHE_DIR = tempDir;
+    await clearScannedTokens();
+  });
+
+  afterEach(async () => {
+    await clearScannedTokens();
+    if (prevCacheDir === undefined) {
+      delete process.env.SOLSHIELD_CACHE_DIR;
+    } else {
+      process.env.SOLSHIELD_CACHE_DIR = prevCacheDir;
+    }
+    delete (globalThis as Record<string, unknown>).window;
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("starts empty with zero dummy tokens when nothing has been audited", async () => {
+    const initial = await listScannedTokens(20);
+    expect(initial).toEqual([]);
+  });
+
+  it("records audited tokens, increments scanCount on repeat audits, and keeps newest first", async () => {
+    const first = makeSampleTokenReport({
+      mintAddress: "So11111111111111111111111111111111111111112",
+      symbol: "SOL",
+      name: "Wrapped SOL",
+    });
+    const second = makeSampleTokenReport({
+      mintAddress: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+      symbol: "PYUSD",
+      name: "PayPal USD",
+      tokenProgram: "Token-2022",
+      isToken2022: true,
+      riskScore: 15,
+    });
+
+    const entry1 = await recordScannedToken(first, "token-xray");
+    expect(entry1.scanCount).toBe(1);
+    expect(entry1.source).toBe("token-xray");
+
+    await new Promise((r) => setTimeout(r, 15));
+    await recordScannedToken(second, "buildcheck");
+
+    await new Promise((r) => setTimeout(r, 15));
+    const entry1Again = await recordScannedToken(first, "tx-firewall");
+    expect(entry1Again.scanCount).toBe(2);
+    expect(entry1Again.source).toBe("tx-firewall");
+
+    const all = await listScannedTokens(20);
+    expect(all).toHaveLength(2);
+    expect(all[0].mintAddress).toBe(first.mintAddress);
+    expect(all[0].scanCount).toBe(2);
+    expect(all[1].mintAddress).toBe(second.mintAddress);
+    expect(all[1].scanCount).toBe(1);
+  });
+
+  it("persists audited tokens to disk and reloads cleanly after in-memory reset", async () => {
+    await recordScannedToken(
+      makeSampleTokenReport({
+        mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        symbol: "USDC",
+        verifiedAsset: {
+          mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          symbol: "USDC",
+          name: "USD Coin",
+          issuer: "Circle",
+          category: "REGULATED_STABLECOIN",
+          custodialIssuerAuthorities: true,
+          custodyNote: "Canonical Circle mint",
+        },
+      }),
+      "token-xray"
+    );
+
+    // Simulate process restart by resetting the global in-memory ledger
+    delete (globalThis as Record<string, unknown>).__solshieldScannedTokensStore;
+
+    const reloaded = await listScannedTokens(20);
+    expect(reloaded).toHaveLength(1);
+    expect(reloaded[0].symbol).toBe("USDC");
+    expect(reloaded[0].verifiedIssuer).toBe("Circle");
+  });
+
+  it("merges local and server scanned token lists while deduplicating by mintAddress", () => {
+    const older = tokenReportToSummary(
+      makeSampleTokenReport({
+        mintAddress: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        symbol: "JUP",
+      }),
+      "token-xray",
+      "2026-11-14T01:00:00.000Z"
+    );
+    older.scanCount = 3;
+
+    const newerSameMint = tokenReportToSummary(
+      makeSampleTokenReport({
+        mintAddress: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        symbol: "JUP",
+        riskScore: 5,
+      }),
+      "buildcheck",
+      "2026-11-14T02:00:00.000Z"
+    );
+    newerSameMint.scanCount = 1;
+
+    const another = tokenReportToSummary(
+      makeSampleTokenReport({
+        mintAddress: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        symbol: "BONK",
+      }),
+      "token-xray",
+      "2026-11-14T01:30:00.000Z"
+    );
+
+    const merged = mergeScannedTokenLists([newerSameMint], [older, another], 10);
+    expect(merged).toHaveLength(2);
+    expect(merged[0].mintAddress).toBe("JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN");
+    expect(merged[0].source).toBe("buildcheck");
+    expect(merged[0].scanCount).toBe(3);
+    expect(merged[1].symbol).toBe("BONK");
+  });
+
+  it("stores, increments, and clears browser localStorage scanned tokens safely", () => {
+    const store = new Map<string, string>();
+    (globalThis as Record<string, unknown>).window = {
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          store.set(k, v);
+        },
+        removeItem: (k: string) => {
+          store.delete(k);
+        },
+      },
+    };
+
+    expect(readLocalScannedTokens()).toEqual([]);
+
+    const usdc = makeSampleTokenReport();
+    const afterFirst = saveLocalScannedToken(usdc, "token-xray");
+    expect(afterFirst).toHaveLength(1);
+    expect(afterFirst[0].scanCount).toBe(1);
+
+    const afterSecond = saveLocalScannedToken(usdc, "buildcheck");
+    expect(afterSecond).toHaveLength(1);
+    expect(afterSecond[0].scanCount).toBe(2);
+    expect(store.has(SCANNED_TOKENS_STORAGE_KEY)).toBe(true);
+
+    clearLocalScannedTokens();
+    expect(readLocalScannedTokens()).toEqual([]);
+  });
+});

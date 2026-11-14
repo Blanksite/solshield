@@ -25,6 +25,7 @@ import {
   recordCoalescedHit,
   setCachedEntry,
 } from "../scan-cache";
+import { recordScannedToken } from "../scanned-tokens";
 import type { ParsedTargetInput } from "./types";
 
 export interface RunBuildCheckOptions extends VeniceBuildCheckOptions {
@@ -705,6 +706,10 @@ async function executeFreshBuildCheckInvestigation(
   );
 
   finalReport.elapsedMs = elapsed();
+
+  if (finalReport.chain?.tokenReport) {
+    await recordScannedToken(finalReport.chain.tokenReport, "buildcheck");
+  }
 
   if (!options.bypassCache) {
     const rawTtl = Number(process.env.BUILDCHECK_CACHE_TTL_MS || DEFAULT_BUILDCHECK_CACHE_TTL_MS);
