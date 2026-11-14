@@ -78,10 +78,17 @@ async function readUpstashScannedTokens(): Promise<ScannedTokenSummary[] | null>
       );
       if (!res.ok) return null;
       const payload = (await res.json()) as { result?: unknown };
+      if (Array.isArray(payload.result)) {
+        return parseValidSummaries(payload.result);
+      }
       if (typeof payload.result !== "string" || !payload.result.trim()) {
         return [];
       }
-      return parseValidSummaries(JSON.parse(payload.result));
+      let parsed: unknown = JSON.parse(payload.result);
+      if (typeof parsed === "string") {
+        parsed = JSON.parse(parsed);
+      }
+      return parseValidSummaries(parsed);
     } finally {
       clearTimeout(timer);
     }
@@ -99,18 +106,15 @@ async function writeUpstashScannedTokens(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2500);
     try {
-      await fetch(
-        `${cfg.url}/set/${encodeURIComponent(UPSTASH_SCANNED_TOKENS_KEY)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${cfg.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(JSON.stringify(items)),
-          signal: controller.signal,
-        }
-      );
+      await fetch(cfg.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(["SET", UPSTASH_SCANNED_TOKENS_KEY, JSON.stringify(items)]),
+        signal: controller.signal,
+      });
     } finally {
       clearTimeout(timer);
     }

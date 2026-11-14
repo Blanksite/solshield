@@ -246,4 +246,73 @@ describe("Recently Scanned Tokens Ledger & Persistence", () => {
     });
     expect(pushed.scanCount).toBe(2);
   });
+
+  it("reads and writes Vercel KV / Upstash REST commands with single JSON array encoding", async () => {
+    const prevUrl = process.env.KV_REST_API_URL;
+    const prevToken = process.env.KV_REST_API_TOKEN;
+    const prevFetch = globalThis.fetch;
+    const kvState = new Map<string, string>();
+    const recordedBodies: string[] = [];
+
+    process.env.KV_REST_API_URL = "https://example-upstash.upstash.io";
+    process.env.KV_REST_API_TOKEN = "test-kv-token";
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (init?.method === "POST") {
+        const rawBody = String(init.body || "");
+        recordedBodies.push(rawBody);
+        const cmd = JSON.parse(rawBody) as [string, string, string];
+        if (cmd[0] === "SET") {
+          kvState.set(cmd[1], cmd[2]);
+        }
+        return new Response(JSON.stringify({ result: "OK" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const key = decodeURIComponent(url.split("/get/")[1] || "");
+      return new Response(JSON.stringify({ result: kvState.get(key) ?? null }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const entry = tokenReportToSummary(
+        makeSampleTokenReport({
+          mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+          symbol: "SHIELD",
+          name: "SolShield",
+        }),
+        "buildcheck",
+        "2026-11-14T13:45:00.000Z"
+      );
+
+      await recordScannedTokenSummary(entry);
+      expect(recordedBodies).toHaveLength(1);
+      const sentCommand = JSON.parse(recordedBodies[0]) as unknown[];
+      expect(sentCommand[0]).toBe("SET");
+      expect(sentCommand[1]).toBe("solshield:scanned_tokens:v1");
+      expect(typeof sentCommand[2]).toBe("string");
+      expect(Array.isArray(JSON.parse(sentCommand[2] as string))).toBe(true);
+
+      // Simulate cold serverless instance reading back solely from KV
+      delete (globalThis as Record<string, unknown>).__solshieldScannedTokensStore;
+      await fs.promises
+        .unlink(path.join(tempDir, "scanned-tokens_history.json"))
+        .catch(() => undefined);
+
+      const hydrated = await listScannedTokens(10);
+      expect(hydrated).toHaveLength(1);
+      expect(hydrated[0].mintAddress).toBe("CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx");
+      expect(hydrated[0].symbol).toBe("SHIELD");
+    } finally {
+      globalThis.fetch = prevFetch;
+      if (prevUrl === undefined) delete process.env.KV_REST_API_URL;
+      else process.env.KV_REST_API_URL = prevUrl;
+      if (prevToken === undefined) delete process.env.KV_REST_API_TOKEN;
+      else process.env.KV_REST_API_TOKEN = prevToken;
+    }
+  });
 });
