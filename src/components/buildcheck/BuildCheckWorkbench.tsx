@@ -29,7 +29,6 @@ import {
   Wallet,
   XCircle,
 } from "lucide-react";
-import { getSolShieldTokenConfig } from "@/lib/token-config";
 import {
   BlurText,
   ClickSpark,
@@ -83,26 +82,6 @@ const INITIAL_COLLECTORS: CollectorBadgeState = {
   domain: { status: "idle", text: "Waiting" },
   xpost: { status: "idle", text: "Waiting" },
 };
-
-const SOLSHIELD_TOKEN_CA = getSolShieldTokenConfig().ca;
-
-const QUICK_EXAMPLES = [
-  {
-    label: "SolShield Repo",
-    value: "https://github.com/Blanksite/solshield",
-    kind: "GitHub",
-  },
-  {
-    label: "$SHIELD Mint CA",
-    value: SOLSHIELD_TOKEN_CA,
-    kind: "Solana CA",
-  },
-  {
-    label: "Jupiter (jup.ag)",
-    value: "https://jup.ag",
-    kind: "Website",
-  },
-];
 
 function formatCompactUsd(val: number | null | undefined): string {
   if (val === null || val === undefined || !Number.isFinite(val)) return "—";
@@ -1023,9 +1002,10 @@ export default function BuildCheckWorkbench() {
                 <button
                   type="submit"
                   disabled={isRunning || !input.trim()}
+                  title="Run BuildCheck — Powered by Venice AI"
                   className="px-2.5 py-1 rounded bg-[#2934FF] hover:bg-[#1E28E6] text-white text-[11px] font-semibold shrink-0 cursor-pointer disabled:opacity-40"
                 >
-                  Run BuildCheck
+                  Run · Venice AI
                 </button>
               </form>
             )}
@@ -1186,7 +1166,7 @@ export default function BuildCheckWorkbench() {
                     e.preventDefault();
                     void runCheck();
                   }}
-                  className="bg-[#0D1017] p-2 flex flex-col sm:flex-row gap-2"
+                  className="bg-[#0D1017] p-2 flex flex-col sm:flex-row sm:items-center gap-2"
                 >
                   <div className="relative flex-1 flex items-center min-w-0">
                     <Search className="w-4 h-4 text-slate-400 ml-3 shrink-0" />
@@ -1202,41 +1182,34 @@ export default function BuildCheckWorkbench() {
                     <button
                       type="submit"
                       disabled={isRunning || !input.trim()}
-                      className="px-6 py-3 rounded-lg bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-45 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all inline-flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-[0_0_24px_rgba(41,52,255,0.4)]"
+                      aria-label="Run BuildCheck — Powered by Venice AI"
+                      className="px-5 py-2.5 rounded-lg bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-45 disabled:cursor-not-allowed text-white transition-all inline-flex items-center justify-center gap-2.5 shrink-0 cursor-pointer shadow-[0_0_24px_rgba(41,52,255,0.4)]"
                     >
                       {isRunning ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Inspecting Live...</span>
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                          <span className="flex flex-col items-start leading-tight text-left">
+                            <span className="text-sm font-semibold">Inspecting Live...</span>
+                            <span className="text-[10px] font-mono font-medium text-blue-100/80 tracking-wide">
+                              Powered by Venice AI
+                            </span>
+                          </span>
                         </>
                       ) : (
                         <>
-                          <Activity className="w-4 h-4" />
-                          <span>Run BuildCheck</span>
+                          <Activity className="w-4 h-4 shrink-0" />
+                          <span className="flex flex-col items-start leading-tight text-left">
+                            <span className="text-sm font-semibold">Run BuildCheck</span>
+                            <span className="text-[10px] font-mono font-medium text-blue-100/80 tracking-wide">
+                              Powered by Venice AI
+                            </span>
+                          </span>
                         </>
                       )}
                     </button>
                   </Magnet>
                 </form>
               </StarBorder>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-400 mr-1">Try live sample:</span>
-                {QUICK_EXAMPLES.map((ex) => (
-                  <button
-                    key={ex.label}
-                    type="button"
-                    disabled={isRunning}
-                    onClick={() => void runCheck(ex.value)}
-                    className="px-3 py-1.5 rounded-lg text-xs bg-[#0D1017] hover:bg-[#141926] border border-white/[0.1] hover:border-[#2934FF]/60 text-slate-200 inline-flex items-center gap-1.5 transition-all hover:-translate-y-0.5 cursor-pointer disabled:opacity-50"
-                  >
-                    <span className="font-mono text-[10px] text-[#93C5FD]">
-                      {ex.kind}
-                    </span>
-                    <span>{ex.label}</span>
-                  </button>
-                ))}
-              </div>
             </section>
           )}
 
