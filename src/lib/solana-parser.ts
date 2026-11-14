@@ -272,7 +272,7 @@ function inspectSplTokenInstruction(
   }
 }
 
-function base64ToUint8Array(base64: string): Uint8Array {
+export function base64ToUint8Array(base64: string): Uint8Array {
   if (typeof globalThis.atob === "function") {
     const binary = globalThis.atob(base64);
     const bytes = new Uint8Array(binary.length);

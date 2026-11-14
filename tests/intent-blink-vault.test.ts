@@ -26,11 +26,16 @@ import {
   buildSetEmergencyLockTransaction,
   buildSplDelegateRevokeTransaction,
   computeAnchorInstructionDiscriminator,
+  decodeSecurityPolicyAccount,
   deriveUsdcAssociatedTokenAccount,
   fetchDevnetPolicyVaultStatus,
   fetchPolicyVaultStatus,
 } from "../src/lib/anchor-vault";
-import { SOLSHIELD_PROGRAM_ID } from "../src/lib/anchor-idl";
+import {
+  DEFAULT_PROTOCOL_POLICY_OWNER,
+  deriveSecurityPolicyPda,
+  SOLSHIELD_PROGRAM_ID,
+} from "../src/lib/anchor-idl";
 import { analyzeBase64Transaction } from "../src/lib/solana-parser";
 
 function buildMockV0Tx(
@@ -376,5 +381,119 @@ describe("Anchor Policy Vault Borsh Serializer, Devnet Probe & SPL Tag 5 Revoke"
     expect(devnetFallback.cluster).toBe("devnet");
     expect(devnetFallback.programDeployedOnMainnet).toBe(false);
     expect(devnetFallback.programDeployedOnDevnet).toBe(true);
+  });
+
+  it("derives canonical protocol policyPda when owner is omitted and decodes on-chain SecurityPolicy bytes", async () => {
+    const disc = createHash("sha256")
+      .update("account:SecurityPolicy")
+      .digest()
+      .subarray(0, 8);
+    const defaultOwner = new PublicKey(DEFAULT_PROTOCOL_POLICY_OWNER);
+    const expectedPda = deriveSecurityPolicyPda(defaultOwner);
+    const jupKey = new PublicKey(JUPITER_V6_PROGRAM_ID);
+
+    const buf = Buffer.alloc(80 + 32);
+    disc.copy(buf, 0);
+    defaultOwner.toBuffer().copy(buf, 8);
+    buf.writeUInt8(expectedPda.bump, 40);
+    buf.writeBigUInt64LE(BigInt(5_000_000_000), 41);
+    buf.writeBigUInt64LE(BigInt(1_250_000_000), 49);
+    buf.writeBigInt64LE(BigInt(1_760_000_000), 57);
+    buf.writeUInt8(30, 65);
+    buf.writeUInt8(1, 66);
+    buf.writeUInt8(0, 67);
+    buf.writeBigUInt64LE(BigInt(4), 68);
+    buf.writeUInt32LE(1, 76);
+    jupKey.toBuffer().copy(buf, 80);
+
+    const decoded = decodeSecurityPolicyAccount(buf.toString("base64"));
+    expect(decoded).not.toBeNull();
+    expect(decoded?.owner).toBe(DEFAULT_PROTOCOL_POLICY_OWNER);
+    expect(decoded?.bump).toBe(expectedPda.bump);
+    expect(decoded?.maxDailySpendLamports).toBe(5_000_000_000);
+    expect(decoded?.spentTodayLamports).toBe(1_250_000_000);
+    expect(decoded?.maxAllowedRiskScore).toBe(30);
+    expect(decoded?.blockUnknownTransferHooks).toBe(true);
+    expect(decoded?.emergencyLocked).toBe(false);
+    expect(decoded?.auditedTxCount).toBe(4);
+    expect(decoded?.whitelistedPrograms).toEqual([JUPITER_V6_PROGRAM_ID]);
+
+    // Rejects invalid discriminator / truncated accounts
+    expect(decodeSecurityPolicyAccount(Buffer.alloc(20).toString("base64"))).toBeNull();
+
+    const mockRpcWithDecodedPda: typeof fetch = (async (_url, init) => {
+      const parsedBody = JSON.parse(String(init?.body ?? "{}")) as {
+        method?: string;
+      };
+      if (parsedBody.method === "getMultipleAccounts") {
+        return new Response(
+          JSON.stringify({
+            result: {
+              value: [
+                { executable: true },
+                { executable: false, data: [buf.toString("base64"), "base64"] },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          result: { value: { blockhash: Keypair.generate().publicKey.toBase58() } },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const status = await fetchDevnetPolicyVaultStatus({
+      fetchImpl: mockRpcWithDecodedPda,
+    });
+    expect(status.policyScope).toBe("protocol-default");
+    expect(status.policyOwner).toBe(DEFAULT_PROTOCOL_POLICY_OWNER);
+    expect(status.policyPda).toBe(expectedPda.pda);
+    expect(status.policyInitializedOnDevnet).toBe(true);
+    expect(status.policyState?.maxAllowedRiskScore).toBe(30);
+
+    const compiled = await compileDeFiIntentWithJupiter({
+      prompt: "Swap 1 SOL to USDC",
+      fetchImpl: (async () => new Response("Unavailable", { status: 503 })) as typeof fetch,
+    });
+    expect(compiled.policyScope).toBe("protocol-default");
+    expect(compiled.policyOwner).toBe(DEFAULT_PROTOCOL_POLICY_OWNER);
+    expect(compiled.policyPda.pda).toBe(expectedPda.pda);
+    expect(compiled.previewWalletUsed).toBe(true);
+  });
+
+  it("reports a descriptive timeout error when Action POST exceeds postTimeoutMs", async () => {
+    const slowPostFetch: typeof fetch = (async (_url, init) => {
+      if ((init?.method ?? "GET") === "GET") {
+        return new Response(
+          JSON.stringify({
+            title: "Slow Action",
+            label: "Swap",
+            links: { actions: [{ label: "Swap 0.5 SOL", href: "/api/actions/audit-swap?amount=0.5" }] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const err = new Error("Aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    }) as typeof fetch;
+
+    const inspected = await inspectLiveBlinkUrl({
+      blinkUrl: "https://example-blink.org/api/actions/audit-swap?amount=0.5",
+      fetchImpl: slowPostFetch,
+      skipDnsCheck: true,
+      postTimeoutMs: 25,
+    });
+
+    expect(inspected.blinkMeta.inspectionMode).toBe("live-action-get-only");
+    expect(inspected.blinkMeta.failureReason).toContain("Timed out after 25ms waiting for POST");
   });
 });

@@ -15,6 +15,8 @@ const ACTIONS_CORS_HEADERS: Record<string, string> = {
   "X-Blockchain-Ids": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 };
 
+export const maxDuration = 30;
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
@@ -37,6 +39,47 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const baseUrl = `${url.protocol}//${url.host}`;
+  const rawRequestedAmount = url.searchParams.get("amount");
+  const requestedAmount =
+    rawRequestedAmount !== null ? Number(rawRequestedAmount) : NaN;
+  const requestedOutputMint =
+    url.searchParams.get("outputMint")?.trim() || "USDC";
+  const hasExplicitAmount =
+    Number.isFinite(requestedAmount) &&
+    requestedAmount > 0 &&
+    requestedAmount <= 1000;
+
+  const actions = [
+    ...(hasExplicitAmount
+      ? [
+          {
+            label: `Audit & Swap ${requestedAmount} SOL -> ${requestedOutputMint}`,
+            href: `${baseUrl}/api/actions/audit-swap?amount=${encodeURIComponent(
+              String(requestedAmount)
+            )}&outputMint=${encodeURIComponent(requestedOutputMint)}`,
+          },
+        ]
+      : []),
+    {
+      label: "Audit & Swap 1 SOL -> USDC",
+      href: `${baseUrl}/api/actions/audit-swap?amount=1&outputMint=USDC`,
+    },
+    {
+      label: "Audit & Swap 5 SOL -> USDC",
+      href: `${baseUrl}/api/actions/audit-swap?amount=5&outputMint=USDC`,
+    },
+    {
+      label: "Custom Audited Swap",
+      href: `${baseUrl}/api/actions/audit-swap?amount={amount}&outputMint=USDC`,
+      parameters: [
+        {
+          name: "amount",
+          label: "Amount in SOL to swap safely (max 10 SOL guardrail)",
+          required: true,
+        },
+      ],
+    },
+  ];
 
   const payload = {
     type: "action",
@@ -46,27 +89,7 @@ export async function GET(req: NextRequest) {
       "Builds a live Jupiter v6 Mainnet swap, runs pre-sign bytecode inspection & zero-retention Venice AI risk checks, and enforces a 10 SOL default guardrail before returning the tx.",
     label: "Audit & Swap via SolShield",
     links: {
-      actions: [
-        {
-          label: "Audit & Swap 1 SOL -> USDC",
-          href: `${baseUrl}/api/actions/audit-swap?amount=1&outputMint=USDC`,
-        },
-        {
-          label: "Audit & Swap 5 SOL -> USDC",
-          href: `${baseUrl}/api/actions/audit-swap?amount=5&outputMint=USDC`,
-        },
-        {
-          label: "Custom Audited Swap",
-          href: `${baseUrl}/api/actions/audit-swap?amount={amount}&outputMint=USDC`,
-          parameters: [
-            {
-              name: "amount",
-              label: "Amount in SOL to swap safely (max 10 SOL guardrail)",
-              required: true,
-            },
-          ],
-        },
-      ],
+      actions,
     },
   };
 

@@ -7,6 +7,8 @@ import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import { compileDeFiIntentWithJupiter } from "@/lib/intent-builder";
 import { createCacheKeyHash } from "@/lib/scan-cache";
 
+export const maxDuration = 30;
+
 export async function OPTIONS(req: NextRequest) {
   return corsOptionsResponse(req, "web");
 }
@@ -48,6 +50,11 @@ export async function POST(req: NextRequest) {
       })
     );
 
+    const hasVeniceKey = Boolean(
+      (typeof veniceApiKey === "string" && veniceApiKey.trim()) ||
+        process.env.VENICE_API_KEY?.trim()
+    );
+
     const guarded = await runGuardedCachedOperation(
       req,
       {
@@ -56,6 +63,19 @@ export async function POST(req: NextRequest) {
         namespace: "defi-intent",
         cacheKey,
         ttlMs: 5 * 60_000,
+        resolveTtlMs: (value) => {
+          if (
+            hasVeniceKey &&
+            (value.intent.inferenceMode === "deterministic-fallback" ||
+              value.veniceAudit.inferenceMode === "deterministic-fallback")
+          ) {
+            return 0;
+          }
+          if (value.quote.quoteMode === "jupiter-unavailable") {
+            return 15_000;
+          }
+          return 5 * 60_000;
+        },
         forceRefresh: forceRefresh === true,
       },
       () =>

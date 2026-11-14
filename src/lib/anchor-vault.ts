@@ -12,8 +12,10 @@ import {
 } from "@solana/spl-token";
 import {
   deriveSecurityPolicyPda,
+  resolveDefaultPolicyOwner,
   SOLSHIELD_PROGRAM_ID,
 } from "./anchor-idl";
+import { base64ToUint8Array } from "./solana-parser";
 
 export const SOLANA_MAINNET_RPC_URL =
   (typeof process !== "undefined" ? process.env.SOLANA_RPC_URL?.trim() : undefined) ||
@@ -38,6 +40,19 @@ export interface SerializedInstructionArtifact {
   clusterTarget: PolicyVaultCluster;
 }
 
+export interface DecodedSecurityPolicy {
+  owner: string;
+  bump: number;
+  maxDailySpendLamports: number;
+  spentTodayLamports: number;
+  windowStartTimestamp: number;
+  maxAllowedRiskScore: number;
+  blockUnknownTransferHooks: boolean;
+  emergencyLocked: boolean;
+  auditedTxCount: number;
+  whitelistedPrograms: string[];
+}
+
 export interface PolicyVaultStatus {
   cluster: PolicyVaultCluster;
   rpcUrl: string;
@@ -47,9 +62,12 @@ export interface PolicyVaultStatus {
   programExecutable: boolean;
   programDeployedOnMainnet: boolean;
   programDeployedOnDevnet: boolean;
+  policyOwner: string;
+  policyScope: "wallet" | "protocol-default";
   policyPda: string | null;
   policyInitialized: boolean;
   policyInitializedOnDevnet: boolean;
+  policyState: DecodedSecurityPolicy | null;
   latestBlockhash: string | null;
   latestDevnetBlockhash: string | null;
   checkedAt: string;
@@ -381,6 +399,107 @@ export function buildSplDelegateRevokeTransaction(params: {
   };
 }
 
+// Anchor `sha256("account:SecurityPolicy")[0..8]`
+const SECURITY_POLICY_ACCOUNT_DISCRIMINATOR = new Uint8Array([
+  135, 23, 43, 63, 135, 156, 43, 131,
+]);
+const MIN_SECURITY_POLICY_BYTES = 80;
+
+/**
+ * Decodes an Anchor `SecurityPolicy` account payload serialized via Borsh
+ * matching `programs/solshield-policy/src/lib.rs`. Returns `null` on size
+ * mismatch or discriminator mismatch.
+ */
+export function decodeSecurityPolicyAccount(
+  rawData: string | Uint8Array | null | undefined
+): DecodedSecurityPolicy | null {
+  if (!rawData) return null;
+
+  let bytes: Uint8Array;
+  try {
+    bytes =
+      typeof rawData === "string"
+        ? base64ToUint8Array(rawData.trim())
+        : rawData;
+  } catch {
+    return null;
+  }
+
+  if (bytes.length < MIN_SECURITY_POLICY_BYTES) {
+    return null;
+  }
+
+  for (let i = 0; i < 8; i++) {
+    if (bytes[i] !== SECURITY_POLICY_ACCOUNT_DISCRIMINATOR[i]) {
+      return null;
+    }
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const owner = new PublicKey(bytes.subarray(8, 40)).toBase58();
+  const bump = view.getUint8(40);
+  const maxDailySpendLamports = Number(view.getBigUint64(41, true));
+  const spentTodayLamports = Number(view.getBigUint64(49, true));
+  const windowStartTimestamp = Number(view.getBigInt64(57, true));
+  const maxAllowedRiskScore = view.getUint8(65);
+  const blockUnknownTransferHooks = view.getUint8(66) !== 0;
+  const emergencyLocked = view.getUint8(67) !== 0;
+  const auditedTxCount = Number(view.getBigUint64(68, true));
+  const whitelistLen = view.getUint32(76, true);
+
+  if (whitelistLen > 64 || 80 + whitelistLen * 32 > bytes.length) {
+    return null;
+  }
+
+  const whitelistedPrograms: string[] = [];
+  for (let i = 0; i < whitelistLen; i++) {
+    const start = 80 + i * 32;
+    whitelistedPrograms.push(
+      new PublicKey(bytes.subarray(start, start + 32)).toBase58()
+    );
+  }
+
+  return {
+    owner,
+    bump,
+    maxDailySpendLamports,
+    spentTodayLamports,
+    windowStartTimestamp,
+    maxAllowedRiskScore,
+    blockUnknownTransferHooks,
+    emergencyLocked,
+    auditedTxCount,
+    whitelistedPrograms,
+  };
+}
+
+function resolveTargetPolicyOwner(ownerAddress?: string): {
+  policyOwner: string;
+  policyScope: "wallet" | "protocol-default";
+  policyPda: string;
+} {
+  const cleaned = ownerAddress?.trim();
+  if (cleaned) {
+    try {
+      const pk = new PublicKey(cleaned).toBase58();
+      return {
+        policyOwner: pk,
+        policyScope: "wallet",
+        policyPda: deriveSecurityPolicyPda(pk).pda,
+      };
+    } catch {
+      // Fall back to canonical protocol reference owner if an invalid owner string is passed
+    }
+  }
+
+  const defaultOwner = resolveDefaultPolicyOwner();
+  return {
+    policyOwner: defaultOwner,
+    policyScope: "protocol-default",
+    policyPda: deriveSecurityPolicyPda(defaultOwner).pda,
+  };
+}
+
 async function probeClusterPolicyVault(params: {
   cluster: PolicyVaultCluster;
   rpcUrl: string;
@@ -390,17 +509,11 @@ async function probeClusterPolicyVault(params: {
   const { cluster, rpcUrl, fetchImpl } = params;
   const programId = SOLSHIELD_PROGRAM_ID.toBase58();
   const isPlaceholderTemplateId = programId === ANCHOR_PLACEHOLDER_PROGRAM_ID;
+  const { policyOwner, policyScope, policyPda } = resolveTargetPolicyOwner(
+    params.ownerAddress
+  );
 
-  let policyPda: string | null = null;
-  if (params.ownerAddress?.trim()) {
-    try {
-      policyPda = deriveSecurityPolicyPda(params.ownerAddress.trim()).pda;
-    } catch {
-      policyPda = null;
-    }
-  }
-
-  const keysToQuery = policyPda ? [programId, policyPda] : [programId];
+  const keysToQuery = [programId, policyPda];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4500);
 
@@ -433,7 +546,12 @@ async function probeClusterPolicyVault(params: {
     ]);
 
     const accountsJson = (await accountsRes.json().catch(() => null)) as {
-      result?: { value?: Array<{ executable?: boolean } | null> };
+      result?: {
+        value?: Array<{
+          executable?: boolean;
+          data?: [string, string] | string;
+        } | null>;
+      };
     } | null;
     const bhJson = (await bhRes.json().catch(() => null)) as {
       result?: { value?: { blockhash?: string } };
@@ -441,7 +559,13 @@ async function probeClusterPolicyVault(params: {
 
     const values = accountsJson?.result?.value ?? [];
     const programInfo = values[0] ?? null;
-    const policyInfo = policyPda ? values[1] ?? null : null;
+    const policyInfo = values[1] ?? null;
+    const rawPolicyBase64 = Array.isArray(policyInfo?.data)
+      ? policyInfo.data[0]
+      : typeof policyInfo?.data === "string"
+        ? policyInfo.data
+        : null;
+    const policyState = decodeSecurityPolicyAccount(rawPolicyBase64);
 
     const programAccountExists = Boolean(programInfo);
     const programExecutable = Boolean(programInfo?.executable);
@@ -459,9 +583,12 @@ async function probeClusterPolicyVault(params: {
       programExecutable,
       programDeployedOnMainnet: cluster === "mainnet" && programDeployed,
       programDeployedOnDevnet: cluster === "devnet" && programDeployed,
+      policyOwner,
+      policyScope,
       policyPda,
       policyInitialized,
       policyInitializedOnDevnet: cluster === "devnet" && policyInitialized,
+      policyState,
       latestBlockhash,
       latestDevnetBlockhash: cluster === "devnet" ? latestBlockhash : null,
       checkedAt: new Date().toISOString(),
@@ -476,9 +603,12 @@ async function probeClusterPolicyVault(params: {
       programExecutable: false,
       programDeployedOnMainnet: false,
       programDeployedOnDevnet: false,
+      policyOwner,
+      policyScope,
       policyPda,
       policyInitialized: false,
       policyInitializedOnDevnet: false,
+      policyState: null,
       latestBlockhash: null,
       latestDevnetBlockhash: null,
       checkedAt: new Date().toISOString(),

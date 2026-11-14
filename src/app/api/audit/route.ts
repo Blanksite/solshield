@@ -66,6 +66,8 @@ async function fetchLiveSolanaSlot(): Promise<{
   };
 }
 
+export const maxDuration = 30;
+
 export async function OPTIONS(req: NextRequest) {
   return corsOptionsResponse(req, "extension");
 }
@@ -128,6 +130,12 @@ export async function POST(req: NextRequest) {
       })
     );
 
+    const hasVeniceKey = Boolean(
+      (typeof veniceApiKey === "string" && veniceApiKey.trim()) ||
+        process.env.VENICE_API_KEY?.trim()
+    );
+    const baseTtlMs = shouldSimulateRpc ? 3 * 60_000 : 15 * 60_000;
+
     const guarded = await runGuardedCachedOperation(
       req,
       {
@@ -135,7 +143,22 @@ export async function POST(req: NextRequest) {
         byokKey: typeof veniceApiKey === "string" ? veniceApiKey : undefined,
         namespace: "tx-audit",
         cacheKey,
-        ttlMs: shouldSimulateRpc ? 3 * 60_000 : 15 * 60_000,
+        ttlMs: baseTtlMs,
+        resolveTtlMs: (value) => {
+          if (
+            hasVeniceKey &&
+            value.veniceAudit.inferenceMode === "deterministic-fallback"
+          ) {
+            return 0;
+          }
+          if (
+            value.blinkMeta &&
+            value.blinkMeta.inspectionMode !== "live-action-tx-audited"
+          ) {
+            return 0;
+          }
+          return baseTtlMs;
+        },
         forceRefresh: forceRefresh === true,
       },
       async () => {

@@ -217,6 +217,13 @@ async function fetchActionJson(
     });
     const json = await readBoundedJson(res).catch(() => null);
     return { status: res.status, json };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `Timed out after ${timeoutMs}ms waiting for ${init.method ?? "GET"} ${url}`
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
@@ -264,6 +271,7 @@ export async function inspectLiveBlinkUrl(params: {
   account?: string;
   fetchImpl?: typeof fetch;
   skipDnsCheck?: boolean;
+  postTimeoutMs?: number;
 }): Promise<AuditedBlinkReportBundle> {
   const fetchImpl = params.fetchImpl ?? fetch;
   const skipDnsCheck = params.skipDnsCheck ?? Boolean(params.fetchImpl);
@@ -387,14 +395,19 @@ export async function inspectLiveBlinkUrl(params: {
   }
 
   try {
-    const postRes = await fetchActionJson(fetchImpl, postUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
+    const postRes = await fetchActionJson(
+      fetchImpl,
+      postUrl,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ account: inspectAccount }),
       },
-      body: JSON.stringify({ account: inspectAccount }),
-    });
+      params.postTimeoutMs ?? 18_000
+    );
 
     const txBase64 =
       postRes.json && typeof postRes.json.transaction === "string"

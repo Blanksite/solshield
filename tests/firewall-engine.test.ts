@@ -124,4 +124,39 @@ describe("SolShield Transaction Firewall & Venice AI Security Engine", () => {
     expect(parsed.outputToken).toBe("USDC");
     expect(parsed.maxSlippageBps).toBe(40);
   });
+
+  it("aborts stalled Venice AI requests on timeout and falls back cleanly without claiming phantom TransferHooks", async () => {
+    const { report } = getTestFixtureReport("safe-jupiter-swap");
+    report.hasUnverifiedTransferHook = false;
+
+    const slowFetch: typeof fetch = ((_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const err = new Error("Aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      })) as typeof fetch;
+
+    const audit = await auditTransactionWithVenice(report, {
+      apiKey: "vk-test-timeout-1234567890",
+      timeoutMs: 25,
+      fetchImpl: slowFetch,
+    });
+    expect(audit.inferenceMode).toBe("deterministic-fallback");
+    expect(audit.classification).toBe("SAFE");
+
+    const intent = await parseDeFiIntentWithVenice(
+      "Swap 2 SOL to BONK",
+      "vk-test-timeout-1234567890",
+      {
+        timeoutMs: 25,
+        fetchImpl: slowFetch,
+      }
+    );
+    expect(intent.inferenceMode).toBe("deterministic-fallback");
+    expect(intent.inputToken).toBe("SOL");
+    expect(intent.outputToken).toBe("BONK");
+    expect(intent.amount).toBe(2);
+  });
 });

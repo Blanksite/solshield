@@ -315,4 +315,58 @@ describe("SolShield Shared Scan Cache & Singleflight Deduplication", () => {
     expect(diskHit?.value.saved).toBe(42);
     expect(getScanCacheStats().diskHits).toBeGreaterThanOrEqual(1);
   });
+
+  it("skips cache persistence when resolveTtlMs returns <= 0 so transient fallbacks never poison cache", async () => {
+    const token = await signGuardToken();
+    const makeWebReq = (ip: string) =>
+      new Request("https://solshield-web-production.up.railway.app/api/intent", {
+        method: "POST",
+        headers: {
+          Host: "solshield-web-production.up.railway.app",
+          Origin: "https://solshield-web-production.up.railway.app",
+          "x-forwarded-for": ip,
+          Cookie: `${GUARD_COOKIE_NAME}=${encodeURIComponent(token)}`,
+        },
+        body: JSON.stringify({ prompt: "Swap 1 SOL to USDC" }),
+      });
+
+    let attempt = 0;
+    const first = await runGuardedCachedOperation(
+      makeWebReq("198.51.100.77"),
+      {
+        profile: "web-ai",
+        namespace: "defi-intent",
+        cacheKey: "transient-fallback-test",
+        ttlMs: 300_000,
+        resolveTtlMs: (v) => (v.degraded ? 0 : 300_000),
+      },
+      async () => {
+        attempt += 1;
+        return { degraded: attempt === 1, inferenceMode: attempt === 1 ? "deterministic-fallback" : "venice-live-api" };
+      }
+    );
+    expect(first.ok).toBe(true);
+    if (first.ok) expect(first.value.degraded).toBe(true);
+
+    const second = await runGuardedCachedOperation(
+      makeWebReq("198.51.100.78"),
+      {
+        profile: "web-ai",
+        namespace: "defi-intent",
+        cacheKey: "transient-fallback-test",
+        ttlMs: 300_000,
+        resolveTtlMs: (v) => (v.degraded ? 0 : 300_000),
+      },
+      async () => {
+        attempt += 1;
+        return { degraded: false, inferenceMode: "venice-live-api" };
+      }
+    );
+    expect(second.ok).toBe(true);
+    if (second.ok) {
+      expect(second.cached).toBe(false);
+      expect(second.value.inferenceMode).toBe("venice-live-api");
+    }
+    expect(attempt).toBe(2);
+  });
 });

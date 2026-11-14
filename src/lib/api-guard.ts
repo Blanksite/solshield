@@ -514,6 +514,7 @@ export async function runGuardedCachedOperation<T>(
     namespace: string;
     cacheKey: string;
     ttlMs: number;
+    resolveTtlMs?: (value: T) => number;
     forceRefresh?: boolean;
   },
   compute: () => Promise<T>
@@ -629,7 +630,17 @@ export async function runGuardedCachedOperation<T>(
   const compositeOp = `${options.namespace}:${options.cacheKey}`;
   const execPromise = (async () => {
     const value = await compute();
-    await setCachedEntry(options.namespace, options.cacheKey, value, options.ttlMs);
+    const resolvedTtlMs = options.resolveTtlMs
+      ? options.resolveTtlMs(value)
+      : options.ttlMs;
+    if (resolvedTtlMs > 0) {
+      await setCachedEntry(
+        options.namespace,
+        options.cacheKey,
+        value,
+        resolvedTtlMs
+      );
+    }
     return value;
   })();
   opMap.set(compositeOp, execPromise);

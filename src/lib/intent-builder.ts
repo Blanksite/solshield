@@ -1,5 +1,8 @@
 import { PublicKey } from "@solana/web3.js";
-import { deriveSecurityPolicyPda } from "./anchor-idl";
+import {
+  deriveSecurityPolicyPda,
+  resolveDefaultPolicyOwner,
+} from "./anchor-idl";
 import {
   buildAuditedJupiterBlinkSwap,
   resolveTokenSpec,
@@ -31,7 +34,9 @@ export interface IntentQuoteSummary {
 export interface CompiledIntentResult {
   ok: true;
   intent: ParsedDeFiIntent;
-  policyPda: { pda: string; bump: number } | null;
+  policyOwner: string;
+  policyScope: "wallet" | "protocol-default";
+  policyPda: { pda: string; bump: number };
   previewWalletUsed: boolean;
   recentBlockhash: string | null;
   base64Transaction: string | null;
@@ -42,7 +47,9 @@ export interface CompiledIntentResult {
 
 function resolveWalletAndPda(walletAddress?: string): {
   executionPayer: string;
-  policyPda: { pda: string; bump: number } | null;
+  policyOwner: string;
+  policyScope: "wallet" | "protocol-default";
+  policyPda: { pda: string; bump: number };
   previewWalletUsed: boolean;
 } {
   const cleanedWallet =
@@ -51,8 +58,11 @@ function resolveWalletAndPda(walletAddress?: string): {
   if (cleanedWallet) {
     try {
       const pk = new PublicKey(cleanedWallet);
+      const base58 = pk.toBase58();
       return {
-        executionPayer: pk.toBase58(),
+        executionPayer: base58,
+        policyOwner: base58,
+        policyScope: "wallet",
         policyPda: deriveSecurityPolicyPda(pk),
         previewWalletUsed: false,
       };
@@ -61,9 +71,12 @@ function resolveWalletAndPda(walletAddress?: string): {
     }
   }
 
+  const defaultPolicyOwner = resolveDefaultPolicyOwner();
   return {
     executionPayer: INTENT_PREVIEW_FEE_PAYER,
-    policyPda: null,
+    policyOwner: defaultPolicyOwner,
+    policyScope: "protocol-default",
+    policyPda: deriveSecurityPolicyPda(defaultPolicyOwner),
     previewWalletUsed: true,
   };
 }
@@ -98,9 +111,13 @@ export async function compileDeFiIntentWithJupiter(params: {
       : 35;
   const emergencyLocked = Boolean(params.emergencyLocked);
 
-  const { executionPayer, policyPda, previewWalletUsed } = resolveWalletAndPda(
-    params.walletAddress
-  );
+  const {
+    executionPayer,
+    policyOwner,
+    policyScope,
+    policyPda,
+    previewWalletUsed,
+  } = resolveWalletAndPda(params.walletAddress);
 
   try {
     const built = await buildAuditedJupiterBlinkSwap({
@@ -127,6 +144,8 @@ export async function compileDeFiIntentWithJupiter(params: {
         inputToken: built.inputToken.symbol,
         outputToken: built.outputToken.symbol,
       },
+      policyOwner,
+      policyScope,
       policyPda,
       previewWalletUsed,
       recentBlockhash: built.recentBlockhash,
@@ -198,6 +217,8 @@ export async function compileDeFiIntentWithJupiter(params: {
     return {
       ok: true,
       intent: parsedIntent,
+      policyOwner,
+      policyScope,
       policyPda,
       previewWalletUsed,
       recentBlockhash: null,

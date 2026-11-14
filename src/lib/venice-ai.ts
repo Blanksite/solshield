@@ -25,13 +25,39 @@ export interface VeniceAuditOptions {
   maxDailyLamports?: number;
   blockUnknownTransferHooks?: boolean;
   emergencyLocked?: boolean;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
 }
 
 export const VENICE_API_BASE_URL = "https://api.venice.ai/api/v1";
 export const DEFAULT_VENICE_MODEL = "llama-3.3-70b";
+export const DEFAULT_VENICE_TIMEOUT_MS = 12_000;
+
+async function fetchVeniceWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  timeoutMs = DEFAULT_VENICE_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, {
+      ...init,
+      signal: controller.signal,
+      cache: "no-store",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const SOLANA_AUDITOR_SYSTEM_PROMPT = `You are SolShield Auditor, an elite Solana smart contract & transaction security engine running on Venice AI private inference.
 Analyze the provided Solana transaction simulation AST, instruction list, balance deltas, and deterministic threat flags.
+Rules:
+- Base EVERY finding strictly on fields explicitly present in the JSON telemetry ("instructions", "balanceDeltas", "threatFlags", "hasUnverifiedTransferHook").
+- Do NOT claim or speculate about Token-2022 TransferHook extensions, SPL SetAuthority hijacks, or unmentioned program IDs unless explicitly shown in the telemetry ("hasUnverifiedTransferHook": true or matching "threatFlags").
+- If "instructions" is empty (diagnostic or unreachable endpoint report), summarize the "threatFlags" honestly without inventing program calls.
 Respond ONLY with a valid JSON object matching this exact structure (no markdown code fences, no extra prose):
 {
   "riskScore": <integer 0-100>,
@@ -39,7 +65,7 @@ Respond ONLY with a valid JSON object matching this exact structure (no markdown
   "recommendedAction": "ALLOW_SIGNING" | "PROCEED_WITH_CAUTION" | "BLOCK_IMMEDIATELY",
   "executiveSummary": "<1-2 concise plain-English sentences explaining the exact impact on the user's wallet>",
   "technicalFindings": [
-    "<specific finding #1 referencing program IDs, SPL authority changes, PDA validation, or Token-2022 hooks>",
+    "<specific finding #1 grounded strictly in the observed instruction, balanceDelta, or threatFlag telemetry>",
     "<specific finding #2>"
   ]
 }`;
@@ -60,6 +86,8 @@ export async function auditTransactionWithVenice(
   const maxDailyLamports = options.maxDailyLamports ?? 5_000_000_000; // 5 SOL default
   const blockUnknownHooks = options.blockUnknownTransferHooks ?? true;
   const emergencyLocked = options.emergencyLocked ?? false;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_VENICE_TIMEOUT_MS;
 
   const fallbackResult = buildDeterministicVeniceAudit(report, {
     maxAllowedRiskScore,
@@ -73,46 +101,51 @@ export async function auditTransactionWithVenice(
   }
 
   try {
-    const response = await fetch(`${VENICE_API_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 600,
-        venice_parameters: {
-          include_venice_system_prompt: false,
+    const response = await fetchVeniceWithTimeout(
+      fetchImpl,
+      `${VENICE_API_BASE_URL}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
-        messages: [
-          {
-            role: "system",
-            content: SOLANA_AUDITOR_SYSTEM_PROMPT,
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          max_tokens: 600,
+          venice_parameters: {
+            include_venice_system_prompt: false,
           },
-          {
-            role: "user",
-            content: JSON.stringify({
-              feePayer: report.feePayer,
-              estimatedSpendLamports: report.estimatedSpendLamports,
-              hasUnverifiedTransferHook: report.hasUnverifiedTransferHook,
-              deterministicRiskScore: report.deterministicRiskScore,
-              threatFlags: report.threatFlags,
-              balanceDeltas: report.balanceDeltas,
-              instructions: report.instructions.map((ix) => ({
-                index: ix.index,
-                programId: ix.programId,
-                programName: ix.programName,
-                isVerifiedProgram: ix.isVerifiedProgram,
-                instructionName: ix.instructionName,
-                warnings: ix.warnings,
-              })),
-            }),
-          },
-        ],
-      }),
-    });
+          messages: [
+            {
+              role: "system",
+              content: SOLANA_AUDITOR_SYSTEM_PROMPT,
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                feePayer: report.feePayer,
+                estimatedSpendLamports: report.estimatedSpendLamports,
+                hasUnverifiedTransferHook: report.hasUnverifiedTransferHook,
+                deterministicRiskScore: report.deterministicRiskScore,
+                threatFlags: report.threatFlags,
+                balanceDeltas: report.balanceDeltas,
+                instructions: report.instructions.map((ix) => ({
+                  index: ix.index,
+                  programId: ix.programId,
+                  programName: ix.programName,
+                  isVerifiedProgram: ix.isVerifiedProgram,
+                  instructionName: ix.instructionName,
+                  warnings: ix.warnings,
+                })),
+              }),
+            },
+          ],
+        }),
+      },
+      timeoutMs
+    );
 
     if (!response.ok) {
       return {
@@ -436,7 +469,11 @@ function parseDeFiIntentDeterministic(prompt: string): ParsedDeFiIntent {
 
 export async function parseDeFiIntentWithVenice(
   prompt: string,
-  apiKey?: string
+  apiKey?: string,
+  options?: {
+    timeoutMs?: number;
+    fetchImpl?: typeof fetch;
+  }
 ): Promise<ParsedDeFiIntent> {
   const cleanKey = apiKey?.trim() || process.env.VENICE_API_KEY?.trim() || "";
   const fallbackIntent = parseDeFiIntentDeterministic(prompt);
@@ -445,28 +482,36 @@ export async function parseDeFiIntentWithVenice(
     return fallbackIntent;
   }
 
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_VENICE_TIMEOUT_MS;
+
   try {
-    const res = await fetch(`${VENICE_API_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cleanKey}`,
+    const res = await fetchVeniceWithTimeout(
+      fetchImpl,
+      `${VENICE_API_BASE_URL}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${cleanKey}`,
+        },
+        body: JSON.stringify({
+          model: DEFAULT_VENICE_MODEL,
+          temperature: 0.1,
+          max_tokens: 300,
+          venice_parameters: { include_venice_system_prompt: false },
+          messages: [
+            {
+              role: "system",
+              content:
+                'Extract Solana DeFi swap parameters from the user prompt and reply ONLY with JSON matching {"action":"SWAP","inputToken":"<SOL|USDC|USDT|JUP|BONK|JitoSOL or mint>","outputToken":"<SOL|USDC|USDT|JUP|BONK|JitoSOL or mint>","amount":<number>,"maxSlippageBps":<integer>,"explanation":"..."}. Preserve exact token requested by the user (do not default outputToken to USDC if user specified BONK, JitoSOL, JUP, etc.).',
+            },
+            { role: "user", content: prompt },
+          ],
+        }),
       },
-      body: JSON.stringify({
-        model: DEFAULT_VENICE_MODEL,
-        temperature: 0.1,
-        max_tokens: 300,
-        venice_parameters: { include_venice_system_prompt: false },
-        messages: [
-          {
-            role: "system",
-            content:
-              'Extract Solana DeFi swap parameters from the user prompt and reply ONLY with JSON matching {"action":"SWAP","inputToken":"<SOL|USDC|USDT|JUP|BONK|JitoSOL or mint>","outputToken":"<SOL|USDC|USDT|JUP|BONK|JitoSOL or mint>","amount":<number>,"maxSlippageBps":<integer>,"explanation":"..."}. Preserve exact token requested by the user (do not default outputToken to USDC if user specified BONK, JitoSOL, JUP, etc.).',
-          },
-          { role: "user", content: prompt },
-        ],
-      }),
-    });
+      timeoutMs
+    );
 
     if (!res.ok) return fallbackIntent;
     const data = await res.json();

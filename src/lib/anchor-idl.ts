@@ -3,6 +3,36 @@ import { PublicKey } from "@solana/web3.js";
 export const DEFAULT_SOLSHIELD_PROGRAM_ID =
   "ByiifxwsDxRwMDiZU7TYceFsxT9XawGqffS5oTocwHE4";
 
+// Verified upgrade authority / deployer of `solshield_policy` on Devnet.
+export const DEFAULT_PROTOCOL_POLICY_OWNER =
+  "9MyE2b4xjrhbfFMvypZqqPnBfx3XVp6KeATkZk3xHzLD";
+
+/**
+ * Resolves the canonical protocol reference owner public key used when no user
+ * wallet is connected so API responses derive a deterministic `SecurityPolicy` PDA.
+ */
+export function resolveDefaultPolicyOwner(): string {
+  const candidates =
+    typeof process !== "undefined"
+      ? [
+          process.env.NEXT_PUBLIC_SOLSHIELD_DEFAULT_POLICY_OWNER,
+          process.env.SOLSHIELD_DEFAULT_POLICY_OWNER,
+        ]
+      : [];
+
+  for (const raw of candidates) {
+    const trimmed = raw?.trim();
+    if (!trimmed) continue;
+    try {
+      return new PublicKey(trimmed).toBase58();
+    } catch {
+      // Ignore invalid env overrides and fall back to default protocol owner
+    }
+  }
+
+  return DEFAULT_PROTOCOL_POLICY_OWNER;
+}
+
 function resolveConfiguredProgramId(): PublicKey {
   const candidates =
     typeof process !== "undefined"

@@ -107,6 +107,8 @@ interface ParsedIntentResponse {
     explanation: string;
     inferenceMode?: "venice-live-api" | "deterministic-fallback";
   };
+  policyOwner?: string;
+  policyScope?: "wallet" | "protocol-default";
   policyPda: {
     pda: string;
     bump: number;
@@ -472,6 +474,9 @@ export default function SolShieldHexaCorePage() {
             signAndSendTransaction: anyWin.solana.signAndSendTransaction,
           });
           setPolicyActionNotice(`${clusterLabel} Tx Submitted: ${sig}`);
+          setTimeout(() => {
+            void refreshVaultStatus(owner);
+          }, 3500);
           return;
         }
       }
@@ -486,10 +491,14 @@ export default function SolShieldHexaCorePage() {
             : `${clusterLabel} tx serialized (${artifact.transactionBase64.length} b64 chars). Connect browser wallet to sign.`
       );
     } catch (err: unknown) {
-      setPolicyActionNotice(
+      const msg =
         err instanceof Error
           ? err.message
-          : "Invalid Solana Owner address or failed to build Anchor Policy instruction."
+          : "Invalid Solana Owner address or failed to build Anchor Policy instruction.";
+      setPolicyActionNotice(
+        activeCluster === "devnet" && isRealWalletConnected
+          ? `${msg} (Pastikan jaringan wallet berada di Devnet Testnet untuk sinkronisasi PDA Beta.)`
+          : msg
       );
     }
   };
@@ -3379,18 +3388,65 @@ export default function SolShieldHexaCorePage() {
                     </button>
                   )}
                 </div>
-                <div className="flex justify-between items-center text-white/75">
-                  <span>DERIVED_POLICY_PDA</span>
-                  {derivedPdaAddress ? (
-                    <span className="text-emerald-400">
-                      {derivedPdaAddress.slice(0, 10)}...
-                      {derivedPdaAddress.slice(-6)}
-                    </span>
+                <div className="flex justify-between items-center gap-2 text-white/75">
+                  <span>
+                    {derivedPdaAddress
+                      ? "DERIVED_POLICY_PDA"
+                      : "PROTOCOL_REFERENCE_PDA"}
+                  </span>
+                  {derivedPdaAddress || vaultStatus?.policyPda ? (
+                    <a
+                      href={`https://explorer.solana.com/address/${
+                        derivedPdaAddress || vaultStatus?.policyPda
+                      }${vaultStatus?.cluster === "mainnet" ? "" : "?cluster=devnet"}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-emerald-400 hover:underline inline-flex items-center gap-1"
+                    >
+                      {(derivedPdaAddress || vaultStatus?.policyPda || "").slice(0, 10)}
+                      ...
+                      {(derivedPdaAddress || vaultStatus?.policyPda || "").slice(-6)}
+                      {!derivedPdaAddress && " (Protocol Default)"} ↗
+                    </a>
                   ) : (
                     <span className="text-white/60">
                       {lang === "en"
-                        ? "Awaiting wallet or manual owner"
-                        : "Menunggu wallet atau owner manual"}
+                        ? "Checking Solana RPC..."
+                        : "Memeriksa Solana RPC..."}
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between items-center gap-2 text-white/75">
+                  <span>PDA_STATE</span>
+                  {vaultStatus?.policyState ? (
+                    <span className="text-emerald-400 text-right">
+                      Active ·{" "}
+                      {(
+                        vaultStatus.policyState.maxDailySpendLamports / 1e9
+                      ).toFixed(1)}{" "}
+                      SOL/24h · Risk &lt;={" "}
+                      {vaultStatus.policyState.maxAllowedRiskScore} ·{" "}
+                      {vaultStatus.policyState.auditedTxCount} tx
+                      {vaultStatus.policyState.emergencyLocked ? " · LOCKED" : ""}
+                    </span>
+                  ) : vaultStatus?.policyInitialized ||
+                    vaultStatus?.policyInitializedOnDevnet ? (
+                    <span className="text-emerald-400">
+                      Initialized ({vaultStatus.cluster === "mainnet" ? "Mainnet" : "Devnet Beta"})
+                    </span>
+                  ) : (
+                    <span className="text-amber-300">
+                      {lang === "en"
+                        ? `Ready to initialize (${
+                            vaultStatus?.cluster === "mainnet"
+                              ? "Mainnet"
+                              : "Devnet Beta"
+                          })`
+                        : `Siap diinisialisasi (${
+                            vaultStatus?.cluster === "mainnet"
+                              ? "Mainnet"
+                              : "Devnet Beta"
+                          })`}
                     </span>
                   )}
                 </div>
