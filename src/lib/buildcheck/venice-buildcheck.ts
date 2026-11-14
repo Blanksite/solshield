@@ -364,7 +364,7 @@ async function analyzeScreenshotWithVeniceVision(
   apiKey: string
 ): Promise<string | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+  const timer = setTimeout(() => controller.abort(), 15000);
   try {
     const res = await fetch(`${VENICE_API_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -519,7 +519,7 @@ export async function synthesizeWithVeniceBuildCheck(
   };
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 11000);
+  const timer = setTimeout(() => controller.abort(), 25000);
   try {
     const res = await fetch(`${VENICE_API_BASE_URL}/chat/completions`, {
       method: "POST",

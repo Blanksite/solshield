@@ -800,8 +800,8 @@ async function traceDevWalletHistory(params: {
     rpcCall<{ value?: number }>("getBalance", [params.devAddress], 3600),
     rpcCall<RpcSigRow[]>(
       "getSignaturesForAddress",
-      [params.devAddress, { limit: 40 }],
-      4200
+      [params.devAddress, { limit: 60 }],
+      4800
     ),
   ]);
 
@@ -811,7 +811,7 @@ async function traceDevWalletHistory(params: {
       : null;
 
   const sigRows = Array.isArray(sigRes) ? sigRes : [];
-  const sampleSigs = sigRows.slice(0, 30);
+  const sampleSigs = sigRows.slice(0, 50);
 
   // Fetch parsed transactions in 3 bounded batches of 10 so multi-burn & original deploy are captured without RPC throttling
   const parsedTxs: Array<ParsedRpcTx | null> = [];
@@ -1049,9 +1049,14 @@ export async function collectTokenDeepIntel(
       insider: Boolean(h.insider),
     }));
 
+  const rawSupplyNum =
+    Number(mintReport?.rawSupply || 0) ||
+    (mintReport?.supplyUi
+      ? mintReport.supplyUi * Math.pow(10, mintReport.decimals ?? 6)
+      : 0);
   const devTokenHoldingPct =
-    rc?.creatorBalance && mintReport?.supplyUi
-      ? Number(((rc.creatorBalance / mintReport.supplyUi) * 100).toFixed(2))
+    rc?.creatorBalance && rawSupplyNum > 0
+      ? Math.min(100, Number(((rc.creatorBalance / rawSupplyNum) * 100).toFixed(2)))
       : rawHolders
           .filter((h) => devAddress && h.owner === devAddress)
           .reduce((acc, h) => acc + h.pct, 0);
