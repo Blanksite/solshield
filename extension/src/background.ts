@@ -166,7 +166,8 @@ async function runAudit(payload: InterceptRequestPayload) {
   const needTxAudit = Boolean(deepTx);
 
   let attempted = false;
-  let verified = false;
+  let domainLookupOk = !needDomainLookup || Boolean(hasFreshDomainCache);
+  let txAuditOk = !needTxAudit;
   let timedOutOrError: string | null = null;
   let domainReputation: RemoteAuditSnapshot["domainReputation"] =
     hasFreshDomainCache ? cachedDomainRep.data : null;
@@ -209,12 +210,18 @@ async function runAudit(payload: InterceptRequestPayload) {
               expiresAt: Date.now() + DOMAIN_CACHE_TTL_MS,
               data: domainReputation,
             });
-            verified = true;
+            domainLookupOk = true;
+          } else {
+            timedOutOrError =
+              timedOutOrError ?? "Domain reputation API returned non-ok status";
           }
         })
         .catch((err) => {
           timedOutOrError =
-            err instanceof Error ? err.message : "Domain reputation API unreachable";
+            timedOutOrError ??
+            (err instanceof Error
+              ? err.message
+              : "Domain reputation API unreachable");
         })
     );
   }
@@ -232,7 +239,7 @@ async function runAudit(payload: InterceptRequestPayload) {
           inspectTokens: true,
           veniceApiKey: settings.veniceApiKey.trim() || undefined,
         },
-        3200
+        4500
       )
         .then((res) => {
           if (res.ok) {
@@ -241,28 +248,34 @@ async function runAudit(payload: InterceptRequestPayload) {
             rpcSimulation =
               (res.rpcSimulation as RemoteAuditSnapshot["rpcSimulation"]) ??
               null;
-            verified = true;
+            txAuditOk = true;
+          } else {
+            timedOutOrError =
+              timedOutOrError ?? "Tx audit/simulation API returned non-ok status";
           }
         })
         .catch((err) => {
           timedOutOrError =
-            err instanceof Error ? err.message : "Tx audit/simulation API unreachable";
+            timedOutOrError ??
+            (err instanceof Error
+              ? err.message
+              : "Tx audit/simulation API unreachable");
         })
     );
   }
 
   if (promises.length > 0) {
     await Promise.all(promises);
-  } else {
-    // Pure local verification for allowlisted/localhost connect without unverified remote error
-    verified = true;
   }
+
+  const verified = domainLookupOk && txAuditOk;
 
   const verdict = buildExtensionVerdict({
     walletMethod: payload.walletMethod,
     hostname: normalizedHost,
     base64Transactions: txs,
     messageInspection,
+    signInInput: payload.signInInput ?? null,
     trustedDomains: settings.trustedDomains,
     blockedDomains: settings.blockedDomains,
     strictMode: settings.strictMode,

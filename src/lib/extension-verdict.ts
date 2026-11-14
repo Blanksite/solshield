@@ -4,7 +4,7 @@ import {
   DeterministicSimulationReport,
   ThreatFlag,
 } from "./solana-parser";
-import { DomainEvaluation, evaluateDomainSafety } from "./domain-guard";
+import { DomainEvaluation, evaluateDomainSafety, normalizeHostname } from "./domain-guard";
 import type { RpcTxSimulationReport, SimulatedBalanceDiff } from "./tx-simulator";
 import type { VeniceSecurityAuditResult } from "./venice-ai";
 import type { TokenScanReport } from "./token-scanner";
@@ -14,7 +14,14 @@ export type ExtensionRequestKind =
   | "signAndSendTransaction"
   | "signAllTransactions"
   | "signMessage"
+  | "signIn"
   | "connect";
+
+export interface SignInInspectionInput {
+  domain?: string;
+  statement?: string;
+  uri?: string;
+}
 
 export interface LocalOffchainMessageInspection {
   isSuspicious: boolean;
@@ -121,6 +128,54 @@ export function inspectOffchainSignMessage(
 }
 
 /**
+ * Inspects Sign-In With Solana (SIWS) payloads for cross-domain spoofing or phishing wording.
+ */
+export function inspectOffchainSignIn(
+  signInInput: SignInInspectionInput | null | undefined,
+  activeHostname: string
+): LocalOffchainMessageInspection {
+  if (!signInInput) {
+    return {
+      isSuspicious: false,
+      riskScore: 10,
+      reasons: [],
+      looksLikeRawTransaction: false,
+    };
+  }
+
+  const reasons: string[] = [];
+  let riskScore = 10;
+
+  const claimedHost = signInInput.domain ? normalizeHostname(signInInput.domain) : null;
+  const pageHost = normalizeHostname(activeHostname);
+  if (claimedHost && pageHost && claimedHost !== pageHost) {
+    riskScore = Math.max(riskScore, 92);
+    reasons.push(
+      `[CRITICAL] Cross-domain SIWS spoofing: payload claims "${claimedHost}" on tab "${pageHost}".`
+    );
+  }
+
+  const combinedText = [signInInput.statement || "", signInInput.uri || ""]
+    .filter(Boolean)
+    .join(" ");
+  if (combinedText) {
+    const textInspection = inspectOffchainSignMessage(
+      new TextEncoder().encode(combinedText),
+      combinedText
+    );
+    riskScore = Math.max(riskScore, textInspection.riskScore);
+    reasons.push(...textInspection.reasons);
+  }
+
+  return {
+    isSuspicious: riskScore >= 40,
+    riskScore: Math.min(99, riskScore),
+    reasons,
+    looksLikeRawTransaction: false,
+  };
+}
+
+/**
  * Builds the merged M1 + M2 + M3 verdict cleanly and non-silently.
  */
 export function buildExtensionVerdict(params: {
@@ -128,6 +183,7 @@ export function buildExtensionVerdict(params: {
   hostname: string;
   base64Transactions?: string[];
   messageInspection?: LocalOffchainMessageInspection | null;
+  signInInput?: SignInInspectionInput | null;
   trustedDomains?: string[];
   blockedDomains?: string[];
   strictMode?: boolean;
@@ -181,6 +237,12 @@ export function buildExtensionVerdict(params: {
   if (params.messageInspection) {
     riskScore = Math.max(riskScore, params.messageInspection.riskScore);
     reasons.push(...params.messageInspection.reasons);
+  }
+
+  if (params.walletMethod === "signIn" && params.signInInput) {
+    const siwsCheck = inspectOffchainSignIn(params.signInInput, params.hostname);
+    riskScore = Math.max(riskScore, siwsCheck.riskScore);
+    reasons.push(...siwsCheck.reasons);
   }
 
   if (parseFailureError) {

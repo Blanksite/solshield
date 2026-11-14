@@ -1,4 +1,5 @@
 import type { ExtensionVerdict } from "../../src/lib/extension-verdict";
+import brandLogoDataUrl from "../public/icons/icon48.png";
 import type {
   InterceptDecisionResponse,
   InterceptRequestPayload,
@@ -13,13 +14,23 @@ import type {
 
   let activePort: MessagePort | null = null;
   let handshakeAcked = false;
+  let overlayQueue: Promise<unknown> = Promise.resolve();
+
+  function enqueueOverlay<T>(task: () => Promise<T>): Promise<T> {
+    const run = overlayQueue.then(task, task);
+    overlayQueue = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
 
   function setupMessageChannel() {
     if (handshakeAcked) return;
     const channel = new MessageChannel();
-    activePort = channel.port1;
-    activePort.onmessage = (event: MessageEvent) => {
-      void handleInjectedMessage(event.data);
+    const port1 = channel.port1;
+    port1.onmessage = (event: MessageEvent) => {
+      void handleInjectedMessage(event.data, port1);
     };
     window.postMessage({ source: "SOLSHIELD_PORT_INIT" }, "*", [channel.port2]);
   }
@@ -33,12 +44,13 @@ import type {
 
   setupMessageChannel();
 
-  async function handleInjectedMessage(data: unknown) {
+  async function handleInjectedMessage(data: unknown, sourcePort: MessagePort) {
     if (!data || typeof data !== "object") return;
     const msg = data as Record<string, unknown>;
 
     if (msg.type === "SOLSHIELD_PORT_ACK") {
       handshakeAcked = true;
+      activePort = sourcePort;
       return;
     }
 
@@ -58,7 +70,8 @@ import type {
     if (msg.type === "SOLSHIELD_INTERCEPT_REQUEST") {
       const payload = msg.payload as InterceptRequestPayload;
       const decision = await processInterceptRequest(payload);
-      activePort?.postMessage({
+      const replyPort = sourcePort || activePort;
+      replyPort?.postMessage({
         type: "SOLSHIELD_INTERCEPT_DECISION",
         ...decision,
       });
@@ -108,8 +121,10 @@ import type {
         };
       }
 
-      // Show Closed Shadow DOM interactive confirmation modal for signing or risky connect
-      const allow = await showSolShieldOverlay(payload, verdict);
+      // Show Closed Shadow DOM interactive confirmation modal (serialized via queue)
+      const allow = await enqueueOverlay(() =>
+        showSolShieldOverlay(payload, verdict)
+      );
       const userAction = allow ? "APPROVED" : "REJECTED";
 
       const historyEntry: VerdictHistoryEntry = {
@@ -243,7 +258,7 @@ import type {
       const tokenAuditHtml =
         verdict.tokenAudits.length > 0
           ? `<div class="section">
-              <div class="section-title">Token Mint Security (M3)</div>
+              <div class="section-title">Token Mint Security</div>
               ${verdict.tokenAudits
                 .map(
                   (t) =>
@@ -300,16 +315,16 @@ import type {
             border: 1px solid rgba(41, 52, 255, 0.45);
             border-radius: 16px;
             box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255,255,255,0.04);
-            padding: 20px;
+            padding: 16px 18px;
           }
-          .header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
-          .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 14px; letter-spacing: 0.04em; color: #E2E8F0; }
-          .brand-dot { width: 10px; height: 10px; border-radius: 999px; background: #2934FF; box-shadow: 0 0 10px #2934FF; }
+          .header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+          .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 13.5px; letter-spacing: 0.05em; color: #E2E8F0; }
+          .brand-logo { width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.22); object-fit: cover; background: #09090B; flex-shrink: 0; }
           .meta-tag { font-size: 11px; font-family: ui-monospace, monospace; background: #141C2E; border: 1px solid #26314A; color: #94A3B8; padding: 4px 8px; border-radius: 999px; }
           .verdict-card {
             background: ${badgeBg};
             border: 1px solid ${badgeColor};
-            border-radius: 12px; padding: 14px; margin-bottom: 14px;
+            border-radius: 12px; padding: 11px 12px; margin-bottom: 10px;
           }
           .verdict-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
           .verdict-pill { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; color: ${badgeColor}; }
@@ -318,17 +333,17 @@ import type {
           .domain-bar {
             display: flex; justify-content: space-between; align-items: center;
             background: #101727; border: 1px solid #1E293B; border-radius: 10px;
-            padding: 9px 12px; margin-bottom: 12px; font-size: 12px;
+            padding: 7px 11px; margin-bottom: 9px; font-size: 12px;
           }
           .domain-host { font-family: ui-monospace, monospace; color: #CBD5E1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
           .domain-pill { font-size: 11px; font-weight: 700; color: #93C5FD; }
           .unverified-banner {
             background: rgba(245, 158, 11, 0.14); border: 1px solid #F59E0B;
-            color: #FCD34D; border-radius: 10px; padding: 9px 11px;
-            font-size: 12px; line-height: 1.4; margin-bottom: 12px;
+            color: #FCD34D; border-radius: 10px; padding: 8px 11px;
+            font-size: 12px; line-height: 1.4; margin-bottom: 9px;
           }
-          .section { background: #101727; border: 1px solid #1E293B; border-radius: 10px; padding: 11px 12px; margin-bottom: 10px; }
-          .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748B; font-weight: 700; margin-bottom: 7px; }
+          .section { background: #101727; border: 1px solid #1E293B; border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; }
+          .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748B; font-weight: 700; margin-bottom: 5px; }
           .diff-row, .token-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed rgba(148,163,184,0.14); }
           .diff-row:last-child, .token-row:last-child { border-bottom: none; }
           .diff-amt { font-family: ui-monospace, monospace; font-weight: 700; }
@@ -377,8 +392,8 @@ import type {
           <div class="modal" role="dialog" aria-modal="true">
             <div class="header">
               <div class="brand">
-                <span class="brand-dot"></span>
-                <span>SOLSHIELD GUARD M3</span>
+                <img class="brand-logo" src="${brandLogoDataUrl}" alt="SolShield" />
+                <span>SOLSHIELD BROWSER GUARD</span>
               </div>
               <span class="meta-tag">${escapeHtml(payload.walletName)} · ${escapeHtml(
         payload.walletMethod
@@ -480,7 +495,7 @@ import type {
 
       window.addEventListener("keydown", onKeyDown, true);
       (document.body || document.documentElement).appendChild(host);
-      rejectBtn.focus();
+      rejectBtn.focus({ preventScroll: true });
     });
   }
 

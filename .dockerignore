@@ -1,0 +1,16 @@
+.git
+.gitignore
+.next
+.vercel
+.anchor
+node_modules
+target
+test-ledger
+.env
+.env.*
+extension/dist
+extension/dist-test-dapp
+worker/data
+worker/out
+*.tsbuildinfo
+*.log

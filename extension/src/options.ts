@@ -1,5 +1,9 @@
 import { normalizeHostname } from "../../src/lib/domain-guard";
-import type { PopupStateSnapshot, SolShieldSettings } from "./types";
+import {
+  DEFAULT_SETTINGS,
+  type PopupStateSnapshot,
+  type SolShieldSettings,
+} from "./types";
 
 function parseDomainLines(raw: string): string[] {
   return Array.from(
@@ -52,7 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("save-btn")?.addEventListener("click", async () => {
     const next: Partial<SolShieldSettings> = {
-      apiBaseUrl: apiInput.value.trim() || "http://localhost:3000",
+      apiBaseUrl: apiInput.value.trim() || DEFAULT_SETTINGS.apiBaseUrl,
       network:
         (document.getElementById("network") as HTMLSelectElement).value ===
         "devnet"
@@ -85,5 +89,19 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => {
       statusEl.textContent = "";
     }, 3500);
+  });
+
+  document.getElementById("reset-btn")?.addEventListener("click", async () => {
+    const res = await chrome.runtime.sendMessage<{ ok: boolean }>({
+      type: "SOLSHIELD_UPDATE_SETTINGS",
+      settings: { ...DEFAULT_SETTINGS },
+    });
+    if (res?.ok) {
+      await loadOptions();
+      statusEl.textContent = "Restored default production configuration.";
+      setTimeout(() => {
+        statusEl.textContent = "";
+      }, 3500);
+    }
   });
 });

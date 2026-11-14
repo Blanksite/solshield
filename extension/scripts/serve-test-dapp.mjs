@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const distDir = path.resolve(__dirname, "..", "dist");
+const distDir = path.resolve(__dirname, "..", "dist-test-dapp");
 const port = Number(process.env.EXT_TEST_PORT || 4178);
 
 const MIME_TYPES = {

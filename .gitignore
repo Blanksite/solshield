@@ -6,12 +6,17 @@ target/
 .anchor/
 test-ledger/
 .env
-.env*.local
+.env.*
+!.env.example
 *.log
 .DS_Store
 
 .vercel
 extension/dist/
+extension/dist-test-dapp/
 
 
 *.tsbuildinfo
+worker/data/
+worker/out/
+

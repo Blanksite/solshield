@@ -116,5 +116,17 @@ describe("M1/M2/M3 Merged Extension Verdict Engine", () => {
     const binaryInspect = inspectOffchainSignMessage(opaqueBinary);
     expect(binaryInspect.looksLikeRawTransaction).toBe(true);
     expect(binaryInspect.isSuspicious).toBe(true);
+
+    const spoofSiwsVerdict = buildExtensionVerdict({
+      walletMethod: "signIn",
+      hostname: "evil-claim.xyz",
+      signInInput: {
+        domain: "app.jup.ag",
+        statement: "Authorize claim airdrop",
+      },
+    });
+    expect(spoofSiwsVerdict.decision).toBe("BLOCK");
+    expect(spoofSiwsVerdict.riskScore).toBeGreaterThanOrEqual(92);
+    expect(spoofSiwsVerdict.requiresTypedConfirmation).toBe(true);
   });
 });

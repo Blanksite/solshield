@@ -1,5 +1,9 @@
-import type { ExtensionRequestKind } from "../../src/lib/extension-verdict";
+import type {
+  ExtensionRequestKind,
+  SignInInspectionInput,
+} from "../../src/lib/extension-verdict";
 import {
+  createFrozenProviderProxy,
   wrapLegacyProvider,
   wrapWalletStandardWallet,
 } from "./provider-wrapper";
@@ -74,6 +78,7 @@ import type { ProviderProtectionStatus } from "./types";
     base64Transactions?: string[];
     signMessageBytesBase64?: string;
     signMessagePreviewText?: string;
+    signInInput?: SignInInspectionInput;
   }): Promise<{ allow: boolean; reason?: string }> {
     const requestId = `solsh-${Date.now()}-${++requestSeq}`;
     return new Promise((resolve) => {
@@ -106,6 +111,7 @@ import type { ProviderProtectionStatus } from "./types";
           base64Transactions: input.base64Transactions,
           signMessageBytesBase64: input.signMessageBytesBase64,
           signMessagePreviewText: input.signMessagePreviewText,
+          signInInput: input.signInInput,
         },
       });
     });
@@ -147,32 +153,63 @@ import type { ProviderProtectionStatus } from "./types";
   // Notify ISOLATED world if MAIN executed before content script installed MessageChannel
   nativePostMessage({ source: "SOLSHIELD_MAIN_READY" }, "*");
 
+  function tryWrapSlotProvider(
+    holder: Record<string, unknown>,
+    key: string,
+    label: string
+  ): boolean {
+    const obj = holder[key];
+    if (!obj) return false;
+    const res = wrapLegacyProvider(obj, label, { interceptRequest });
+    if (res.status === "WRAPPED") {
+      addUnique(trackedStatus.legacyProvidersWrapped, label);
+      return true;
+    }
+    if (res.status === "LIMITED_FROZEN") {
+      // Fallback: wrap frozen provider with an ES6 Proxy if the host property itself is replaceable
+      const desc = nativeGetOwnPropertyDescriptor(holder, key);
+      if (!Object.isFrozen(holder) && (!desc || desc.configurable || desc.writable)) {
+        try {
+          const proxied = createFrozenProviderProxy(obj as object, label, {
+            interceptRequest,
+          });
+          if (!desc || desc.configurable) {
+            nativeDefineProperty(holder, key, {
+              value: proxied,
+              writable: true,
+              configurable: true,
+              enumerable: desc ? desc.enumerable : true,
+            });
+          } else {
+            holder[key] = proxied;
+          }
+          addUnique(trackedStatus.legacyProvidersWrapped, `${label} (Proxy)`);
+          return true;
+        } catch {
+          // fall through to frozen reporting below
+        }
+      }
+      addUnique(trackedStatus.frozenProviders, `${label} (Frozen)`);
+      return true;
+    }
+    return false;
+  }
+
   function inspectAndWrapLegacyProviders() {
     let updated = false;
-    const candidates: Array<{ name: string; obj: unknown }> = [
-      {
-        name: "Phantom",
-        obj: (WIN.phantom as Record<string, unknown> | undefined)?.solana,
-      },
-      { name: "Solana", obj: WIN.solana },
-      { name: "Solflare", obj: WIN.solflare },
-      { name: "Backpack", obj: WIN.backpack },
-      { name: "Glow", obj: WIN.glow },
-    ];
-
-    for (const candidate of candidates) {
-      if (!candidate.obj) continue;
-      const res = wrapLegacyProvider(candidate.obj, candidate.name, {
-        interceptRequest,
-      });
-      if (res.status === "WRAPPED") {
-        addUnique(trackedStatus.legacyProvidersWrapped, candidate.name);
+    const phantomObj = WIN.phantom as Record<string, unknown> | undefined;
+    if (phantomObj && typeof phantomObj === "object") {
+      if (tryWrapSlotProvider(phantomObj, "solana", "Phantom")) {
         updated = true;
-      } else if (res.status === "LIMITED_FROZEN") {
-        addUnique(
-          trackedStatus.frozenProviders,
-          `${candidate.name} (Frozen)`
-        );
+      }
+    }
+    for (const [key, label] of [
+      ["solana", "Solana"],
+      ["solflare", "Solflare"],
+      ["backpack", "Backpack"],
+      ["glow", "Glow"],
+    ] as const) {
+      if (tryWrapSlotProvider(WIN, key, label)) {
         updated = true;
       }
     }
@@ -212,7 +249,12 @@ import type { ProviderProtectionStatus } from "./types";
                 addUnique(trackedStatus.legacyProvidersWrapped, label);
                 emitStatus();
               } else if (res.status === "LIMITED_FROZEN") {
-                addUnique(trackedStatus.frozenProviders, `${label} (Frozen)`);
+                internalVal = createFrozenProviderProxy(
+                  nextVal as object,
+                  label,
+                  { interceptRequest }
+                );
+                addUnique(trackedStatus.legacyProvidersWrapped, `${label} (Proxy)`);
                 emitStatus();
               }
             }

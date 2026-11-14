@@ -235,6 +235,28 @@
           </div>
           <button id="btn-sign-message" class="warn" type="button">Trigger Phishing signMessage</button>
         </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-block">EXPECTED: BLOCK (SIWS Spoof)</span>
+            <h3>7. Cross-Domain Sign-In (SIWS)</h3>
+            <p>
+              Invokes <code>solana:signIn</code> claiming domain <code>app.jup.ag</code> from localhost to test cross-origin phishing catch.
+            </p>
+          </div>
+          <button id="btn-sign-in-spoof" class="danger" type="button">Trigger SIWS Domain Spoof</button>
+        </div>
+
+        <div class="card">
+          <div>
+            <span class="tag tag-block">EXPECTED: BLOCK (ES6 Proxy)</span>
+            <h3>8. Frozen Provider SetAuthority</h3>
+            <p>
+              Uses an <code>Object.freeze()</code> wallet provider on <code>window.solflare</code> and checks ES6 Proxy fallback interception.
+            </p>
+          </div>
+          <button id="btn-frozen-proxy" class="danger" type="button">Trigger Frozen Provider Drainer</button>
+        </div>
       </div>
 
       <div class="console-card">

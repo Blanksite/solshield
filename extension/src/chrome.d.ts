@@ -55,3 +55,8 @@ declare namespace chrome {
     }): Promise<Tab[]>;
   }
 }
+
+declare module "*.png" {
+  const src: string;
+  export default src;
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { SIMULATION_PRESETS, SimulationPreset } from "@/lib/presets";
 import { VeniceSecurityAuditResult } from "@/lib/venice-ai";
 import { DeterministicSimulationReport } from "@/lib/solana-parser";
@@ -858,6 +859,19 @@ export default function SolShieldHexaCorePage() {
                   </a>
                 )}
                 <a
+                  href="/downloads/solshield-browser-guard-v0.3.0.zip"
+                  download
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Extension ZIP
+                </a>
+                <a
+                  href="/privacy"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Privacy Policy
+                </a>
+                <a
                   href={TOKEN_CONFIG.links.x}
                   target="_blank"
                   rel="noreferrer"
@@ -887,6 +901,19 @@ export default function SolShieldHexaCorePage() {
                   className="hover:text-[#2934FF] transition-colors"
                 >
                   Mainnet Firewall Live ↗
+                </a>
+                <a
+                  href="/downloads/solshield-browser-guard-v0.3.0.zip"
+                  download
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Extension ZIP
+                </a>
+                <a
+                  href="/privacy"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Privacy Policy
                 </a>
                 <a
                   href={TOKEN_CONFIG.links.x}
@@ -1042,6 +1069,22 @@ export default function SolShieldHexaCorePage() {
                   >
                     {lang === "en" ? "Token Audit" : "Cek Token"}
                   </button>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
+                  <a
+                    href="#browser-guard"
+                    className="hover:opacity-100 transition-opacity cursor-pointer"
+                  >
+                    Extension
+                  </a>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
+                  <Link
+                    href="/buildcheck"
+                    className="hover:opacity-100 transition-opacity cursor-pointer text-[#60a5fa]"
+                  >
+                    BuildCheck
+                  </Link>
                 </Magnet>
                 <Magnet padding={28} magnetStrength={3.2}>
                   <a
@@ -3029,6 +3072,64 @@ export default function SolShieldHexaCorePage() {
         </section>
 
         {/* ====================================================================
+            BROWSER GUARD CHROME MV3 EXTENSION RELEASE STRIP
+            ==================================================================== */}
+        <section
+          id="browser-guard"
+          className="w-full hexacore-canvas border-t border-white/12 text-current px-6 sm:px-10 xl:px-14 py-12"
+        >
+          <div className="max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            <div className="lg:col-span-7 space-y-3">
+              <div className="inline-flex items-center gap-2 text-[12px] font-mono uppercase tracking-[0.12em] text-[#2934FF] font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>
+                  {lang === "en"
+                    ? "CHROME MV3 EXTENSION BETA · v0.3.0"
+                    : "EKSTENSI CHROME MV3 BETA · v0.3.0"}
+                </span>
+              </div>
+              <h2 className="text-[28px] sm:text-[34px] font-medium tracking-[-0.03em] leading-[1.12]">
+                {lang === "en"
+                  ? "SolShield Browser Guard — Pre-Sign Firewall Before Phantom Pops Up."
+                  : "SolShield Browser Guard — Firewall Pra-Sign Sebelum Popup Phantom."}
+              </h2>
+              <p className="text-[15.5px] opacity-80 leading-relaxed max-w-2xl">
+                {lang === "en"
+                  ? "Intercepts Legacy (Phantom, Solflare, Backpack, Glow) and Wallet Standard requests including signTransaction, signAllTransactions, signMessage, and cross-domain SIWS signIn via isolated MessageChannel + Shadow DOM modal with zero transaction mutation."
+                  : "Mencegat permintaan Legacy & Wallet Standard (signTransaction, signAllTransactions, signMessage, hingga SIWS signIn lintas domain) lewat MessageChannel terisolasi + overlay Shadow DOM tanpa memodifikasi objek transaksi."}
+              </p>
+              <div className="pt-1 flex flex-wrap gap-2 text-[12px] font-mono opacity-80">
+                <span className="px-2.5 py-1 border border-current/20">1. Download &amp; unzip ZIP</span>
+                <span className="px-2.5 py-1 border border-current/20">2. chrome://extensions → Developer mode</span>
+                <span className="px-2.5 py-1 border border-current/20">3. Load unpacked dist/</span>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5 flex flex-col sm:flex-row lg:flex-col xl:flex-row lg:items-end justify-end gap-3">
+              <a
+                href="/downloads/solshield-browser-guard-v0.3.0.zip"
+                download
+                className="inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#2934FF] hover:opacity-95 text-white text-[13px] font-mono font-semibold uppercase tracking-[0.06em] transition-opacity whitespace-nowrap"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>
+                  {lang === "en"
+                    ? "Download MV3 Guard (.ZIP)"
+                    : "Unduh Ekstensi MV3 (.ZIP)"}
+                </span>
+              </a>
+              <a
+                href="/privacy"
+                className="inline-flex items-center justify-center gap-2 px-4 py-3.5 border border-current/25 hover:border-[#2934FF] text-[13px] font-mono uppercase tracking-[0.06em] transition-colors whitespace-nowrap"
+              >
+                <Shield className="w-4 h-4 text-[#2934FF] shrink-0" />
+                <span>{lang === "en" ? "Privacy Policy" : "Kebijakan Privasi"}</span>
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* ====================================================================
             FOOTER — SLEEK HEADER-MATCHED PROTOCOL BAR (OUTSIDE 3-COL BODY GRID)
             ==================================================================== */}
         <footer
@@ -3105,6 +3206,12 @@ export default function SolShieldHexaCorePage() {
                 >
                   {lang === "en" ? "Token Audit" : "Cek Token"}
                 </button>
+                <Link
+                  href="/buildcheck"
+                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
+                >
+                  BuildCheck
+                </Link>
                 <a
                   href="https://github.com/Blanksite/solshield"
                   target="_blank"
@@ -3193,6 +3300,19 @@ export default function SolShieldHexaCorePage() {
                   className="hover:text-[#2934FF] transition-colors"
                 >
                   Mainnet Solscan
+                </a>
+                <a
+                  href="/downloads/solshield-browser-guard-v0.3.0.zip"
+                  download
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Extension ZIP
+                </a>
+                <a
+                  href="/privacy"
+                  className="hover:text-[#2934FF] transition-colors"
+                >
+                  Privacy Policy
                 </a>
                 <a
                   href={TOKEN_CONFIG.links.x}

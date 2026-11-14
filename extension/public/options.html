@@ -120,18 +120,18 @@
     <div class="container">
       <h1>SolShield Browser Guard — Settings</h1>
       <p class="sub">
-        Configure M2 Dual-Lane Privacy domain checks, M3 RPC pre-sign simulation, and local allow/block lists.
+        Configure Dual-Lane Privacy domain verification, live Mainnet RPC pre-sign simulation, and local allow/block lists.
       </p>
 
       <div class="field">
         <label for="api-base-url">SolShield Backend API Base URL</label>
-        <input id="api-base-url" type="text" placeholder="http://localhost:3000" />
+        <input id="api-base-url" type="text" placeholder="https://sol-shield.xyz" />
         <div class="preset-row">
-          <button id="preset-local" class="chip-btn" type="button">
-            Use Local Dev (http://localhost:3000)
-          </button>
           <button id="preset-prod" class="chip-btn" type="button">
             Use Production (https://sol-shield.xyz)
+          </button>
+          <button id="preset-local" class="chip-btn" type="button">
+            Use Local Dev (http://localhost:3000)
           </button>
         </div>
       </div>
@@ -181,12 +181,16 @@
       </div>
 
       <div class="save-row">
-        <button id="save-btn" class="save-btn" type="button">Save Configuration</button>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button id="save-btn" class="save-btn" type="button">Save Configuration</button>
+          <button id="reset-btn" class="chip-btn" type="button">Reset Defaults</button>
+        </div>
         <span id="save-status" class="status-msg"></span>
       </div>
 
       <div class="privacy-note">
         <strong>Dual-Lane Privacy Guarantee:</strong> Only bare ASCII hostnames are queried for domain reputation, zero browsing history leaves your browser, and local history stores only the last 20 verdicts without raw transactions or keys.
+        <a href="https://sol-shield.xyz/privacy" target="_blank" rel="noreferrer" style="color: #93c5fd; margin-left: 6px;">Read Privacy Policy →</a>
       </div>
     </div>
 

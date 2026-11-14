@@ -2,6 +2,7 @@ import type { DomainEvaluation } from "../../src/lib/domain-guard";
 import type {
   ExtensionRequestKind,
   ExtensionVerdict,
+  SignInInspectionInput,
 } from "../../src/lib/extension-verdict";
 
 export interface SolShieldSettings {
@@ -17,7 +18,7 @@ export interface SolShieldSettings {
 
 export const DEFAULT_SETTINGS: SolShieldSettings = {
   enabled: true,
-  apiBaseUrl: "http://localhost:3000",
+  apiBaseUrl: "https://sol-shield.xyz",
   network: "mainnet",
   customRpcUrl: "",
   strictMode: false,
@@ -56,6 +57,7 @@ export interface InterceptRequestPayload {
   base64Transactions?: string[];
   signMessageBytesBase64?: string;
   signMessagePreviewText?: string;
+  signInInput?: SignInInspectionInput;
 }
 
 export interface InterceptDecisionResponse {

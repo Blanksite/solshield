@@ -6,7 +6,9 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
+import bs58 from "bs58";
 import {
+  createFrozenProviderProxy,
   wrapLegacyProvider,
   wrapWalletStandardWallet,
 } from "../extension/src/provider-wrapper";
@@ -113,7 +115,7 @@ describe("M0 Legacy & Wallet Standard Provider Interception", () => {
     ).rejects.toMatchObject({ code: 4001 });
   });
 
-  it("reports LIMITED_FROZEN instead of throwing when a provider object is frozen", () => {
+  it("reports LIMITED_FROZEN instead of throwing when a provider object is frozen", async () => {
     const frozenProvider = Object.freeze({
       async signTransaction(tx: unknown) {
         return tx;
@@ -131,5 +133,73 @@ describe("M0 Legacy & Wallet Standard Provider Interception", () => {
     expect(res.frozenMethods).toEqual(
       expect.arrayContaining(["signTransaction", "signMessage"])
     );
+
+    const proxySpy = vi.fn(
+      async (_req: { base64Transactions?: string[] }) => ({
+        allow: false,
+        reason: "Proxy blocked",
+      })
+    );
+    const proxied = createFrozenProviderProxy(frozenProvider, "FrozenWallet", {
+      interceptRequest: proxySpy,
+    });
+    await expect(proxied.signTransaction(makeSampleTx().tx)).rejects.toMatchObject({
+      code: 4001,
+    });
+    expect(proxySpy).toHaveBeenCalledTimes(1);
+    expect(proxySpy.mock.calls[0]?.[0]?.base64Transactions).toHaveLength(1);
+  });
+
+  it("extracts base58 transactions from EIP-1193 request() and inspects solana:signIn", async () => {
+    const { tx } = makeSampleTx();
+    const rawBytes = tx.serialize({
+      requireAllSignatures: false,
+      verifySignatures: false,
+    });
+    const base58Tx = bs58.encode(rawBytes);
+
+    const requestSpy = vi.fn(
+      async (_req: { base64Transactions?: string[] }) => ({ allow: true })
+    );
+    const provider = {
+      async request(payload: { method: string; params?: Record<string, unknown> }) {
+        return payload.method;
+      },
+    };
+    wrapLegacyProvider(provider, "Phantom", { interceptRequest: requestSpy });
+
+    await provider.request({
+      method: "signTransaction",
+      params: { message: base58Tx },
+    });
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    expect(requestSpy.mock.calls[0]?.[0]?.base64Transactions?.[0]).toBeTruthy();
+
+    const siwsSpy = vi.fn(
+      async (_req: { walletMethod?: string; signInInput?: { domain?: string } }) => ({
+        allow: false,
+        reason: "Cross-domain SIWS",
+      })
+    );
+    const stdWallet = {
+      name: "Backpack",
+      features: {
+        "solana:signIn": {
+          version: "1.0.0",
+          async signIn(..._inputs: Array<{ domain?: string; statement?: string }>) {
+            return [];
+          },
+        },
+      },
+    };
+    wrapWalletStandardWallet(stdWallet, { interceptRequest: siwsSpy });
+    await expect(
+      stdWallet.features["solana:signIn"].signIn({
+        domain: "app.jup.ag",
+        statement: "Sign in",
+      })
+    ).rejects.toMatchObject({ code: 4001 });
+    expect(siwsSpy.mock.calls[0]?.[0]?.walletMethod).toBe("signIn");
+    expect(siwsSpy.mock.calls[0]?.[0]?.signInInput?.domain).toBe("app.jup.ag");
   });
 });

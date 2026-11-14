@@ -57,6 +57,10 @@ interface WalletStandardDemoWallet {
         ...inputs: Array<{ message: Uint8Array }>
       ) => Promise<Array<{ signature: Uint8Array; signedMessage: Uint8Array }>>;
     };
+    "solana:signIn"?: {
+      version: string;
+      signIn: (...inputs: Array<{ domain?: string; statement?: string; uri?: string }>) => Promise<unknown>;
+    };
   };
 }
 
@@ -96,6 +100,23 @@ function setupMockWallets() {
 
   if (!win.glow) {
     win.glow = mockLegacyProvider;
+  }
+
+  // Expose an Object.freeze() wallet on window.solflare to test ES6 Proxy fallback wrapping
+  if (!win.solflare) {
+    win.solflare = Object.freeze({
+      isSolflare: true,
+      publicKey: DEMO_WALLET_KP.publicKey,
+      async connect() {
+        return { publicKey: DEMO_WALLET_KP.publicKey };
+      },
+      async signTransaction(tx: Transaction | VersionedTransaction) {
+        return tx;
+      },
+      async signAndSendTransaction() {
+        return { signature: `mockFrozenSig_${Date.now()}` };
+      },
+    });
   }
 
   const demoStandardWallet: WalletStandardDemoWallet = {
@@ -148,6 +169,12 @@ function setupMockWallets() {
             signature: new Uint8Array(64).fill(5),
             signedMessage: inp.message,
           }));
+        },
+      },
+      "solana:signIn": {
+        version: "1.0.0",
+        async signIn(...inputs) {
+          return inputs.map(() => ({ signature: new Uint8Array(64).fill(6) }));
         },
       },
     },
@@ -439,6 +466,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const provider = mode === "real" ? win.solana : win.glow;
       if (!provider) throw new Error("Legacy provider unavailable");
       return provider.signMessage(bytes);
+    });
+  });
+
+  document.getElementById("btn-sign-in-spoof")?.addEventListener("click", () => {
+    void dispatchScenario("Cross-Domain SIWS Spoof", async () => {
+      if (!registeredStandardWallet?.features["solana:signIn"]) {
+        throw new Error("Standard wallet signIn feature unavailable");
+      }
+      return registeredStandardWallet.features["solana:signIn"].signIn({
+        domain: "app.jup.ag",
+        statement: "Sign in to claim verified allocation",
+        uri: "https://app.jup.ag/claim",
+      });
+    });
+  });
+
+  document.getElementById("btn-frozen-proxy")?.addEventListener("click", () => {
+    void dispatchScenario("Frozen Provider SetAuthority", async (payer) => {
+      const win = window as unknown as {
+        solflare?: { signAndSendTransaction: (t: unknown) => Promise<unknown> };
+      };
+      if (!win.solflare) throw new Error("Frozen solflare provider unavailable");
+      return win.solflare.signAndSendTransaction(buildSetAuthorityTx(payer));
     });
   });
 

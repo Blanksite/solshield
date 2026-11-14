@@ -3,6 +3,12 @@
 import React, { useState, useEffect, useRef, ReactNode } from "react";
 
 export { default as DitherVeil } from "./DitherVeil";
+export {
+  InteractiveDotGrid,
+  ShinyText,
+  CountUp,
+  StarBorder,
+} from "./BuildCheckEffects";
 
 /* ==========================================================================
    1. REACT BITS — DecryptedText (https://reactbits.dev/text-animations/decrypted-text)
@@ -276,7 +282,6 @@ export function TiltedCard({
       {children}
       {showGlare && (
         <div
-          pointer-events-none="true"
           style={{
             background: `radial-gradient(circle at ${glarePos.x}% ${glarePos.y}%, rgba(255,255,255,${glarePos.opacity}), transparent 60%)`,
           }}

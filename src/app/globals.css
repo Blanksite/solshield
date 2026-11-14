@@ -79,3 +79,84 @@ body {
 ::-webkit-scrollbar-thumb {
   background: rgba(140, 140, 155, 0.35);
 }
+
+/* ReactBits-inspired GPU animations (SolShield BuildCheck) */
+@keyframes rb-shiny {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+.rb-shiny-text {
+  background-image: linear-gradient(
+    110deg,
+    rgba(148, 163, 184, 0.85) 35%,
+    rgba(255, 255, 255, 0.98) 50%,
+    rgba(96, 165, 250, 0.9) 65%
+  );
+  background-size: 240% 100%;
+  animation-name: rb-shiny;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes rb-border-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rb-border-spin {
+  animation: rb-border-spin 6.5s linear infinite;
+}
+
+@keyframes rb-scanline {
+  0% {
+    transform: translateY(-20%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(340px);
+    opacity: 0;
+  }
+}
+
+.rb-scanline {
+  animation: rb-scanline 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes rb-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rb-fade-up {
+  animation: rb-fade-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rb-shiny-text,
+  .rb-border-spin,
+  .rb-scanline,
+  .rb-fade-up {
+    animation: none !important;
+  }
+}
