@@ -41,17 +41,32 @@ async function importHmacKey(): Promise<CryptoKey> {
   );
 }
 
+function normalizeUserAgent(userAgent?: string | null): string {
+  const cleaned = typeof userAgent === "string" ? userAgent.trim().toLowerCase() : "";
+  return cleaned ? cleaned.slice(0, 256) : "unknown";
+}
+
+async function computeUserAgentBinding(userAgent?: string | null): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    textEncoder.encode(normalizeUserAgent(userAgent))
+  );
+  return toHex(new Uint8Array(digest).slice(0, 8));
+}
+
 /**
- * Generates an HMAC-SHA256 signed session cookie token using Web Crypto API
- * (compatible with both Next.js Edge middleware and Node.js route handlers).
+ * Generates an HMAC-SHA256 signed session cookie token bound to the caller's User-Agent
+ * using Web Crypto API (compatible with both Next.js Edge middleware and Node.js handlers).
  */
 export async function signGuardToken(
-  nowSec = Math.floor(Date.now() / 1000)
+  nowSec = Math.floor(Date.now() / 1000),
+  userAgent?: string | null
 ): Promise<string> {
   const nonceBytes = new Uint8Array(12);
   crypto.getRandomValues(nonceBytes);
   const nonce = toHex(nonceBytes);
-  const payload = `${nowSec}.${nonce}`;
+  const uaHash = await computeUserAgentBinding(userAgent);
+  const payload = `${nowSec}.${nonce}.${uaHash}`;
 
   const key = await importHmacKey();
   const sigBuf = await crypto.subtle.sign(
@@ -64,18 +79,28 @@ export async function signGuardToken(
 }
 
 /**
- * Verifies integrity and expiration of a `solshield_guard` cookie token.
+ * Verifies integrity, User-Agent binding, and expiration of a `solshield_guard` cookie token.
  */
 export async function verifyGuardToken(
   token: string | undefined | null,
-  nowSec = Math.floor(Date.now() / 1000)
+  nowSec = Math.floor(Date.now() / 1000),
+  userAgent?: string | null
 ): Promise<boolean> {
   if (!token || typeof token !== "string") return false;
   const parts = token.trim().split(".");
-  if (parts.length !== 3) return false;
+  if (parts.length !== 4) return false;
 
-  const [issuedRaw, nonce, sigHex] = parts;
-  if (!/^\d{9,13}$/.test(issuedRaw) || !/^[0-9a-f]{16,64}$/i.test(nonce)) {
+  const [issuedRaw, nonce, uaHash, sigHex] = parts;
+  if (
+    !/^\d{9,13}$/.test(issuedRaw) ||
+    !/^[0-9a-f]{16,64}$/i.test(nonce) ||
+    !/^[0-9a-f]{16}$/i.test(uaHash)
+  ) {
+    return false;
+  }
+
+  const expectedUaHash = await computeUserAgentBinding(userAgent);
+  if (uaHash.toLowerCase() !== expectedUaHash) {
     return false;
   }
 
@@ -89,7 +114,7 @@ export async function verifyGuardToken(
 
   try {
     const key = await importHmacKey();
-    const payloadBytes = textEncoder.encode(`${issuedRaw}.${nonce}`);
+    const payloadBytes = textEncoder.encode(`${issuedRaw}.${nonce}.${uaHash}`);
     // Ensure plain ArrayBuffer view for strict WebCrypto TS compatibility
     const sigCopy = new Uint8Array(sigBytes.length);
     sigCopy.set(sigBytes);

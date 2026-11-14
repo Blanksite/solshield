@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import {
   buildGuardErrorResponse,
-  getApiGuardSnapshot,
+  getApiGuardSnapshotAsync,
   guardApiRoute,
-  peekFreshBuildCheckQuota,
+  peekFreshBuildCheckQuotaAsync,
 } from "@/lib/api-guard";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import { getScanCacheStats } from "@/lib/scan-cache";
@@ -27,13 +27,18 @@ export async function GET(req: NextRequest) {
     return buildGuardErrorResponse(guarded);
   }
 
+  const [quota, guard] = await Promise.all([
+    peekFreshBuildCheckQuotaAsync(guarded.clientIp, guarded.authMode),
+    getApiGuardSnapshotAsync(),
+  ]);
+
   return corsJson(
     {
       ok: true,
       authMode: guarded.authMode,
-      quota: peekFreshBuildCheckQuota(guarded.clientIp, guarded.authMode),
+      quota,
       cache: getScanCacheStats(),
-      guard: getApiGuardSnapshot(),
+      guard,
     },
     {
       req,

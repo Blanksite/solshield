@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getScanCacheDir, isScanDiskPersistenceEnabled } from "./scan-cache";
+import { getUpstashConfig, runUpstashCommand } from "./upstash-rest";
 import {
   mergeScannedTokenLists,
   ScannedTokenSource,
@@ -40,19 +41,6 @@ function getHistoryFilePath(): string {
   return path.join(getScanCacheDir(), HISTORY_FILENAME);
 }
 
-function getUpstashConfig(): { url: string; token: string } | null {
-  const url =
-    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
-    process.env.KV_REST_API_URL?.trim() ||
-    "";
-  const token =
-    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
-    process.env.KV_REST_API_TOKEN?.trim() ||
-    "";
-  if (!url || !token || !/^https?:\/\//i.test(url)) return null;
-  return { url: url.replace(/\/+$/, ""), token };
-}
-
 function parseValidSummaries(raw: unknown): ScannedTokenSummary[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(
@@ -62,36 +50,24 @@ function parseValidSummaries(raw: unknown): ScannedTokenSummary[] {
 }
 
 async function readUpstashScannedTokens(): Promise<ScannedTokenSummary[] | null> {
-  const cfg = getUpstashConfig();
-  if (!cfg) return null;
+  if (!getUpstashConfig()) return null;
+  const rawResult = await runUpstashCommand<unknown>([
+    "GET",
+    UPSTASH_SCANNED_TOKENS_KEY,
+  ]);
+  if (rawResult === null) return null;
+  if (Array.isArray(rawResult)) {
+    return parseValidSummaries(rawResult);
+  }
+  if (typeof rawResult !== "string" || !rawResult.trim()) {
+    return [];
+  }
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    try {
-      const res = await fetch(
-        `${cfg.url}/get/${encodeURIComponent(UPSTASH_SCANNED_TOKENS_KEY)}`,
-        {
-          headers: { Authorization: `Bearer ${cfg.token}` },
-          signal: controller.signal,
-          cache: "no-store",
-        }
-      );
-      if (!res.ok) return null;
-      const payload = (await res.json()) as { result?: unknown };
-      if (Array.isArray(payload.result)) {
-        return parseValidSummaries(payload.result);
-      }
-      if (typeof payload.result !== "string" || !payload.result.trim()) {
-        return [];
-      }
-      let parsed: unknown = JSON.parse(payload.result);
-      if (typeof parsed === "string") {
-        parsed = JSON.parse(parsed);
-      }
-      return parseValidSummaries(parsed);
-    } finally {
-      clearTimeout(timer);
+    let parsed: unknown = JSON.parse(rawResult);
+    if (typeof parsed === "string") {
+      parsed = JSON.parse(parsed);
     }
+    return parseValidSummaries(parsed);
   } catch {
     return null;
   }
@@ -100,27 +76,12 @@ async function readUpstashScannedTokens(): Promise<ScannedTokenSummary[] | null>
 async function writeUpstashScannedTokens(
   items: ScannedTokenSummary[]
 ): Promise<void> {
-  const cfg = getUpstashConfig();
-  if (!cfg) return;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    try {
-      await fetch(cfg.url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${cfg.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(["SET", UPSTASH_SCANNED_TOKENS_KEY, JSON.stringify(items)]),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    // Gracefully fall back to local cache if shared KV is momentarily unreachable
-  }
+  if (!getUpstashConfig()) return;
+  await runUpstashCommand([
+    "SET",
+    UPSTASH_SCANNED_TOKENS_KEY,
+    JSON.stringify(items),
+  ]);
 }
 
 async function ensureLoaded(includeRemote = true): Promise<GlobalScannedTokenStore> {

@@ -261,15 +261,24 @@ describe("Recently Scanned Tokens Ledger & Persistence", () => {
       const url = typeof input === "string" ? input : input.toString();
       if (init?.method === "POST") {
         const rawBody = String(init.body || "");
-        recordedBodies.push(rawBody);
-        const cmd = JSON.parse(rawBody) as [string, string, string];
-        if (cmd[0] === "SET") {
+        const cmd = JSON.parse(rawBody) as [string, string, string?];
+        if (cmd[0] === "SET" && typeof cmd[2] === "string") {
+          recordedBodies.push(rawBody);
           kvState.set(cmd[1], cmd[2]);
+          return new Response(JSON.stringify({ result: "OK" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
-        return new Response(JSON.stringify({ result: "OK" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        if (cmd[0] === "GET") {
+          return new Response(
+            JSON.stringify({ result: kvState.get(cmd[1]) ?? null }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        }
       }
       const key = decodeURIComponent(url.split("/get/")[1] || "");
       return new Response(JSON.stringify({ result: kvState.get(key) ?? null }), {

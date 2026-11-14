@@ -3,13 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import {
   authorizeApiCaller,
+  checkDistributedFreshRateLimit,
   checkRouteRateLimit,
   resetApiGuardState,
   runGuardedCachedOperation,
   tryAcquireBrowserConcurrencySlot,
   tryConsumeDailyServerBudget,
+  tryConsumeDailyServerBudgetAsync,
 } from "../src/lib/api-guard";
-import { buildCorsHeaders } from "../src/lib/cors";
+import { buildCorsHeaders, isExtensionOrigin } from "../src/lib/cors";
 import {
   GUARD_COOKIE_NAME,
   signGuardToken,
@@ -67,6 +69,38 @@ describe("SolShield API Guard & Anti-Abuse Protections", () => {
     expect(await verifyApiSecretHeader("test-super-secret-token-value-12345")).toBe(true);
     expect(await verifyApiSecretHeader("Bearer test-super-secret-token-value-12345")).toBe(true);
     expect(await verifyApiSecretHeader("wrong-secret")).toBe(false);
+
+    // User-Agent binding prevents cookie replay from a different client UA
+    const uaToken = await signGuardToken(now, "Mozilla/5.0 Chrome/130");
+    expect(await verifyGuardToken(uaToken, now + 60, "Mozilla/5.0 Chrome/130")).toBe(true);
+    expect(await verifyGuardToken(uaToken, now + 60, "curl/8.4.0")).toBe(false);
+    // Rejects legacy 3-part unbound cookies
+    expect(await verifyGuardToken(`${parts[0]}.${parts[1]}.${parts[3]}`, now + 60)).toBe(false);
+  });
+
+  it("validates strict Chrome Extension origins and enforces UA-bound session cookies on requests", async () => {
+    expect(isExtensionOrigin("chrome-extension://abcdefghijklmnopabcdefghijklmnop")).toBe(true);
+    expect(isExtensionOrigin("chrome-extension://spoofed-short-origin")).toBe(false);
+
+    process.env.SOLSHIELD_ALLOWED_EXTENSION_IDS = "abcdefghijklmnopabcdefghijklmnop";
+    expect(isExtensionOrigin("chrome-extension://abcdefghijklmnopabcdefghijklmnop")).toBe(true);
+    expect(isExtensionOrigin("chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba")).toBe(false);
+    delete process.env.SOLSHIELD_ALLOWED_EXTENSION_IDS;
+
+    const browserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0";
+    const uaToken = await signGuardToken(undefined, browserUa);
+    const stolenReq = new Request("https://sol-shield.xyz/api/buildcheck", {
+      method: "POST",
+      headers: {
+        Host: "sol-shield.xyz",
+        Origin: "https://sol-shield.xyz",
+        "User-Agent": "python-requests/2.31.0",
+        Cookie: `${GUARD_COOKIE_NAME}=${encodeURIComponent(uaToken)}`,
+      },
+    });
+    const stolenRes = await authorizeApiCaller(stolenReq, { profile: "buildcheck" });
+    expect(stolenRes.ok).toBe(false);
+    if (!stolenRes.ok) expect(stolenRes.status).toBe(401);
   });
 
   it("blocks unauthorized raw API requests (401) and foreign cross-site requests (403)", async () => {
@@ -368,5 +402,81 @@ describe("SolShield Shared Scan Cache & Singleflight Deduplication", () => {
       expect(second.value.inferenceMode).toBe("venice-live-api");
     }
     expect(attempt).toBe(2);
+  });
+
+  it("enforces distributed rate limits and daily server budgets via Upstash Redis across serverless cold starts", async () => {
+    const prevFetch = globalThis.fetch;
+    const counters = new Map<string, number>();
+
+    process.env.KV_REST_API_URL = "https://example-upstash.upstash.io";
+    process.env.KV_REST_API_TOKEN = "test-kv-token";
+    process.env.SOLSHIELD_DAILY_SERVER_SCANS = "3";
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const rawBody = String(init?.body || "[]");
+      const execCmd = (cmd: (string | number)[]) => {
+        if (cmd[0] === "INCR") {
+          const key = String(cmd[1]);
+          const next = (counters.get(key) ?? 0) + 1;
+          counters.set(key, next);
+          return next;
+        }
+        if (cmd[0] === "EXPIRE") {
+          return 1;
+        }
+        if (cmd[0] === "GET") {
+          return counters.get(String(cmd[1])) ?? null;
+        }
+        return null;
+      };
+
+      if (url.endsWith("/pipeline")) {
+        const commands = JSON.parse(rawBody) as (string | number)[][];
+        return new Response(
+          JSON.stringify(commands.map((c) => ({ result: execCmd(c) }))),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
+      const cmd = JSON.parse(rawBody) as (string | number)[];
+      return new Response(JSON.stringify({ result: execCmd(cmd) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      const ip = "198.51.100.200";
+      const nowMs = 1_760_000_000_000;
+
+      // Consume 4 fresh slots on serverless instance 1
+      for (let i = 0; i < 4; i += 1) {
+        const res = await checkDistributedFreshRateLimit("buildcheck", ip, "web-session", nowMs);
+        expect(res.allowed).toBe(true);
+      }
+
+      // Simulate serverless cold start / second instance wiping in-memory store
+      resetApiGuardState();
+
+      // Remaining 2 allowed (5th & 6th), 7th blocked globally by Redis counter
+      expect((await checkDistributedFreshRateLimit("buildcheck", ip, "web-session", nowMs)).allowed).toBe(true);
+      expect((await checkDistributedFreshRateLimit("buildcheck", ip, "web-session", nowMs)).allowed).toBe(true);
+      const blocked = await checkDistributedFreshRateLimit("buildcheck", ip, "web-session", nowMs);
+      expect(blocked.allowed).toBe(false);
+      expect(blocked.remaining).toBe(0);
+
+      // Daily server scan cap (limit=3) persists across cold starts too
+      expect(await tryConsumeDailyServerBudgetAsync("web-session")).toBe(true);
+      expect(await tryConsumeDailyServerBudgetAsync("web-session")).toBe(true);
+      resetApiGuardState();
+      expect(await tryConsumeDailyServerBudgetAsync("web-session")).toBe(true);
+      expect(await tryConsumeDailyServerBudgetAsync("web-session")).toBe(false);
+      // BYOK & API-key remain exempt
+      expect(await tryConsumeDailyServerBudgetAsync("byok")).toBe(true);
+      expect(await tryConsumeDailyServerBudgetAsync("api-key")).toBe(true);
+    } finally {
+      globalThis.fetch = prevFetch;
+    }
   });
 });

@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   authorizeApiCaller,
   buildGuardErrorResponse,
+  checkDistributedFreshRateLimit,
   checkRouteRateLimit,
   tryAcquireBrowserConcurrencySlot,
-  tryConsumeDailyServerBudget,
+  tryConsumeDailyServerBudgetAsync,
 } from "../api-guard";
 import { buildCorsHeaders } from "../cors";
 import { peekBuildCheckReuseState } from "./orchestrator";
@@ -159,9 +160,8 @@ export async function prepareBuildCheckRequest(
     };
   }
 
-  const freshRate = checkRouteRateLimit(
+  const freshRate = await checkDistributedFreshRateLimit(
     "buildcheck",
-    "fresh",
     auth.clientIp,
     auth.authMode
   );
@@ -178,7 +178,7 @@ export async function prepareBuildCheckRequest(
     };
   }
 
-  if (!tryConsumeDailyServerBudget(auth.authMode)) {
+  if (!(await tryConsumeDailyServerBudgetAsync(auth.authMode))) {
     return {
       ok: false,
       response: NextResponse.json(

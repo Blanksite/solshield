@@ -17,11 +17,12 @@ export const config = {
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
+  const userAgent = req.headers.get("user-agent");
   const existing = req.cookies.get(GUARD_COOKIE_NAME)?.value;
-  const isValid = await verifyGuardToken(existing);
+  const isValid = await verifyGuardToken(existing, undefined, userAgent);
 
   if (!isValid) {
-    const freshToken = await signGuardToken();
+    const freshToken = await signGuardToken(undefined, userAgent);
     const isHttps =
       req.headers.get("x-forwarded-proto") === "https" ||
       req.nextUrl.protocol === "https:";

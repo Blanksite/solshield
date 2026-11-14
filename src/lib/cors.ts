@@ -67,12 +67,23 @@ export function isAllowedWebOrigin(origin: string, req?: Request): boolean {
 }
 
 /**
- * Checks if an Origin belongs to a Chromium browser extension (`chrome-extension://`).
+ * Checks if an Origin belongs to a valid Chromium browser extension (`chrome-extension://<32-char-id>`).
+ * When `SOLSHIELD_ALLOWED_EXTENSION_IDS` is set, only explicitly allowlisted extension IDs are accepted.
  */
 export function isExtensionOrigin(origin: string | null | undefined): boolean {
   if (!origin) return false;
-  return /^chrome-extension:\/\/[a-p]{32}$/i.test(origin.trim()) ||
-    origin.trim().toLowerCase().startsWith("chrome-extension://");
+  const match = origin.trim().match(/^chrome-extension:\/\/([a-p]{32})$/i);
+  if (!match) return false;
+
+  const allowlistRaw = process.env.SOLSHIELD_ALLOWED_EXTENSION_IDS?.trim();
+  if (!allowlistRaw) return true;
+
+  const allowedIds = allowlistRaw
+    .split(",")
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowedIds.length === 0) return true;
+  return allowedIds.includes(match[1].toLowerCase());
 }
 
 export function buildCorsHeaders(

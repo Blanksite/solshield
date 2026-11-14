@@ -14,6 +14,12 @@ import {
   recordCoalescedHit,
   setCachedEntry,
 } from "./scan-cache";
+import {
+  getUpstashConfig,
+  runUpstashCommand,
+  runUpstashPipeline,
+  sha256HexPrefix,
+} from "./upstash-rest";
 import { NextResponse } from "next/server";
 
 export type ApiGuardProfile =
@@ -233,12 +239,18 @@ export async function authorizeApiCaller(
     };
   }
 
-  // 4. Verify signed web-session HttpOnly cookie minted by middleware.ts
+  // 4. Verify signed web-session HttpOnly cookie bound to caller's User-Agent
   const rawGuardCookie = parseCookieHeader(
     req.headers.get("cookie"),
     GUARD_COOKIE_NAME
   );
-  if (await verifyGuardToken(rawGuardCookie)) {
+  if (
+    await verifyGuardToken(
+      rawGuardCookie,
+      undefined,
+      req.headers.get("user-agent")
+    )
+  ) {
     return {
       ok: true,
       authMode: "web-session",
@@ -276,6 +288,29 @@ export async function authorizeApiCaller(
   };
 }
 
+function getDailyBudgetLimit(): number {
+  const rawMax = process.env.SOLSHIELD_DAILY_SERVER_SCANS?.trim();
+  const maxDaily = rawMax ? Number(rawMax) : 250;
+  return Number.isFinite(maxDaily) ? maxDaily : 250;
+}
+
+function buildRateLimitHeaders(
+  limit: number,
+  remaining: number,
+  resetAtMs: number,
+  retryAfterSec?: number
+): Record<string, string> {
+  const base: Record<string, string> = {
+    "X-RateLimit-Limit": String(limit),
+    "X-RateLimit-Remaining": String(remaining),
+    "X-RateLimit-Reset": String(Math.ceil(resetAtMs / 1000)),
+  };
+  if (retryAfterSec && retryAfterSec > 0) {
+    base["Retry-After"] = String(retryAfterSec);
+  }
+  return base;
+}
+
 /**
  * Checks sliding-window rate limits per IP and route category.
  */
@@ -307,12 +342,7 @@ export function checkRouteRateLimit(
       remaining: 0,
       resetAtMs,
       retryAfterSec,
-      headers: {
-        "X-RateLimit-Limit": String(effectiveLimit),
-        "X-RateLimit-Remaining": "0",
-        "X-RateLimit-Reset": String(Math.ceil(resetAtMs / 1000)),
-        "Retry-After": String(retryAfterSec),
-      },
+      headers: buildRateLimitHeaders(effectiveLimit, 0, resetAtMs, retryAfterSec),
     };
   }
 
@@ -335,11 +365,69 @@ export function checkRouteRateLimit(
     remaining,
     resetAtMs,
     retryAfterSec: 0,
-    headers: {
-      "X-RateLimit-Limit": String(effectiveLimit),
-      "X-RateLimit-Remaining": String(remaining),
-      "X-RateLimit-Reset": String(Math.ceil(resetAtMs / 1000)),
-    },
+    headers: buildRateLimitHeaders(effectiveLimit, remaining, resetAtMs),
+  };
+}
+
+/**
+ * Distributed fixed-window rate limiter backed by Upstash Redis for expensive `fresh` scans
+ * so horizontal serverless instances cannot reset per-IP limits. Falls back cleanly to in-memory.
+ */
+export async function checkDistributedFreshRateLimit(
+  profile: ApiGuardProfile,
+  clientIp: string,
+  authMode: ApiAuthMode,
+  nowMs = Date.now()
+): Promise<RateLimitResult> {
+  const localResult = checkRouteRateLimit(
+    profile,
+    "fresh",
+    clientIp,
+    authMode,
+    nowMs
+  );
+  if (!localResult.allowed || authMode === "api-key" || !getUpstashConfig()) {
+    return localResult;
+  }
+
+  const policyKey = `${profile}:fresh`;
+  const spec = RATE_POLICY_TABLE[policyKey] ?? { limit: 30, windowMs: 60_000 };
+  const effectiveLimit = spec.limit;
+  const bucket = Math.floor(nowMs / spec.windowMs);
+  const resetAtMs = (bucket + 1) * spec.windowMs;
+  const ttlSec = Math.ceil(spec.windowMs / 1000) + 10;
+  const ipHash = await sha256HexPrefix(clientIp, 16);
+  const rlKey = `solshield:rl:${policyKey}:${authMode}:${ipHash}:${bucket}`;
+
+  const pipelineResult = await runUpstashPipeline([
+    ["INCR", rlKey],
+    ["EXPIRE", rlKey, ttlSec],
+  ]);
+  if (!pipelineResult) return localResult;
+
+  const remoteCount = Number(pipelineResult[0]);
+  if (!Number.isFinite(remoteCount)) return localResult;
+
+  if (remoteCount > effectiveLimit) {
+    const retryAfterSec = Math.max(1, Math.ceil((resetAtMs - nowMs) / 1000));
+    return {
+      allowed: false,
+      limit: effectiveLimit,
+      remaining: 0,
+      resetAtMs,
+      retryAfterSec,
+      headers: buildRateLimitHeaders(effectiveLimit, 0, resetAtMs, retryAfterSec),
+    };
+  }
+
+  const remaining = Math.max(0, effectiveLimit - remoteCount);
+  return {
+    allowed: true,
+    limit: effectiveLimit,
+    remaining,
+    resetAtMs,
+    retryAfterSec: 0,
+    headers: buildRateLimitHeaders(effectiveLimit, remaining, resetAtMs),
   };
 }
 
@@ -367,14 +455,40 @@ export function peekFreshBuildCheckQuota(
 }
 
 /**
+ * Non-incrementing quota peek backed by Upstash Redis when configured.
+ */
+export async function peekFreshBuildCheckQuotaAsync(
+  clientIp: string,
+  authMode: ApiAuthMode,
+  nowMs = Date.now()
+): Promise<{ limit: number; remaining: number; resetAtIso: string }> {
+  const local = peekFreshBuildCheckQuota(clientIp, authMode, nowMs);
+  if (authMode === "api-key" || !getUpstashConfig()) return local;
+
+  const spec = RATE_POLICY_TABLE["buildcheck:fresh"];
+  const bucket = Math.floor(nowMs / spec.windowMs);
+  const resetAtMs = (bucket + 1) * spec.windowMs;
+  const ipHash = await sha256HexPrefix(clientIp, 16);
+  const rlKey = `solshield:rl:buildcheck:fresh:${authMode}:${ipHash}:${bucket}`;
+  const rawCount = await runUpstashCommand<string | number>(["GET", rlKey]);
+  const remoteCount = Number(rawCount);
+  if (!Number.isFinite(remoteCount) || remoteCount <= 0) return local;
+
+  return {
+    limit: local.limit,
+    remaining: Math.max(0, Math.min(local.remaining, local.limit - remoteCount)),
+    resetAtIso: new Date(resetAtMs).toISOString(),
+  };
+}
+
+/**
  * Protects shared server Venice & Helius budgets across distributed callers.
  * Callers with an API secret key or BYOK Venice key bypass this shared cap.
  */
 export function tryConsumeDailyServerBudget(authMode: ApiAuthMode): boolean {
   if (authMode === "api-key" || authMode === "byok") return true;
 
-  const rawMax = process.env.SOLSHIELD_DAILY_SERVER_SCANS?.trim();
-  const maxDaily = rawMax ? Number(rawMax) : 250;
+  const maxDaily = getDailyBudgetLimit();
   if (!Number.isFinite(maxDaily) || maxDaily <= 0) return true;
 
   const store = getGuardStore();
@@ -387,6 +501,43 @@ export function tryConsumeDailyServerBudget(authMode: ApiAuthMode): boolean {
   }
   store.dailyUsage.freshServerScans += 1;
   return true;
+}
+
+/**
+ * Global distributed daily budget guard backed by Upstash Redis (48h key TTL)
+ * so cold starts / parallel instances cannot bypass `SOLSHIELD_DAILY_SERVER_SCANS`.
+ */
+export async function tryConsumeDailyServerBudgetAsync(
+  authMode: ApiAuthMode
+): Promise<boolean> {
+  if (authMode === "api-key" || authMode === "byok") return true;
+
+  const localAllowed = tryConsumeDailyServerBudget(authMode);
+  if (!localAllowed) return false;
+  if (!getUpstashConfig()) return true;
+
+  const maxDaily = getDailyBudgetLimit();
+  if (!Number.isFinite(maxDaily) || maxDaily <= 0) return true;
+
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const dailyKey = `solshield:guard:daily:${todayUtc}`;
+  const pipelineResult = await runUpstashPipeline([
+    ["INCR", dailyKey],
+    ["EXPIRE", dailyKey, 172800],
+  ]);
+  if (!pipelineResult) return true;
+
+  const remoteCount = Number(pipelineResult[0]);
+  if (!Number.isFinite(remoteCount)) return true;
+
+  const store = getGuardStore();
+  if (store.dailyUsage.dateUtc === todayUtc) {
+    store.dailyUsage.freshServerScans = Math.max(
+      store.dailyUsage.freshServerScans,
+      remoteCount
+    );
+  }
+  return remoteCount <= maxDaily;
 }
 
 export function getMaxConcurrentBrowsers(): number {
@@ -423,15 +574,30 @@ export function getApiGuardSnapshot(): {
   const todayUtc = new Date().toISOString().slice(0, 10);
   const dailyScans =
     store.dailyUsage.dateUtc === todayUtc ? store.dailyUsage.freshServerScans : 0;
-  const rawMax = process.env.SOLSHIELD_DAILY_SERVER_SCANS?.trim();
-  const maxDaily = rawMax ? Number(rawMax) : 250;
 
   return {
     activeBrowsers: store.activeBrowsers,
     maxConcurrentBrowsers: getMaxConcurrentBrowsers(),
     dailyFreshServerScans: dailyScans,
     dailyBudgetDateUtc: todayUtc,
-    dailyBudgetLimit: Number.isFinite(maxDaily) ? maxDaily : 250,
+    dailyBudgetLimit: getDailyBudgetLimit(),
+  };
+}
+
+export async function getApiGuardSnapshotAsync() {
+  const local = getApiGuardSnapshot();
+  if (!getUpstashConfig()) return local;
+
+  const rawCount = await runUpstashCommand<string | number>([
+    "GET",
+    `solshield:guard:daily:${local.dailyBudgetDateUtc}`,
+  ]);
+  const remoteCount = Number(rawCount);
+  if (!Number.isFinite(remoteCount) || remoteCount <= 0) return local;
+
+  return {
+    ...local,
+    dailyFreshServerScans: Math.max(local.dailyFreshServerScans, remoteCount),
   };
 }
 
@@ -449,7 +615,7 @@ export function buildGuardErrorResponse(failure: GuardCheckFailure): NextRespons
 }
 
 /**
- * Enforces caller authorization AND read rate limit in one step for standard JSON endpoints.
+ * Enforces caller authorization AND rate limit + daily budget (for `fresh` routes).
  */
 export async function guardApiRoute(
   req: Request,
@@ -457,6 +623,7 @@ export async function guardApiRoute(
     profile: ApiGuardProfile;
     kind?: "read" | "fresh";
     byokKey?: string | null;
+    consumeDailyBudget?: boolean;
   }
 ): Promise<
   | (GuardAuthSuccess & { rateHeaders: Record<string, string> })
@@ -468,17 +635,41 @@ export async function guardApiRoute(
   });
   if (!auth.ok) return auth;
 
-  const rate = checkRouteRateLimit(
-    options.profile,
-    options.kind ?? "read",
-    auth.clientIp,
-    auth.authMode
-  );
+  const kind = options.kind ?? "read";
+  const rate =
+    kind === "fresh"
+      ? await checkDistributedFreshRateLimit(
+          options.profile,
+          auth.clientIp,
+          auth.authMode
+        )
+      : checkRouteRateLimit(
+          options.profile,
+          kind,
+          auth.clientIp,
+          auth.authMode
+        );
   if (!rate.allowed) {
     return {
       ok: false,
       status: 429,
       error: `Rate limit exceeded. Please retry in ${rate.retryAfterSec}s.`,
+      headers: {
+        ...buildCorsHeaders(req, auth.corsPolicy),
+        ...rate.headers,
+      },
+    };
+  }
+
+  const shouldConsumeBudget =
+    kind === "fresh" &&
+    (options.consumeDailyBudget ?? options.profile !== "web-tool");
+  if (shouldConsumeBudget && !(await tryConsumeDailyServerBudgetAsync(auth.authMode))) {
+    return {
+      ok: false,
+      status: 429,
+      error:
+        "Daily shared SolShield server scan capacity reached. Supply your own Venice API key (BYOK) or retry after 00:00 UTC.",
       headers: {
         ...buildCorsHeaders(req, auth.corsPolicy),
         ...rate.headers,
@@ -595,9 +786,8 @@ export async function runGuardedCachedOperation<T>(
     }
   }
 
-  const freshRate = checkRouteRateLimit(
+  const freshRate = await checkDistributedFreshRateLimit(
     options.profile,
-    "fresh",
     auth.clientIp,
     auth.authMode
   );
@@ -613,7 +803,7 @@ export async function runGuardedCachedOperation<T>(
     };
   }
 
-  if (!tryConsumeDailyServerBudget(auth.authMode)) {
+  if (!(await tryConsumeDailyServerBudgetAsync(auth.authMode))) {
     return {
       ok: false,
       status: 429,
