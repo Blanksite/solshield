@@ -15,6 +15,8 @@
     "ext:test-dapp": "node extension/scripts/serve-test-dapp.mjs",
     "bot:check": "tsx worker/solshield-bot.ts --check",
     "bot:start": "tsx worker/solshield-bot.ts",
+    "bot:tg:check": "tsx worker/solshield-tg-bot.ts --check",
+    "bot:tg:start": "tsx worker/solshield-tg-bot.ts",
     "cdp:start": "tsx worker/cdp-server.ts"
   },
   "dependencies": {

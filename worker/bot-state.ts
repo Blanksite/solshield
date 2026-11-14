@@ -1,5 +1,7 @@
 import fs from "node:fs";
-import path from "node:path";
+import { getUtcDateKey, saveJsonAtomic } from "./bot-shared";
+
+export { getUtcDateKey };
 
 export interface BotPersistedState {
   botUserId: string | null;
@@ -27,10 +29,6 @@ const DEFAULT_STATE: BotPersistedState = {
 
 const MAX_TRACKED_TWEETS = 500;
 const MAX_TRACKED_AUTHORS = 1000;
-
-export function getUtcDateKey(nowMs = Date.now()): string {
-  return new Date(nowMs).toISOString().slice(0, 10);
-}
 
 export function loadBotState(stateFilePath: string): BotPersistedState {
   try {
@@ -71,11 +69,7 @@ export function saveBotState(
   stateFilePath: string,
   state: BotPersistedState
 ): void {
-  const dir = path.dirname(stateFilePath);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = `${stateFilePath}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), "utf8");
-  fs.renameSync(tmpPath, stateFilePath);
+  saveJsonAtomic(stateFilePath, state);
 }
 
 export function isTweetProcessed(

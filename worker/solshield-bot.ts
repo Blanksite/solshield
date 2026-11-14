@@ -1,8 +1,11 @@
-import http from "node:http";
 import path from "node:path";
 import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
-import type { BuildCheckReport } from "../src/lib/buildcheck/types";
-import { tokenReportToSummary } from "../src/lib/scanned-token-types";
+import {
+  parseBooleanEnv,
+  parsePositiveIntEnv,
+  startBotHealthServer,
+  syncScannedTokenToWeb,
+} from "./bot-shared";
 import {
   evaluateMentionGuard,
   getRepliesTodayCount,
@@ -27,24 +30,6 @@ import {
 
 loadLocalEnvFiles();
 
-function parseBooleanEnv(raw: string | undefined, defaultValue: boolean): boolean {
-  if (raw === undefined || raw.trim() === "") return defaultValue;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
-  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
-  return defaultValue;
-}
-
-function parsePositiveIntEnv(
-  raw: string | undefined,
-  defaultValue: number,
-  min = 0
-): number {
-  const num = Number(raw?.trim());
-  if (!Number.isFinite(num)) return defaultValue;
-  return Math.max(min, Math.floor(num));
-}
-
 function getAuthConfig(): XBotAuthConfig {
   return {
     botHandle: (process.env.BOT_X_HANDLE?.trim() || "usesolshield").replace(/^@/, ""),
@@ -67,71 +52,25 @@ function startHealthServer(
     state: BotPersistedState;
     maxRepliesPerDay: number;
   }
-): http.Server {
-  const server = http.createServer((req, res) => {
-    if (req.url === "/health" || req.url === "/") {
+) {
+  return startBotHealthServer({
+    port,
+    logPrefix: "[SolShield X Bot]",
+    getStatusPayload: () => {
       const snap = readStatus();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          ok: true,
-          service: "solshield-x-bot",
-          botHandle: `@${snap.botHandle}`,
-          dryRun: snap.dryRun,
-          repliesTodayCount: getRepliesTodayCount(snap.state),
-          maxRepliesPerDay: snap.maxRepliesPerDay,
-          lastPollAt: snap.state.lastPollAt || null,
-          lastReplyAt: snap.state.lastReplyAt || null,
-          lastError: snap.state.lastError || null,
-        })
-      );
-      return;
-    }
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: false, error: "Not found" }));
+      return {
+        ok: true,
+        service: "solshield-x-bot",
+        botHandle: `@${snap.botHandle}`,
+        dryRun: snap.dryRun,
+        repliesTodayCount: getRepliesTodayCount(snap.state),
+        maxRepliesPerDay: snap.maxRepliesPerDay,
+        lastPollAt: snap.state.lastPollAt || null,
+        lastReplyAt: snap.state.lastReplyAt || null,
+        lastError: snap.state.lastError || null,
+      };
+    },
   });
-  server.listen(port, "0.0.0.0", () => {
-    console.log(`[SolShield X Bot] Health endpoint listening on :${port}/health`);
-  });
-  return server;
-}
-
-async function syncScannedTokenToWeb(
-  report: BuildCheckReport,
-  appPublicUrl: string,
-  syncEnabled: boolean
-): Promise<void> {
-  if (!syncEnabled || !report.chain?.tokenReport) return;
-  const apiSecret = process.env.SOLSHIELD_API_SECRET?.trim();
-  if (!apiSecret) return;
-
-  const endpoint = `${appPublicUrl.replace(/\/+$/, "")}/api/scanned-tokens`;
-  const summary = tokenReportToSummary(report.chain.tokenReport, "buildcheck");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-solshield-api-key": apiSecret,
-      },
-      body: JSON.stringify({ summary }),
-      signal: controller.signal,
-    });
-    if (res.ok) {
-      console.log(`[Sync] Published ${summary.mintAddress.slice(0, 8)}... (${summary.symbol || "SPL"}) to web feed.`);
-    } else {
-      console.warn(`[Sync Warn] Web feed returned HTTP ${res.status} for ${summary.mintAddress}`);
-    }
-  } catch (err) {
-    console.warn(
-      "[Sync Warn] Could not publish scanned token to web feed:",
-      err instanceof Error ? err.message : err
-    );
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 async function runSingleCheckCli(rawTarget: string): Promise<void> {
