@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
 import {
   BlinkValidationError,
   buildAuditedJupiterBlinkSwap,
@@ -26,6 +27,14 @@ export async function OPTIONS() {
  * Returns metadata and interactive parameters for Blink-compatible wallets (Phantom, Solflare, Backpack).
  */
 export async function GET(req: NextRequest) {
+  const guarded = await guardApiRoute(req, {
+    profile: "solana-actions",
+    kind: "read",
+  });
+  if (!guarded.ok) {
+    return buildGuardErrorResponse(guarded);
+  }
+
   const url = new URL(req.url);
   const baseUrl = `${url.protocol}//${url.host}`;
 
@@ -71,6 +80,14 @@ export async function GET(req: NextRequest) {
  * and returns the audited base64 transaction ready to sign.
  */
 export async function POST(req: NextRequest) {
+  const guarded = await guardApiRoute(req, {
+    profile: "solana-actions",
+    kind: "fresh",
+  });
+  if (!guarded.ok) {
+    return buildGuardErrorResponse(guarded);
+  }
+
   try {
     const url = new URL(req.url);
     const rawAmount = url.searchParams.get("amount");

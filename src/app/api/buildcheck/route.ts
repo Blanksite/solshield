@@ -1,42 +1,31 @@
 import { NextRequest } from "next/server";
+import { prepareBuildCheckRequest } from "@/lib/buildcheck/request-guard";
 import { runBuildCheckInvestigation } from "@/lib/buildcheck/orchestrator";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-export async function OPTIONS() {
-  return corsOptionsResponse();
+export async function OPTIONS(req: NextRequest) {
+  return corsOptionsResponse(req, "web");
 }
 
 /**
- * Synchronous JSON endpoint for SolShield BuildCheck — powers automated CLI
- * audits, Telegram commands, and the @SolShieldCheck X mention bot worker.
+ * Synchronous JSON endpoint for SolShield BuildCheck — protected by caller
+ * auth/origin checks, rate limits, shared scan cache, and concurrency caps.
  */
 export async function POST(req: NextRequest) {
+  const prepared = await prepareBuildCheckRequest(req);
+  if (!prepared.ok) {
+    return prepared.response;
+  }
+
   try {
-    const body = (await req.json()) as {
-      input?: string;
-      veniceApiKey?: string;
-      veniceModel?: string;
-      enableBrowser?: boolean;
-    };
-
-    const rawInput = (body.input || "").trim();
-    if (!rawInput) {
-      return corsJson(
-        {
-          ok: false,
-          error: "Paste a Solana token CA, X link, GitHub repo, or website URL.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const report = await runBuildCheckInvestigation(rawInput, {
-      apiKey: body.veniceApiKey,
-      model: body.veniceModel,
-      enableBrowser: body.enableBrowser ?? true,
+    const report = await runBuildCheckInvestigation(prepared.input, {
+      apiKey: prepared.veniceApiKey,
+      model: prepared.veniceModel,
+      enableBrowser: prepared.enableBrowser,
+      forceRefresh: prepared.forceRefresh,
     });
 
     // Omit heavy raw screenshot base64 bytes from compact JSON API unless needed
@@ -51,10 +40,25 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    return corsJson({ ok: true, report: compactReport });
+    return corsJson(
+      { ok: true, report: compactReport },
+      {
+        req,
+        policy: "web",
+        headers: {
+          ...prepared.responseHeaders,
+          "X-SolShield-Cache": report.cache?.hit ? "HIT" : "MISS",
+        },
+      }
+    );
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "BuildCheck audit failed.";
-    return corsJson({ ok: false, error: message }, { status: 400 });
+    return corsJson(
+      { ok: false, error: message },
+      { status: 400, req, policy: "web", headers: prepared.responseHeaders }
+    );
+  } finally {
+    prepared.releaseConcurrency?.();
   }
 }

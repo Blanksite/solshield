@@ -221,16 +221,32 @@ export default function BuildCheckWorkbench() {
     setForensicTab("proof");
 
     try {
-      const response = await fetch("/api/buildcheck/stream", {
+      const requestBody = JSON.stringify({
+        input: query,
+        veniceApiKey: veniceApiKey.trim() || undefined,
+        enableBrowser,
+      });
+
+      let response = await fetch("/api/buildcheck/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        body: JSON.stringify({
-          input: query,
-          veniceApiKey: veniceApiKey.trim() || undefined,
-          enableBrowser,
-        }),
+        body: requestBody,
       });
+
+      // Seamlessly refresh guard cookie once if tab stayed open past 12h or pre-deploy
+      if (response.status === 401) {
+        await fetch(window.location.pathname || "/buildcheck", {
+          method: "HEAD",
+          credentials: "same-origin",
+        }).catch(() => undefined);
+        response = await fetch("/api/buildcheck/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: requestBody,
+        });
+      }
 
       if (!response.ok || !response.body) {
         const errPayload = await response.json().catch(() => ({}));
@@ -533,7 +549,9 @@ export default function BuildCheckWorkbench() {
           )}
           <span>
             {report
-              ? `Done in ${(report.elapsedMs / 1000).toFixed(1)}s`
+              ? report.cache?.hit
+                ? "Cached Scan (Reused)"
+                : `Done in ${(report.elapsedMs / 1000).toFixed(1)}s`
               : isRunning
                 ? "Streaming..."
                 : "Idle"}
@@ -1423,6 +1441,14 @@ export default function BuildCheckWorkbench() {
                               ? `Venice AI · ${report.modelsUsed.join(" + ")}`
                               : "Deterministic Proof Engine"}
                           </span>
+                          {report.cache?.hit && (
+                            <span
+                              title={`Reused shared scan cached at ${report.cache.cachedAt}`}
+                              className="px-2 py-0.5 rounded-md text-[11px] font-mono bg-emerald-500/12 border border-emerald-500/30 text-emerald-300"
+                            >
+                              Cached Result · Reused
+                            </span>
+                          )}
                         </div>
                         <h3 className="text-lg sm:text-xl font-semibold text-white">
                           {report.headline}

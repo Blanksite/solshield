@@ -278,6 +278,12 @@ export interface BuildCheckReport {
   createdAt: string;
   elapsedMs: number;
   target: ParsedTargetInput;
+  cache?: {
+    hit: boolean;
+    cachedAt: string;
+    expiresAt: string;
+    cacheKey: string;
+  };
   authenticityScore: number;
   verdict: BuildCheckVerdict;
   headline: string;

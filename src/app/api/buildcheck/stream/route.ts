@@ -1,39 +1,23 @@
 import { NextRequest } from "next/server";
+import { prepareBuildCheckRequest } from "@/lib/buildcheck/request-guard";
 import { runBuildCheckInvestigation } from "@/lib/buildcheck/orchestrator";
+import { corsOptionsResponse } from "@/lib/cors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+export async function OPTIONS(req: NextRequest) {
+  return corsOptionsResponse(req, "web");
+}
+
 /**
  * Streams real-time BuildCheck investigation steps, live Chromium viewport JPEG
- * screenshots, collector badges, and the final Venice AI forensic verdict via SSE.
+ * screenshots, collector badges, or instant cached scan replays via SSE.
  */
 export async function POST(req: NextRequest) {
-  let body: {
-    input?: string;
-    veniceApiKey?: string;
-    veniceModel?: string;
-    enableBrowser?: boolean;
-  };
-
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json(
-      { ok: false, error: "Invalid JSON request body." },
-      { status: 400 }
-    );
-  }
-
-  const rawInput = (body.input || "").trim();
-  if (!rawInput) {
-    return Response.json(
-      {
-        ok: false,
-        error: "Paste a Solana token CA, X link, GitHub repo, or website URL.",
-      },
-      { status: 400 }
-    );
+  const prepared = await prepareBuildCheckRequest(req);
+  if (!prepared.ok) {
+    return prepared.response;
   }
 
   const encoder = new TextEncoder();
@@ -53,10 +37,11 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await runBuildCheckInvestigation(rawInput, {
-          apiKey: body.veniceApiKey,
-          model: body.veniceModel,
-          enableBrowser: body.enableBrowser ?? true,
+        await runBuildCheckInvestigation(prepared.input, {
+          apiKey: prepared.veniceApiKey,
+          model: prepared.veniceModel,
+          enableBrowser: prepared.enableBrowser,
+          forceRefresh: prepared.forceRefresh,
           onEvent: (event) => {
             safeSend(event);
           },
@@ -70,6 +55,7 @@ export async function POST(req: NextRequest) {
           message,
         });
       } finally {
+        prepared.releaseConcurrency?.();
         if (!closed) {
           closed = true;
           try {
@@ -84,6 +70,7 @@ export async function POST(req: NextRequest) {
 
   return new Response(stream, {
     headers: {
+      ...prepared.responseHeaders,
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",

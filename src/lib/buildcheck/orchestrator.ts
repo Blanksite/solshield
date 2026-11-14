@@ -20,10 +20,223 @@ import {
   synthesizeWithVeniceBuildCheck,
   type VeniceBuildCheckOptions,
 } from "./venice-buildcheck";
+import {
+  getCachedEntry,
+  recordCoalescedHit,
+  setCachedEntry,
+} from "../scan-cache";
+import type { ParsedTargetInput } from "./types";
 
 export interface RunBuildCheckOptions extends VeniceBuildCheckOptions {
   enableBrowser?: boolean;
+  forceRefresh?: boolean;
+  bypassCache?: boolean;
   onEvent?: (event: BuildCheckStreamEvent) => void;
+}
+
+const DEFAULT_BUILDCHECK_CACHE_TTL_MS = 30 * 60_000; // 30 minutes
+const DEGRADED_VENICE_CACHE_TTL_MS = 2 * 60_000; // 2 minutes if Venice transiently fell back
+
+interface InFlightBuildCheck {
+  promise: Promise<BuildCheckReport>;
+  bufferedEvents: BuildCheckStreamEvent[];
+  subscribers: Set<(ev: BuildCheckStreamEvent) => void>;
+}
+
+function getInFlightMap(): Map<string, InFlightBuildCheck> {
+  const g = globalThis as unknown as {
+    __solshieldInFlightBuildChecks?: Map<string, InFlightBuildCheck>;
+  };
+  if (!g.__solshieldInFlightBuildChecks) {
+    g.__solshieldInFlightBuildChecks = new Map();
+  }
+  return g.__solshieldInFlightBuildChecks;
+}
+
+const TOKEN_EXPLORER_URL_RE =
+  /^https?:\/\/(?:www\.)?(?:dexscreener\.com\/solana|pump\.fun\/coin|solscan\.io\/token|birdeye\.so\/token|gmgn\.ai\/sol\/token)\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:[/?#]|$)/i;
+
+function normalizeWebsiteForCacheKey(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid"]) {
+      parsed.searchParams.delete(key);
+    }
+    const cleanPath = parsed.pathname.replace(/\/+$/, "") || "";
+    return `${parsed.protocol.toLowerCase()}//${parsed.hostname.toLowerCase()}${cleanPath}${parsed.search}`.toLowerCase();
+  } catch {
+    return rawUrl.trim().toLowerCase();
+  }
+}
+
+/**
+ * Builds canonical BuildCheck cache keys so equivalent inputs (e.g. bare CA vs
+ * DexScreener/Pump.fun link) share stored forensic reports without re-scanning.
+ */
+export function buildBuildCheckCacheKeys(
+  target: ParsedTargetInput,
+  enableBrowser: boolean
+): { primaryKey: string; fallbackKeys: string[] } {
+  let baseKey: string;
+  if (target.kind === "token_ca" && target.mintAddress) {
+    baseKey = `mint:${target.mintAddress}`;
+  } else if (target.kind === "github_repo" && target.githubOwnerRepo) {
+    baseKey = `gh:${target.githubOwnerRepo.toLowerCase()}`;
+  } else if (target.kind === "x_post") {
+    baseKey = `xpost:${target.xTweetId || (target.normalizedUrl || "").toLowerCase()}`;
+  } else if (target.kind === "x_profile") {
+    baseKey = `xprof:${(target.xHandle || target.normalizedUrl || "").toLowerCase()}`;
+  } else {
+    const urlStr = target.normalizedUrl || target.rawInput;
+    const explorerMatch = urlStr.match(TOKEN_EXPLORER_URL_RE);
+    baseKey = explorerMatch
+      ? `mint:${explorerMatch[1]}`
+      : `web:${normalizeWebsiteForCacheKey(urlStr)}`;
+  }
+
+  const primaryKey = `${baseKey}:b${enableBrowser ? "1" : "0"}`;
+  const fallbackKeys = enableBrowser ? [] : [`${baseKey}:b1`];
+  return { primaryKey, fallbackKeys };
+}
+
+/**
+ * Checks whether a BuildCheck target already has a stored scan or an active
+ * in-flight investigation, allowing routes to skip rate-limit / concurrency
+ * charges on cache reuses.
+ */
+export async function peekBuildCheckReuseState(
+  rawInput: string,
+  enableBrowser = true
+): Promise<{
+  target: ParsedTargetInput;
+  primaryKey: string;
+  cacheHit: boolean;
+  inFlight: boolean;
+}> {
+  const target = parseBuildCheckInput(rawInput);
+  const { primaryKey, fallbackKeys } = buildBuildCheckCacheKeys(target, enableBrowser);
+  const cached = await getCachedEntry<BuildCheckReport>(
+    "buildcheck",
+    primaryKey,
+    fallbackKeys
+  );
+  const inFlightMap = getInFlightMap();
+  const inFlight = [primaryKey, ...fallbackKeys].some((k) => inFlightMap.has(k));
+  return {
+    target,
+    primaryKey,
+    cacheHit: Boolean(cached),
+    inFlight,
+  };
+}
+
+function replayCachedReportEvents(
+  report: BuildCheckReport,
+  emit: (ev: BuildCheckStreamEvent) => void
+): void {
+  emit({
+    type: "step",
+    stepId: "parse",
+    elapsedMs: 1,
+    phase: "parse",
+    title: `Target resolved as ${report.target.kind.replace("_", " ").toUpperCase()}`,
+    detail:
+      report.target.mintAddress ||
+      report.target.githubOwnerRepo ||
+      report.target.normalizedUrl ||
+      report.target.rawInput,
+  });
+
+  emit({
+    type: "step",
+    stepId: "cache-hit",
+    elapsedMs: 4,
+    phase: "venice",
+    title: "Loaded verified scan from shared cache",
+    detail: `Reused existing audit stored at ${report.cache?.cachedAt ?? report.createdAt} — skipped duplicate Chromium, RPC & Venice AI calls.`,
+  });
+
+  for (const stop of report.browser.stops) {
+    if (stop.screenshotBase64) {
+      emit({
+        type: "frame",
+        elapsedMs: 6,
+        url: stop.url,
+        title: stop.title,
+        stepLabel: stop.stepLabel,
+        imageBase64: stop.screenshotBase64,
+        xhrCount: stop.xhrCount,
+      });
+    }
+  }
+
+  if (report.chain) {
+    const deep = report.chain.deep;
+    const cabalTag =
+      deep && deep.holders.clusters.length > 0
+        ? ` · ${deep.holders.clusters.length} linked cluster(s) · Holders ${deep.holders.score}/100`
+        : deep
+          ? ` · Holders ${deep.holders.score}/100 (${deep.holders.verdict})`
+          : "";
+    emit({
+      type: "collector",
+      elapsedMs: 8,
+      collector: "chain",
+      status:
+        report.chain.tokenReport &&
+        report.chain.tokenReport.riskScore < 50 &&
+        (!deep || deep.holders.score >= 50)
+          ? "ok"
+          : "warn",
+      summary: report.chain.tokenReport
+        ? `${report.chain.tokenReport.symbol || "Token"} · Liq $${(
+            report.chain.dexPair?.liquidityUsd ?? 0
+          ).toLocaleString("en-US")}${cabalTag}`
+        : report.chain.error || "On-chain data cached",
+    });
+  }
+
+  if (report.github) {
+    emit({
+      type: "collector",
+      elapsedMs: 9,
+      collector: "github",
+      status: report.github.exists ? "ok" : "warn",
+      summary: report.github.exists
+        ? `${report.github.fullName} · ${report.github.stars}★ · ${report.github.recentCommitCount} commits`
+        : report.github.error || "GitHub cached",
+    });
+  }
+
+  if (report.domain) {
+    emit({
+      type: "collector",
+      elapsedMs: 10,
+      collector: "domain",
+      status: report.domain.domainEval.riskLevel === "LOW" ? "ok" : "warn",
+      summary: `${report.domain.registrableDomain} · ${report.domain.domainEval.status}${
+        report.domain.domainAgeDays !== null ? ` · Age ${report.domain.domainAgeDays}d` : ""
+      }`,
+    });
+  }
+
+  if (report.xPost) {
+    emit({
+      type: "collector",
+      elapsedMs: 11,
+      collector: "xpost",
+      status: report.xPost.textContent ? "ok" : "warn",
+      summary: report.xPost.textContent
+        ? `@${report.xPost.handle || "x"} · extracted ${report.xPost.textContent.length} chars via ${report.xPost.methodUsed}`
+        : report.xPost.note || "X metadata cached",
+    });
+  }
+
+  emit({
+    type: "verdict",
+    elapsedMs: report.elapsedMs,
+    report,
+  });
 }
 
 function selectPrimaryGithubRepo(
@@ -67,16 +280,113 @@ export async function runBuildCheckInvestigation(
   rawInput: string,
   options: RunBuildCheckOptions = {}
 ): Promise<BuildCheckReport> {
-  const startMs = Date.now();
-  const id = `bc_${crypto.randomBytes(5).toString("hex")}`;
-  const emit = (ev: BuildCheckStreamEvent) => options.onEvent?.(ev);
-  const elapsed = () => Date.now() - startMs;
-
+  const enableBrowser = options.enableBrowser !== false;
   const target = parseBuildCheckInput(rawInput);
 
   if (target.normalizedUrl && target.kind !== "token_ca") {
     await assertSafePublicHttpUrl(target.normalizedUrl);
   }
+
+  const { primaryKey, fallbackKeys } = buildBuildCheckCacheKeys(target, enableBrowser);
+
+  if (!options.forceRefresh && !options.bypassCache) {
+    const cached = await getCachedEntry<BuildCheckReport>(
+      "buildcheck",
+      primaryKey,
+      fallbackKeys
+    );
+    if (cached) {
+      const reusedReport: BuildCheckReport = {
+        ...cached.value,
+        cache: {
+          hit: true,
+          cachedAt: cached.cachedAt,
+          expiresAt: cached.expiresAt,
+          cacheKey: cached.cacheKey,
+        },
+      };
+      if (options.onEvent) {
+        replayCachedReportEvents(reusedReport, options.onEvent);
+      }
+      return reusedReport;
+    }
+
+    const inFlightMap = getInFlightMap();
+    const activeKey = [primaryKey, ...fallbackKeys].find((k) => inFlightMap.has(k));
+    const existing = activeKey ? inFlightMap.get(activeKey) : undefined;
+    if (existing) {
+      recordCoalescedHit();
+      const subscriber = options.onEvent;
+      if (subscriber) {
+        for (const ev of existing.bufferedEvents) {
+          subscriber(ev);
+        }
+        existing.subscribers.add(subscriber);
+      }
+      try {
+        const sharedReport = await existing.promise;
+        return {
+          ...sharedReport,
+          cache: sharedReport.cache
+            ? { ...sharedReport.cache, hit: true }
+            : undefined,
+        };
+      } finally {
+        if (subscriber) existing.subscribers.delete(subscriber);
+      }
+    }
+  }
+
+  const inFlightMap = getInFlightMap();
+  const subscribers = new Set<(ev: BuildCheckStreamEvent) => void>();
+  if (options.onEvent) subscribers.add(options.onEvent);
+  const bufferedEvents: BuildCheckStreamEvent[] = [];
+
+  const broadcast = (ev: BuildCheckStreamEvent) => {
+    if (bufferedEvents.length < 80) {
+      bufferedEvents.push(ev);
+    }
+    for (const sub of Array.from(subscribers)) {
+      try {
+        sub(ev);
+      } catch {
+        subscribers.delete(sub);
+      }
+    }
+  };
+
+  const investigationPromise = executeFreshBuildCheckInvestigation(
+    rawInput,
+    target,
+    primaryKey,
+    options,
+    broadcast
+  );
+
+  inFlightMap.set(primaryKey, {
+    promise: investigationPromise,
+    bufferedEvents,
+    subscribers,
+  });
+
+  try {
+    return await investigationPromise;
+  } finally {
+    inFlightMap.delete(primaryKey);
+    subscribers.clear();
+  }
+}
+
+async function executeFreshBuildCheckInvestigation(
+  rawInput: string,
+  target: ParsedTargetInput,
+  cacheKey: string,
+  options: RunBuildCheckOptions,
+  emit: (ev: BuildCheckStreamEvent) => void
+): Promise<BuildCheckReport> {
+  const startMs = Date.now();
+  const id = `bc_${crypto.randomBytes(5).toString("hex")}`;
+  const elapsed = () => Date.now() - startMs;
 
   emit({
     type: "step",
@@ -395,6 +705,24 @@ export async function runBuildCheckInvestigation(
   );
 
   finalReport.elapsedMs = elapsed();
+
+  if (!options.bypassCache) {
+    const rawTtl = Number(process.env.BUILDCHECK_CACHE_TTL_MS || DEFAULT_BUILDCHECK_CACHE_TTL_MS);
+    const baseTtl = Number.isFinite(rawTtl) && rawTtl >= 1000 ? rawTtl : DEFAULT_BUILDCHECK_CACHE_TTL_MS;
+    const hadVeniceKey = Boolean(options.apiKey?.trim() || process.env.VENICE_API_KEY?.trim());
+    const ttlMs =
+      hadVeniceKey && finalReport.inferenceMode === "deterministic-fallback"
+        ? Math.min(baseTtl, DEGRADED_VENICE_CACHE_TTL_MS)
+        : baseTtl;
+
+    const stored = await setCachedEntry("buildcheck", cacheKey, finalReport, ttlMs);
+    finalReport.cache = {
+      hit: false,
+      cachedAt: stored.cachedAt,
+      expiresAt: stored.expiresAt,
+      cacheKey,
+    };
+  }
 
   emit({
     type: "verdict",

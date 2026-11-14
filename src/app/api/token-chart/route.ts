@@ -1,5 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { NextRequest, NextResponse } from "next/server";
+import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
+import { corsOptionsResponse } from "@/lib/cors";
 
 export interface OhlcvCandleBar {
   time: number;
@@ -34,7 +36,19 @@ function sanitizeBase58(raw: string | null): string | null {
   }
 }
 
+export async function OPTIONS(req: NextRequest) {
+  return corsOptionsResponse(req, "web");
+}
+
 export async function GET(req: NextRequest) {
+  const guarded = await guardApiRoute(req, {
+    profile: "web-tool",
+    kind: "read",
+  });
+  if (!guarded.ok) {
+    return buildGuardErrorResponse(guarded);
+  }
+
   const mint = sanitizeBase58(req.nextUrl.searchParams.get("mint"));
   const poolParam = sanitizeBase58(req.nextUrl.searchParams.get("pool"));
   const tfRaw = req.nextUrl.searchParams.get("tf") || "5m";

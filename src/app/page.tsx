@@ -746,7 +746,10 @@ export default function SolShieldHexaCorePage() {
         ...prev,
         {
           role: "assistant",
-          content: data.reply,
+          content:
+            data.reply ||
+            data.error ||
+            "Rate limit or security guard triggered. Please retry shortly.",
           telemetry: data.telemetry,
           privacyProof: data.privacyProof,
         },

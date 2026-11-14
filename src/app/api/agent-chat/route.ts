@@ -1,5 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import {
+  buildGuardErrorResponse,
+  runGuardedCachedOperation,
+} from "@/lib/api-guard";
+import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import { getPresetReport } from "@/lib/presets";
+import { createCacheKeyHash } from "@/lib/scan-cache";
 import { VENICE_API_BASE_URL, DEFAULT_VENICE_MODEL } from "@/lib/venice-ai";
 
 const SOLANA_MAINNET_RPCS = [
@@ -41,8 +47,11 @@ async function solanaRpcCall<T = unknown>(
   throw lastError ?? new Error("Solana Mainnet RPC unavailable");
 }
 
+export async function OPTIONS(req: NextRequest) {
+  return corsOptionsResponse(req, "web");
+}
+
 export async function POST(req: NextRequest) {
-  const startMs = Date.now();
   try {
     const body = await req.json();
     const {
@@ -54,6 +63,7 @@ export async function POST(req: NextRequest) {
       veniceApiKey: rawVeniceKey,
       apiKey: rawApiKey,
       address,
+      forceRefresh,
     } = body as {
       question?: string;
       message?: string;
@@ -63,12 +73,77 @@ export async function POST(req: NextRequest) {
       veniceApiKey?: string;
       apiKey?: string;
       address?: string;
+      forceRefresh?: boolean;
     };
 
     const lang = rawLang || language || "en";
     const veniceApiKey = rawVeniceKey || rawApiKey;
     const userQuestion = (question || message || address || "").trim();
-    const { preset, report } = getPresetReport(presetId);
+
+    if (userQuestion.length > 1500) {
+      return corsJson(
+        { ok: false, error: "Question too long (max 1500 characters)." },
+        { status: 400, req, policy: "web" }
+      );
+    }
+
+    const cacheKey = createCacheKeyHash(
+      JSON.stringify({
+        q: userQuestion.toLowerCase(),
+        lang,
+        presetId,
+      })
+    );
+
+    const guarded = await runGuardedCachedOperation(
+      req,
+      {
+        profile: "web-ai",
+        byokKey: typeof veniceApiKey === "string" ? veniceApiKey : undefined,
+        namespace: "agent-chat",
+        cacheKey,
+        ttlMs: 10 * 60_000,
+        forceRefresh: forceRefresh === true,
+      },
+      () =>
+        computeAgentChatPayload({
+          userQuestion,
+          lang,
+          presetId,
+          veniceApiKey,
+        })
+    );
+
+    if (!guarded.ok) {
+      return buildGuardErrorResponse(guarded);
+    }
+
+    return corsJson(
+      {
+        ...(guarded.value as Record<string, unknown>),
+        cached: guarded.cached,
+      },
+      { req, policy: "web", headers: guarded.headers }
+    );
+  } catch (err) {
+    return corsJson(
+      {
+        error: err instanceof Error ? err.message : "Agent inspection failed.",
+      },
+      { status: 400, req, policy: "web" }
+    );
+  }
+}
+
+async function computeAgentChatPayload(params: {
+  userQuestion: string;
+  lang: "en" | "id";
+  presetId: string;
+  veniceApiKey?: string;
+}) {
+  const startMs = Date.now();
+  const { userQuestion, lang, presetId, veniceApiKey } = params;
+  const { preset, report } = getPresetReport(presetId);
 
     // Check if the user pasted a Solana Transaction Signature (80-90 base58 chars)
     const txSigMatch = userQuestion.match(/\b[1-9A-HJ-NP-Za-km-z]{84,90}\b/);
@@ -201,7 +276,7 @@ export async function POST(req: NextRequest) {
           const vData = await vRes.json();
           const content = vData?.choices?.[0]?.message?.content?.trim();
           if (content) {
-            return NextResponse.json({
+            return {
               reply: content,
               liveSlot,
               latencyMs,
@@ -222,7 +297,7 @@ export async function POST(req: NextRequest) {
                       executable: accountExecutable,
                     }
                   : null,
-            });
+            };
           }
         }
       } catch {
@@ -315,7 +390,7 @@ export async function POST(req: NextRequest) {
           : `Live status at **${slotText}** (${latencyMs}ms):\n\n• **Active Scenario:** ${preset.name}\n• **Instructions Decoded:** ${report.instructions.length} Solana program instructions\n• **Safety Verdict:** **${report.deterministicClassification}** (Risk Score: ${report.deterministicRiskScore}/100)\n\nPaste any Token Mint, Program ID, Wallet address, or 88-char Tx Signature to inspect live Mainnet data.`;
     }
 
-    return NextResponse.json({
+    return {
       reply,
       liveSlot,
       latencyMs,
@@ -341,13 +416,5 @@ export async function POST(req: NextRequest) {
         model: DEFAULT_VENICE_MODEL,
         zeroDataRetention: true,
       },
-    });
-  } catch (err) {
-    return NextResponse.json(
-      {
-        error: err instanceof Error ? err.message : "Agent inspection failed.",
-      },
-      { status: 400 }
-    );
-  }
+    };
 }

@@ -1,5 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { NextRequest, NextResponse } from "next/server";
+import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
+import { corsOptionsResponse } from "@/lib/cors";
 import {
   DEFAULT_JUPITER_API_BASE,
   type JupiterQuoteResponse,
@@ -42,7 +44,19 @@ async function fetchJupiterQuote(params: {
   return (await res.json()) as JupiterQuoteResponse;
 }
 
+export async function OPTIONS(req: NextRequest) {
+  return corsOptionsResponse(req, "web");
+}
+
 export async function GET(req: NextRequest) {
+  const guarded = await guardApiRoute(req, {
+    profile: "web-tool",
+    kind: "read",
+  });
+  if (!guarded.ok) {
+    return buildGuardErrorResponse(guarded);
+  }
+
   const mint = parsePublicKey(req.nextUrl.searchParams.get("mint"));
   const side = req.nextUrl.searchParams.get("side") === "sell" ? "sell" : "buy";
   const decimals = Math.max(0, Math.min(12, Number(req.nextUrl.searchParams.get("decimals") ?? 6)));
@@ -98,6 +112,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarded = await guardApiRoute(req, {
+    profile: "web-tool",
+    kind: "fresh",
+  });
+  if (!guarded.ok) {
+    return buildGuardErrorResponse(guarded);
+  }
+
   let body: {
     side?: "buy" | "sell";
     mint?: string;

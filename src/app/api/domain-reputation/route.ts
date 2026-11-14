@@ -1,10 +1,15 @@
 import { NextRequest } from "next/server";
+import {
+  buildGuardErrorResponse,
+  runGuardedCachedOperation,
+} from "@/lib/api-guard";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import {
   DomainEvaluation,
   evaluateDomainSafety,
   normalizeHostname,
 } from "@/lib/domain-guard";
+import { createCacheKeyHash } from "@/lib/scan-cache";
 import { DEFAULT_VENICE_MODEL, VENICE_API_BASE_URL } from "@/lib/venice-ai";
 
 interface VeniceDomainCheckResult {
@@ -147,8 +152,8 @@ async function queryVeniceDomainReputation(
   }
 }
 
-export async function OPTIONS() {
-  return corsOptionsResponse();
+export async function OPTIONS(req: NextRequest) {
+  return corsOptionsResponse(req, "extension");
 }
 
 /**
@@ -174,7 +179,7 @@ export async function POST(req: NextRequest) {
           ok: false,
           error: "Invalid or missing hostname parameter.",
         },
-        { status: 400 }
+        { status: 400, req, policy: "extension" }
       );
     }
 
@@ -189,35 +194,69 @@ export async function POST(req: NextRequest) {
         )
       : [];
 
-    const domainEvaluation = evaluateDomainSafety(hostname, {
-      trustedDomains,
-      blockedDomains,
-    });
-
     const veniceApiKey =
       typeof body?.veniceApiKey === "string" ? body.veniceApiKey : undefined;
 
-    const reputation = await queryVeniceDomainReputation(
-      hostname,
-      domainEvaluation,
-      veniceApiKey
+    const listsHash = createCacheKeyHash(
+      JSON.stringify({
+        trusted: [...trustedDomains].sort(),
+        blocked: [...blockedDomains].sort(),
+      })
+    ).slice(0, 16);
+
+    const guarded = await runGuardedCachedOperation(
+      req,
+      {
+        profile: "extension-hybrid",
+        byokKey: veniceApiKey,
+        namespace: "domain-reputation",
+        cacheKey: `${hostname}:${listsHash}`,
+        ttlMs: 30 * 60_000,
+        forceRefresh: body?.forceRefresh === true,
+      },
+      async () => {
+        const domainEvaluation = evaluateDomainSafety(hostname, {
+          trustedDomains,
+          blockedDomains,
+        });
+        const reputation = await queryVeniceDomainReputation(
+          hostname,
+          domainEvaluation,
+          veniceApiKey
+        );
+        return {
+          domainEvaluation,
+          reputation,
+        };
+      }
     );
 
-    return corsJson({
-      ok: true,
-      hostname,
-      domainEvaluation,
-      riskScore: reputation.riskScore,
-      riskLevel: reputation.riskLevel,
-      summary: reputation.summary,
-      sources: reputation.sources,
-      inferenceMode: reputation.inferenceMode,
-      privacyAttestation:
-        "Zero-Retention Hostname Check: Only the bare ASCII hostname was inspected; no wallet addresses, paths, or transactions were transmitted.",
-    });
+    if (!guarded.ok) {
+      return buildGuardErrorResponse(guarded);
+    }
+
+    const { domainEvaluation, reputation } = guarded.value;
+
+    return corsJson(
+      {
+        ok: true,
+        cached: guarded.cached,
+        cachedAt: guarded.cachedAt,
+        hostname,
+        domainEvaluation,
+        riskScore: reputation.riskScore,
+        riskLevel: reputation.riskLevel,
+        summary: reputation.summary,
+        sources: reputation.sources,
+        inferenceMode: reputation.inferenceMode,
+        privacyAttestation:
+          "Zero-Retention Hostname Check: Only the bare ASCII hostname was inspected; no wallet addresses, paths, or transactions were transmitted.",
+      },
+      { req, policy: "extension", headers: guarded.headers }
+    );
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Failed to evaluate domain reputation.";
-    return corsJson({ ok: false, error: message }, { status: 400 });
+    return corsJson({ ok: false, error: message }, { status: 400, req, policy: "extension" });
   }
 }
