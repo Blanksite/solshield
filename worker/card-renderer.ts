@@ -13,16 +13,22 @@ export function escapeHtml(raw: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function loadInlineLogoDataUri(): string | null {
-  const logoCandidates = [
-    path.join(process.cwd(), "public", "logo.png"),
-    path.join(process.cwd(), "public", "favicon.png"),
-  ];
-  for (const cand of logoCandidates) {
+export interface EvidenceCardAssets {
+  logoDataUri?: string | null;
+  veniceLogoDataUri?: string | null;
+  botHandle?: string;
+  appPublicUrl?: string;
+}
+
+function loadInlineAssetDataUri(
+  candidates: string[],
+  mimeType: string
+): string | null {
+  for (const cand of candidates) {
     try {
       if (fs.existsSync(cand)) {
         const b64 = fs.readFileSync(cand).toString("base64");
-        return `data:image/png;base64,${b64}`;
+        return `data:${mimeType};base64,${b64}`;
       }
     } catch {
       // Ignore unreadable asset
@@ -31,14 +37,72 @@ function loadInlineLogoDataUri(): string | null {
   return null;
 }
 
+function loadInlineLogoDataUri(): string | null {
+  return loadInlineAssetDataUri(
+    [
+      path.join(process.cwd(), "public", "logo.png"),
+      path.join(process.cwd(), "public", "favicon.png"),
+    ],
+    "image/png"
+  );
+}
+
+function loadInlineVeniceLogoDataUri(): string | null {
+  return loadInlineAssetDataUri(
+    [
+      path.join(process.cwd(), "public", "venice-color.svg"),
+      path.join(process.cwd(), "public", "venice-logo.svg"),
+    ],
+    "image/svg+xml"
+  );
+}
+
+function formatScoreChip(label: string, val: number | null | undefined): string {
+  const hasScore = typeof val === "number" && Number.isFinite(val);
+  const display = hasScore ? `${Math.round(val)}` : "N/A";
+  const color = !hasScore
+    ? "#64748B"
+    : val >= 70
+      ? "#6EE7B7"
+      : val >= 45
+        ? "#FCD34D"
+        : "#FCA5A5";
+  return `
+    <div class="metric-chip">
+      <span class="metric-label">${escapeHtml(label)}</span>
+      <span class="metric-value" style="color:${color};">${escapeHtml(display)}</span>
+    </div>
+  `;
+}
+
 /**
  * Generates static HTML (zero scripts, escaped user strings) for a 1200x675
- * SolShield BuildCheck PNG evidence card.
+ * SolShield BuildCheck PNG evidence card with Venice AI Zero-Retention branding.
  */
 export function buildEvidenceCardHtml(
   report: BuildCheckReport,
-  logoDataUri: string | null = null
+  assetsOrLogo: string | null | EvidenceCardAssets = null
 ): string {
+  const assets: EvidenceCardAssets =
+    typeof assetsOrLogo === "string" || assetsOrLogo === null
+      ? { logoDataUri: assetsOrLogo }
+      : assetsOrLogo;
+
+  const logoDataUri = assets.logoDataUri ?? null;
+  const veniceLogoDataUri = assets.veniceLogoDataUri ?? null;
+  const cleanHandle = (
+    assets.botHandle ||
+    process.env.BOT_X_HANDLE?.trim() ||
+    "usesolshield"
+  ).replace(/^@/, "");
+  const cleanAppDomain = (
+    assets.appPublicUrl ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    "https://sol-shield.xyz"
+  )
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "");
+
   const verdictMeta =
     report.verdict === "VERIFIED_BUILD"
       ? { label: "VERIFIED BUILD", fg: "#6EE7B7", bg: "rgba(16,185,129,0.16)", border: "#10B981" }
@@ -52,8 +116,10 @@ export function buildEvidenceCardHtml(
     report.target.hostname ||
     report.target.rawInput;
 
+  const targetKindLabel = report.target.kind.replace(/_/g, " ").toUpperCase();
+
   const rowsHtml = report.claimsVsProof
-    .slice(0, 4)
+    .slice(0, 3)
     .map((row) => {
       const pillColor =
         row.status === "VERIFIED"
@@ -61,12 +127,18 @@ export function buildEvidenceCardHtml(
           : row.status === "CONTRADICTED"
             ? "#FCA5A5"
             : "#FCD34D";
+      const pillBorder =
+        row.status === "VERIFIED"
+          ? "rgba(16,185,129,0.35)"
+          : row.status === "CONTRADICTED"
+            ? "rgba(239,68,68,0.35)"
+            : "rgba(245,158,11,0.35)";
       return `
         <div class="claim-row">
-          <div class="claim-status" style="color:${pillColor};">${escapeHtml(row.status)}</div>
+          <div class="claim-status" style="color:${pillColor};border-color:${pillBorder};">${escapeHtml(row.status)}</div>
           <div class="claim-body">
-            <div class="claim-title">${escapeHtml(row.claim.slice(0, 74))}</div>
-            <div class="claim-evidence">${escapeHtml(row.evidence.slice(0, 108))}</div>
+            <div class="claim-title">${escapeHtml(row.claim.slice(0, 78))}</div>
+            <div class="claim-evidence">${escapeHtml(row.evidence.slice(0, 114))}</div>
           </div>
         </div>
       `;
@@ -78,6 +150,21 @@ export function buildEvidenceCardHtml(
       ? `Venice AI (${report.modelsUsed.join(" + ")})`
       : "Deterministic Forensic Engine";
 
+  const veniceTag =
+    report.inferenceMode === "venice-live-api"
+      ? "VENICE AI · ZERO RETENTION"
+      : "ZERO DATA RETENTION";
+
+  const chipsHtml = [
+    formatScoreChip("CODE", report.componentScores.codeProof),
+    formatScoreChip("CHAIN", report.componentScores.chainProof),
+    formatScoreChip("WEB", report.componentScores.domainProof),
+    ...(report.componentScores.holdersProof !== undefined &&
+    report.componentScores.holdersProof !== null
+      ? [formatScoreChip("HOLDERS", report.componentScores.holdersProof)]
+      : [formatScoreChip("ALIGN", report.componentScores.claimAlignment)]),
+  ].join("");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -87,23 +174,25 @@ export function buildEvidenceCardHtml(
   body {
     width: 1200px;
     height: 675px;
-    background: radial-gradient(circle at 82% 20%, rgba(41, 52, 255, 0.22), transparent 52%),
+    background: radial-gradient(circle at 86% 16%, rgba(41, 52, 255, 0.25), transparent 50%),
+                radial-gradient(circle at 14% 88%, rgba(224, 90, 45, 0.14), transparent 44%),
                 linear-gradient(180deg, #090B12 0%, #05070C 100%);
-    background-color: #07090F;
+    background-color: #06080E;
     color: #F8FAFC;
     font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    padding: 24px;
+    padding: 22px;
     overflow: hidden;
   }
   .grid-overlay {
     width: 100%;
     height: 100%;
     border: 1.5px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
     background-image:
-      linear-gradient(to right, rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+      linear-gradient(to right, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
     background-size: 40px 40px;
-    padding: 26px 32px;
+    padding: 24px 30px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -112,7 +201,7 @@ export function buildEvidenceCardHtml(
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 18px;
+    padding-bottom: 14px;
     border-bottom: 1px solid rgba(255,255,255,0.1);
   }
   .brand {
@@ -123,16 +212,41 @@ export function buildEvidenceCardHtml(
   .logo {
     width: 44px;
     height: 44px;
-    border-radius: 8px;
+    border-radius: 9px;
     border: 1px solid rgba(255,255,255,0.18);
     object-fit: cover;
   }
   .brand-title { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
   .brand-sub {
     margin-top: 2px;
-    font-size: 12px;
+    font-size: 11px;
     font-family: ui-monospace, 'Cascadia Mono', 'JetBrains Mono', monospace;
     color: #94A3B8;
+    letter-spacing: 0.05em;
+  }
+  .header-badges {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .venice-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(224, 90, 45, 0.42);
+    background: rgba(224, 90, 45, 0.1);
+    color: #FDBA74;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.04em;
+  }
+  .venice-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
   }
   .verdict-pill {
     padding: 7px 16px;
@@ -140,35 +254,57 @@ export function buildEvidenceCardHtml(
     border: 1px solid ${verdictMeta.border};
     background: ${verdictMeta.bg};
     color: ${verdictMeta.fg};
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 700;
     font-family: ui-monospace, monospace;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
   }
   .hero {
     display: flex;
-    align-items: center;
-    gap: 36px;
-    padding-top: 12px;
+    align-items: flex-start;
+    gap: 32px;
+    padding-top: 14px;
   }
-  .score-box { min-width: 215px; }
+  .score-box {
+    min-width: 210px;
+    background: rgba(15, 23, 42, 0.56);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 14px 18px;
+  }
   .score-label {
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 700;
     font-family: ui-monospace, monospace;
     color: #94A3B8;
     letter-spacing: 0.08em;
   }
-  .score-row { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+  .score-row { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; }
   .score-val {
-    font-size: 64px;
+    font-size: 58px;
     line-height: 1;
     font-weight: 700;
     font-family: ui-monospace, monospace;
     color: ${verdictMeta.fg};
   }
-  .score-max { font-size: 22px; font-family: ui-monospace, monospace; color: #64748B; }
+  .score-max { font-size: 20px; font-family: ui-monospace, monospace; color: #64748B; }
   .target-block { flex: 1; min-width: 0; }
+  .target-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .kind-tag {
+    padding: 3px 8px;
+    border-radius: 5px;
+    background: rgba(41, 52, 255, 0.2);
+    border: 1px solid rgba(99, 102, 241, 0.45);
+    color: #C7D2FE;
+    font-size: 10.5px;
+    font-weight: 700;
+    font-family: ui-monospace, monospace;
+    flex-shrink: 0;
+  }
   .target-uri {
     font-size: 13px;
     font-weight: 600;
@@ -179,9 +315,9 @@ export function buildEvidenceCardHtml(
     text-overflow: ellipsis;
   }
   .headline {
-    margin-top: 8px;
-    font-size: 21px;
-    line-height: 1.32;
+    margin-top: 7px;
+    font-size: 20px;
+    line-height: 1.3;
     font-weight: 600;
     color: #F8FAFC;
     display: -webkit-box;
@@ -189,28 +325,58 @@ export function buildEvidenceCardHtml(
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .claims-section { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 9px; margin-top: 8px; }
+  .metrics-bar {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .metric-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    border-radius: 7px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(255,255,255,0.1);
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+  }
+  .metric-label { color: #94A3B8; font-weight: 600; }
+  .metric-value { font-weight: 700; }
+  .claims-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 9px;
+    margin-top: 10px;
+  }
   .claims-label {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     font-family: ui-monospace, monospace;
     color: #94A3B8;
     letter-spacing: 0.08em;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
   }
   .claim-row {
     display: flex;
     align-items: center;
-    gap: 18px;
-    background: rgba(17, 24, 39, 0.72);
+    gap: 16px;
+    background: rgba(15, 23, 42, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 11px 18px;
+    border-radius: 9px;
+    padding: 11px 16px;
   }
   .claim-status {
     width: 112px;
+    text-align: center;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(2, 6, 23, 0.65);
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     font-family: ui-monospace, monospace;
   }
@@ -238,10 +404,11 @@ export function buildEvidenceCardHtml(
     justify-content: space-between;
     font-size: 12px;
     font-family: ui-monospace, monospace;
-    color: #64748B;
+    color: #94A3B8;
     padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.08);
   }
-  .footer-handle { color: #93C5FD; font-weight: 600; }
+  .footer-handle { color: #93C5FD; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -255,7 +422,13 @@ export function buildEvidenceCardHtml(
             <div class="brand-sub">PROOF-OF-BUILD &amp; ON-CHAIN FORENSIC CARD</div>
           </div>
         </div>
-        <div class="verdict-pill">${escapeHtml(verdictMeta.label)}</div>
+        <div class="header-badges">
+          <div class="venice-pill">
+            ${veniceLogoDataUri ? `<img class="venice-icon" src="${veniceLogoDataUri}" alt="Venice" />` : ""}
+            <span>${escapeHtml(veniceTag)}</span>
+          </div>
+          <div class="verdict-pill">${escapeHtml(verdictMeta.label)}</div>
+        </div>
       </div>
 
       <div class="hero">
@@ -267,8 +440,12 @@ export function buildEvidenceCardHtml(
           </div>
         </div>
         <div class="target-block">
-          <div class="target-uri">TARGET: ${escapeHtml(targetLabel.slice(0, 68))}</div>
+          <div class="target-meta">
+            <span class="kind-tag">${escapeHtml(targetKindLabel)}</span>
+            <span class="target-uri">${escapeHtml(targetLabel.slice(0, 62))}</span>
+          </div>
           <div class="headline">${escapeHtml(report.headline)}</div>
+          <div class="metrics-bar">${chipsHtml}</div>
         </div>
       </div>
     </div>
@@ -279,8 +456,8 @@ export function buildEvidenceCardHtml(
     </div>
 
     <div class="footer">
-      <div>sol-shield.xyz/buildcheck  ·  ${escapeHtml(footerMode)}  ·  Zero Data Retention</div>
-      <div class="footer-handle">@SolShieldCheck</div>
+      <div>${escapeHtml(cleanAppDomain)}/buildcheck  ·  ${escapeHtml(footerMode)}  ·  ${escapeHtml(report.privacyAttestation || "Zero Data Retention")}</div>
+      <div class="footer-handle">@${escapeHtml(cleanHandle)}</div>
     </div>
   </div>
 </body>
@@ -292,7 +469,8 @@ export function buildEvidenceCardHtml(
  */
 export async function renderEvidenceCardPng(
   report: BuildCheckReport,
-  outDir = path.join(process.cwd(), "worker", "out")
+  outDir = path.join(process.cwd(), "worker", "out"),
+  renderOptions: { botHandle?: string; appPublicUrl?: string } = {}
 ): Promise<{ pngBuffer: Buffer; filePath: string }> {
   const remoteWs = process.env.BUILDCHECK_BROWSER_WS_ENDPOINT?.trim();
   const localExec = !remoteWs ? findLocalChromiumExecutable() : null;
@@ -329,7 +507,12 @@ export async function renderEvidenceCardPng(
     try {
       await page.setJavaScriptEnabled(false);
       await page.setViewport({ width: 1200, height: 675, deviceScaleFactor: 1 });
-      const html = buildEvidenceCardHtml(report, loadInlineLogoDataUri());
+      const html = buildEvidenceCardHtml(report, {
+        logoDataUri: loadInlineLogoDataUri(),
+        veniceLogoDataUri: loadInlineVeniceLogoDataUri(),
+        botHandle: renderOptions.botHandle,
+        appPublicUrl: renderOptions.appPublicUrl,
+      });
       await page.setContent(html, { waitUntil: "load" });
       const rawShot = await page.screenshot({ type: "png" });
       const pngBuffer = Buffer.from(rawShot);

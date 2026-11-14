@@ -388,7 +388,7 @@ async function analyzeScreenshotWithVeniceVision(
           {
             role: "system",
             content:
-              "You are a forensic Web3 UI auditor. Inspect this browser screenshot objectively in 2 concise sentences: describe what is actually shown, whether it looks like an operational application/explorer/codebase or a static landing/placeholder page, and note any suspicious visual claims.",
+              "You are a forensic Web3 UI auditor. Inspect this browser screenshot objectively in 2 concise sentences: describe what is actually shown, whether it looks like an operational application/explorer/product UI or a placeholder/broken page (note that real web3 apps often route interactive tools under tabs or subpages below the hero), and note any suspicious visual claims.",
           },
           {
             role: "user",
@@ -455,6 +455,9 @@ export async function synthesizeWithVeniceBuildCheck(
   const evidencePayload = {
     target: input.target,
     deterministicBaselineScore: baseline.authenticityScore,
+    deterministicComponentScores: baseline.componentScores,
+    deterministicVerifiedSignals: baseline.verifiedSignals,
+    deterministicRedFlags: baseline.keyRedFlags,
     visionSummary,
     browserStops: input.browser.stops.map((s) => ({
       url: s.url,
@@ -470,6 +473,7 @@ export async function synthesizeWithVeniceBuildCheck(
       ? {
           fullName: input.github.fullName,
           exists: input.github.exists,
+          description: input.github.description,
           isFork: input.github.isFork,
           forkParent: input.github.forkParent,
           stars: input.github.stars,
@@ -481,6 +485,7 @@ export async function synthesizeWithVeniceBuildCheck(
           hasTestsOrCi: input.github.hasTestsOrCi,
           hasPackageManifest: input.github.hasPackageManifest,
           topLanguages: input.github.topLanguages,
+          topLevelFiles: input.github.topLevelFiles.slice(0, 20),
           signals: input.github.signals,
         }
       : null,
@@ -543,8 +548,11 @@ export async function synthesizeWithVeniceBuildCheck(
         messages: [
           {
             role: "system",
-            content: `You are SolShield BuildCheck, a ruthless factual Web3 proof-of-build forensic auditor running on Zero-Retention Venice AI.
-Compare claimed capabilities against ONLY the concrete evidence provided (GitHub metrics, Solana on-chain authorities/liquidity, domain age, live browser DOM/XHR telemetry, and Vision notes). Never invent numbers or claims not present in evidence.
+            content: `You are SolShield BuildCheck, a calibrated factual Web3 proof-of-build forensic auditor running on Zero-Retention Venice AI.
+Compare claimed capabilities against ONLY the concrete evidence provided (GitHub metrics & topLevelFiles/description, Solana on-chain authorities/liquidity/holders, domain age, live browser DOM/XHR telemetry, deterministicComponentScores, and Vision notes). Never invent claims or demand proof on the homepage hero when the verified open-source repository and live API XHR telemetry already prove real engineering.
+Calibration rules:
+- Anchor near deterministicBaselineScore unless concrete contradictions (fake/forked/single-burst repo, Coming Soon/placeholder DOM, active mint/freeze authority, API cluster contradiction, or severe cabal risk) justify deviating.
+- A recently launched authentic build (young domainAgeDays/pairAgeHours) with an active non-fork repo (hasPackageManifest + hasTestsOrCi + commits), revoked authorities (mintAuthority=null, freezeAuthority=null), and operational app telemetry (xhrCount>0, zero console errors, !hasPlaceholderCopy) is a legitimate verified build — do NOT mark product features implemented in the verified repo as CONTRADICTED just because the landing page hero does not show every sub-page above the fold.
 Respond ONLY with valid JSON:
 {
   "authenticityScore": <integer 0-100 where 100 is completely proven authentic build and 0 is fabricated/fake>,
@@ -593,17 +601,41 @@ Respond ONLY with valid JSON:
 
     modelsUsed.push(textModel);
 
-    // Monotonic guardrail: if deterministic rules spotted critical contradiction (< 40),
-    // prevent adversarial prompt injection inside webpage/tweet text from boosting above 55.
+    // Monotonic guardrails:
+    // 1) If deterministic rules spotted critical contradiction (< 40), prevent prompt injection from inflating above 55.
+    // 2) If all hard deterministic pillars confirm an authentic non-fork open-source build with clean on-chain & web telemetry (>= 70),
+    //    prevent subjective hero-screenshot misreads from slashing the score below VERIFIED_BUILD.
     const rawAiScore =
       typeof parsed.authenticityScore === "number"
         ? clampScore(parsed.authenticityScore)
         : baseline.authenticityScore;
 
+    const hasVerifiedCodeBuild = Boolean(
+      input.github?.exists &&
+        input.github.hasPackageManifest &&
+        input.github.hasTestsOrCi &&
+        !input.github.isFork &&
+        input.github.burstCommitRatio < 0.85
+    );
+    const hasCleanLiveWeb =
+      !input.browser.stops.some((st) => st.hasPlaceholderCopy) &&
+      (baseline.componentScores.domainProof === null ||
+        baseline.componentScores.domainProof >= 60);
+    const hasCriticalRugOrContradiction =
+      Boolean(
+        input.chain?.tokenReport?.flags.some((f) => f.severity === "CRITICAL")
+      ) ||
+      baseline.keyRedFlags.some((f) => f.startsWith("API contradiction:"));
+
     const finalScore =
       baseline.authenticityScore < 40
         ? Math.min(rawAiScore, 55)
-        : rawAiScore;
+        : baseline.authenticityScore >= 70 &&
+            hasVerifiedCodeBuild &&
+            hasCleanLiveWeb &&
+            !hasCriticalRugOrContradiction
+          ? Math.max(rawAiScore, Math.max(70, baseline.authenticityScore - 6))
+          : rawAiScore;
 
     return {
       ...baseline,

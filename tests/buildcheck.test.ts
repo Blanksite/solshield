@@ -16,7 +16,10 @@ import {
   runHttpFallbackObservation,
 } from "../src/lib/buildcheck/browser-agent";
 import { collectGitHubForensics } from "../src/lib/buildcheck/collectors";
-import { buildDeterministicBuildCheck } from "../src/lib/buildcheck/venice-buildcheck";
+import {
+  buildDeterministicBuildCheck,
+  synthesizeWithVeniceBuildCheck,
+} from "../src/lib/buildcheck/venice-buildcheck";
 import { classifyDevTx } from "../src/lib/buildcheck/token-forensics";
 
 describe("BuildCheck URL & SSRF Safety Guards", () => {
@@ -848,6 +851,173 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
 
       const missingRepo = await collectGitHubForensics("missing/does-not-exist");
       expect(missingRepo.exists).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("prevents Venice LLM subjectivity from slashing an authentic verified open-source build below VERIFIED_BUILD", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  authenticityScore: 42,
+                  headline: "Overly skeptical landing summary",
+                  executiveSummary: "Suspicious young domain.",
+                  claimsVsProof: [],
+                  verifiedSignals: [],
+                  keyRedFlags: ["Recently registered domain (2 days old)"],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    try {
+      const report = await synthesizeWithVeniceBuildCheck(
+        {
+          id: "bc_floor_guard",
+          createdAt: "2026-11-14T13:00:00.000Z",
+          elapsedMs: 1200,
+          target: {
+            rawInput: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+            kind: "token_ca",
+            mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+            normalizedUrl: "https://dexscreener.com/solana/CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+            hostname: "dexscreener.com",
+          },
+          browser: {
+            mode: "local-chromium",
+            executableLabel: "Chrome",
+            stops: [
+              {
+                url: "https://sol-shield.xyz/",
+                title: "SolShield",
+                stepLabel: "Home",
+                screenshotBase64: "",
+                textExcerpt: "Non-custodial Solana firewall powered by Venice AI",
+                outboundGithub: ["Blanksite/solshield"],
+                outboundX: [],
+                outboundSolanaAddresses: [],
+                networkHosts: ["sol-shield.xyz"],
+                xhrCount: 4,
+                loadTimeMs: 420,
+                hasPlaceholderCopy: false,
+                consoleErrors: [],
+              },
+            ],
+            discoveredGithubRepos: ["Blanksite/solshield"],
+            discoveredXUrls: [],
+            discoveredSolanaAddresses: [],
+            discoveredWebsiteUrls: ["https://sol-shield.xyz"],
+            totalXhrObserved: 4,
+            notes: [],
+          },
+          github: {
+            queried: true,
+            exists: true,
+            fullName: "Blanksite/solshield",
+            url: "https://github.com/Blanksite/solshield",
+            description: "SolShield Firewall & BuildCheck",
+            stars: 1,
+            forks: 0,
+            openIssues: 0,
+            isFork: false,
+            forkParent: null,
+            createdAt: "2026-10-01T00:00:00Z",
+            updatedAt: "2026-11-14T12:00:00Z",
+            ageDays: 44,
+            ownerAccountAgeDays: 400,
+            recentCommitCount: 30,
+            uniqueAuthorCount: 1,
+            burstCommitRatio: 0.35,
+            topLanguages: ["TypeScript", "Rust"],
+            topLevelFiles: ["package.json", "src", "tests", "worker", "Anchor.toml"],
+            hasTestsOrCi: true,
+            hasPackageManifest: true,
+            signals: [],
+          },
+          chain: {
+            mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+            tokenReport: {
+              mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+              tokenProgram: "SPL Token",
+              programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              isToken2022: false,
+              isPumpFunSuffix: false,
+              verifiedAsset: null,
+              name: "SolShield",
+              symbol: "SHIELD",
+              decimals: 6,
+              rawSupply: "1000000000000",
+              supplyUi: 1000000,
+              mintAuthority: null,
+              freezeAuthority: null,
+              extensions: [],
+              transferFeeBps: null,
+              permanentDelegate: null,
+              transferHookProgramId: null,
+              defaultAccountState: null,
+              topHolders: [],
+              top5Pct: 14.9,
+              top10Pct: 22,
+              riskScore: 0,
+              classification: "SAFE",
+              recommendedAction: "VERIFIED_SAFE",
+              executiveSummary: "Safe authorities",
+              flags: [],
+              slot: 400000000,
+              latencyMs: 50,
+              inferenceMode: "deterministic-fallback",
+              privacyAttestation: "Zero retention",
+            },
+            dexPair: {
+              dexId: "pumpswap",
+              pairAddress: "pair123",
+              pairUrl: "https://dexscreener.com/solana/pair123",
+              liquidityUsd: 4566,
+              fdv: 16000,
+              volume24hUsd: 25000,
+              pairCreatedAt: "2026-11-12T00:00:00Z",
+              pairAgeHours: 48,
+              websites: ["https://sol-shield.xyz"],
+              socials: [],
+            },
+            accountRecentTxCount: 12,
+          },
+          domain: {
+            hostname: "sol-shield.xyz",
+            registrableDomain: "sol-shield.xyz",
+            domainAgeDays: 2,
+            rdapCreatedAt: "2026-11-12T00:00:00Z",
+            pageTitle: "SolShield",
+            generatorHints: [],
+            domainEval: {
+              hostname: "sol-shield.xyz",
+              status: "VERIFIED",
+              riskScore: 5,
+              riskLevel: "LOW",
+              isAllowlisted: true,
+              isPunycode: false,
+              closestVerifiedBrand: null,
+              matchedVerifiedDomain: "sol-shield.xyz",
+              reasons: [],
+            },
+          },
+          xPost: null,
+        },
+        { apiKey: "VENICE_INFERENCE_KEY_test_only", enableVision: false }
+      );
+
+      expect(report.inferenceMode).toBe("venice-live-api");
+      expect(report.authenticityScore).toBeGreaterThanOrEqual(70);
+      expect(report.verdict).toBe("VERIFIED_BUILD");
     } finally {
       fetchSpy.mockRestore();
     }

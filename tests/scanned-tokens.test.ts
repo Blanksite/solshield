@@ -15,6 +15,7 @@ import {
   clearScannedTokens,
   listScannedTokens,
   recordScannedToken,
+  recordScannedTokenSummary,
 } from "../src/lib/scanned-tokens";
 
 function makeSampleTokenReport(
@@ -213,5 +214,36 @@ describe("Recently Scanned Tokens Ledger & Persistence", () => {
 
     clearLocalScannedTokens();
     expect(readLocalScannedTokens()).toEqual([]);
+  });
+
+  it("picks up cross-process disk updates via mtime and syncs summary payloads", async () => {
+    const initial = await listScannedTokens(20);
+    expect(initial).toEqual([]);
+
+    const externalSummary = tokenReportToSummary(
+      makeSampleTokenReport({
+        mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+        symbol: "SHIELD",
+        name: "SolShield",
+      }),
+      "buildcheck",
+      "2026-11-14T13:00:00.000Z"
+    );
+
+    const histPath = path.join(tempDir, "scanned-tokens_history.json");
+    await new Promise((r) => setTimeout(r, 25));
+    await fs.promises.writeFile(histPath, JSON.stringify([externalSummary]), "utf8");
+
+    // Existing process memory already had loadedFromDisk=true, yet sees the external update immediately
+    const reloaded = await listScannedTokens(20);
+    expect(reloaded).toHaveLength(1);
+    expect(reloaded[0].mintAddress).toBe("CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx");
+    expect(reloaded[0].symbol).toBe("SHIELD");
+
+    const pushed = await recordScannedTokenSummary({
+      ...externalSummary,
+      scannedAt: "2026-11-14T13:05:00.000Z",
+    });
+    expect(pushed.scanCount).toBe(2);
   });
 });

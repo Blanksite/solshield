@@ -5,16 +5,45 @@ import type { BuildCheckReport } from "../src/lib/buildcheck/types";
 export interface XBotAuthConfig {
   botHandle: string;
   bearerToken?: string;
+  oauth2UserToken?: string;
   apiKey?: string;
   apiSecret?: string;
   accessToken?: string;
   accessSecret?: string;
   appPublicUrl: string;
+  includeReplyUrl?: boolean;
+}
+
+export interface XApiTransportOptions {
+  fetchImpl?: typeof fetch;
+  sleepImpl?: (ms: number) => Promise<void>;
+  maxRateLimitRetries?: number;
+}
+
+export class XApiError extends Error {
+  readonly status: number;
+  readonly retryAfterSec?: number;
+
+  constructor(message: string, status: number, retryAfterSec?: number) {
+    super(message);
+    this.name = "XApiError";
+    this.status = status;
+    this.retryAfterSec = retryAfterSec;
+  }
+
+  get isRateLimit(): boolean {
+    return this.status === 429;
+  }
+
+  get isCreditsExhausted(): boolean {
+    return this.status === 402;
+  }
 }
 
 export interface XReferencedTweetContext {
   type: "replied_to" | "quoted" | "retweeted";
   id: string;
+  authorId?: string;
   text?: string;
   expandedUrls?: string[];
 }
@@ -24,6 +53,7 @@ export interface XMentionItem {
   text: string;
   authorId?: string;
   authorUsername?: string;
+  inReplyToUserId?: string;
   conversationId?: string;
   createdAt?: string;
   expandedUrls: string[];
@@ -109,23 +139,84 @@ export function signOAuth1Header(params: {
 }
 
 /**
- * Picks the strongest investigation target from an @SolShieldCheck mention:
+ * Picks the strongest investigation target from an @usesolshield / @SolShieldCheck mention:
  * 1) Explicit repo/mint/website/X-link in the mention tweet itself
  * 2) Explicit repo/mint/website/X-link inside the parent/quoted tweet
  * 3) Direct X status URL of the replied-to/quoted tweet so the agent inspects it live
  */
+const AUDIT_INTENT_REGEX =
+  /\b(audit|check(?!\s+out\b)|cek|scan|verify|verif|larpcheck|buildcheck|larp|legit|proof|evidence|inspect|analy[sz]e|investigate|real\s+or\s+(?:fake|larp))\b/i;
+
+function isBotSummonedForParent(
+  mention: XMentionItem,
+  botAliases: string[]
+): boolean {
+  const handles = (mention.text.match(/@[a-z0-9_]+/gi) || []).map((h) =>
+    h.slice(1).toLowerCase()
+  );
+  const nonBotHandles = handles.filter((h) => !botAliases.includes(h));
+  const firstHandle = handles[0];
+  const hasRepliedTo = mention.referencedTweets.some(
+    (r) => r.type === "replied_to"
+  );
+
+  const plainBody = mention.text
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/@[a-z0-9_]+/gi, " ")
+    .trim();
+
+  if (AUDIT_INTENT_REGEX.test(plainBody)) {
+    return true;
+  }
+
+  // Allow bare "@usesolshield" summons (or direct single-parent reply "@author @usesolshield"
+  // where X auto-prepends the parent author before the bot tag) with at most polite filler.
+  const isBarePoliteOnly = /^(?:[?!.,…\s]|pls|plz|please)*$/i.test(plainBody);
+  if (!isBarePoliteOnly) {
+    return false;
+  }
+
+  if (nonBotHandles.length === 0) {
+    return handles.some((h) => botAliases.includes(h));
+  }
+
+  const singleLeadingReplyPrefix =
+    hasRepliedTo &&
+    nonBotHandles.length === 1 &&
+    Boolean(firstHandle && !botAliases.includes(firstHandle));
+  return singleLeadingReplyPrefix;
+}
+
 export function resolveMentionTarget(
   mention: XMentionItem,
-  botHandle = "SolShieldCheck"
+  botHandle = "usesolshield",
+  botUserId?: string
 ): string | null {
   const cleanBot = botHandle.replace(/^@/, "").toLowerCase();
+  const botAliases = Array.from(
+    new Set([cleanBot, "usesolshield", "solshieldcheck"].filter(Boolean))
+  );
+  const quotedIds = new Set(
+    mention.referencedTweets
+      .filter((r) => r.type === "quoted")
+      .map((r) => r.id)
+  );
 
   const pickBestFromSource = (
     text: string,
-    expandedUrls: string[] = []
+    expandedUrls: string[] = [],
+    ignoreAutoQuotedLinks = false
   ): string | null => {
-    const cleanedText = text.replace(new RegExp(`@${cleanBot}\\b`, "gi"), " ");
-    const combined = `${cleanedText}\n${expandedUrls.join("\n")}`;
+    let cleanedText = text;
+    for (const alias of botAliases) {
+      cleanedText = cleanedText.replace(new RegExp(`@${alias}\\b`, "gi"), " ");
+    }
+    const filteredExpanded = ignoreAutoQuotedLinks
+      ? expandedUrls.filter(
+          (u) => !Array.from(quotedIds).some((qid) => u.includes(`/status/${qid}`))
+        )
+      : expandedUrls;
+    const combined = `${cleanedText}\n${filteredExpanded.join("\n")}`;
     const entities = extractEntitiesFromText(combined);
 
     if (entities.solanaAddresses.length > 0) {
@@ -134,9 +225,18 @@ export function resolveMentionTarget(
     if (entities.githubRepos.length > 0) {
       return `https://github.com/${entities.githubRepos[0]}`;
     }
-    const externalX = entities.xUrls.find(
-      (u) => !u.toLowerCase().includes(`/${cleanBot}`)
-    );
+    const externalX = entities.xUrls.find((u) => {
+      const lower = u.toLowerCase();
+      if (botAliases.some((alias) => lower.includes(`/${alias}`))) {
+        return false;
+      }
+      if (ignoreAutoQuotedLinks) {
+        for (const qid of quotedIds) {
+          if (lower.includes(`/status/${qid}`)) return false;
+        }
+      }
+      return true;
+    });
     if (externalX) return externalX;
     if (entities.websiteUrls.length > 0) {
       return entities.websiteUrls[0];
@@ -144,13 +244,27 @@ export function resolveMentionTarget(
     return null;
   };
 
-  const direct = pickBestFromSource(mention.text, mention.expandedUrls);
+  const direct = pickBestFromSource(mention.text, mention.expandedUrls, true);
   if (direct) return direct;
 
-  // Prefer quoted tweet or direct replied_to tweet
-  const refs = mention.referencedTweets.filter(
-    (r) => r.type === "quoted" || r.type === "replied_to"
-  );
+  // Prefer quoted tweet or direct replied_to tweet only when the user actually summoned the bot
+  // and never audit the bot's own tweet from casual reply banter underneath it.
+  if (!isBotSummonedForParent(mention, botAliases)) {
+    return null;
+  }
+
+  const refs = mention.referencedTweets.filter((r) => {
+    if (r.type !== "quoted" && r.type !== "replied_to") return false;
+    if (
+      botUserId &&
+      (r.authorId === botUserId ||
+        (r.type === "replied_to" && mention.inReplyToUserId === botUserId))
+    ) {
+      return false;
+    }
+    return true;
+  });
+
   for (const ref of refs) {
     if (ref.text || (ref.expandedUrls && ref.expandedUrls.length > 0)) {
       const fromParent = pickBestFromSource(ref.text || "", ref.expandedUrls || []);
@@ -167,11 +281,14 @@ export function resolveMentionTarget(
 }
 
 /**
- * Formats a concise <= 280 character X reply for @SolShieldCheck evidence card replies.
+ * Formats a concise <= 280 character X reply for SolShield BuildCheck evidence card replies.
+ * Set `options.includeUrl = false` to omit external links when optimizing Pay-Per-Use costs
+ * (the public URL remains rendered inside the attached Evidence Card PNG).
  */
 export function formatBuildCheckReplyTweet(
   report: BuildCheckReport,
-  appPublicUrl = "https://sol-shield.xyz"
+  appPublicUrl = "https://sol-shield.xyz",
+  options: { includeUrl?: boolean } = {}
 ): string {
   const verdictTag =
     report.verdict === "VERIFIED_BUILD"
@@ -206,9 +323,14 @@ export function formatBuildCheckReplyTweet(
       ? report.verifiedSignals[0] || report.headline
       : report.keyRedFlags[0] || report.verifiedSignals[0] || report.headline;
 
+  const includeUrl = options.includeUrl ?? true;
   const cleanAppUrl = `${appPublicUrl.replace(/\/+$/, "")}/buildcheck`;
+  const footerLine = includeUrl
+    ? cleanAppUrl
+    : "SolShield x Venice AI Zero-Retention Proof Card attached";
+
   const header = `[${verdictTag}] ${report.authenticityScore}/100 — ${targetName}\nCode ${codeTxt} | Chain ${chainTxt} | Web ${webTxt}`;
-  const budgetForFinding = 272 - header.length - cleanAppUrl.length - 6;
+  const budgetForFinding = 272 - header.length - footerLine.length - 6;
   const compactFinding =
     budgetForFinding > 24
       ? `${leadFinding.replace(/\s+/g, " ").slice(0, budgetForFinding).trim()}`
@@ -216,7 +338,7 @@ export function formatBuildCheckReplyTweet(
 
   const parts = [header];
   if (compactFinding) parts.push(compactFinding);
-  parts.push(cleanAppUrl);
+  parts.push(footerLine);
 
   return parts.join("\n\n").slice(0, 280);
 }
@@ -230,13 +352,16 @@ function hasOAuth1Credentials(config: XBotAuthConfig): boolean {
   );
 }
 
-function getReadAuthHeader(
+export function getReadAuthHeader(
   config: XBotAuthConfig,
   method: "GET" | "POST",
   url: string
 ): string {
   if (config.bearerToken) {
     return `Bearer ${config.bearerToken}`;
+  }
+  if (config.oauth2UserToken) {
+    return `Bearer ${config.oauth2UserToken}`;
   }
   if (hasOAuth1Credentials(config)) {
     return signOAuth1Header({
@@ -249,22 +374,143 @@ function getReadAuthHeader(
     });
   }
   throw new Error(
-    "Missing X API credentials (need X_BEARER_TOKEN or X OAuth 1.0a keys)."
+    "Missing X API read credentials (need X_BEARER_TOKEN, X_OAUTH2_ACCESS_TOKEN, or X OAuth 1.0a keys)."
   );
 }
 
-export async function fetchBotUserId(config: XBotAuthConfig): Promise<string> {
-  const cleanHandle = config.botHandle.replace(/^@/, "");
-  const url = `https://api.x.com/2/users/by/username/${encodeURIComponent(cleanHandle)}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: getReadAuthHeader(config, "GET", url),
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`X user lookup failed (${res.status}): ${body.slice(0, 240)}`);
+export function getWriteAuthHeader(
+  config: XBotAuthConfig,
+  method: "GET" | "POST",
+  url: string
+): string {
+  if (hasOAuth1Credentials(config)) {
+    return signOAuth1Header({
+      method,
+      url,
+      apiKey: config.apiKey!,
+      apiSecret: config.apiSecret!,
+      accessToken: config.accessToken!,
+      accessSecret: config.accessSecret!,
+    });
   }
+  if (config.oauth2UserToken) {
+    return `Bearer ${config.oauth2UserToken}`;
+  }
+  throw new Error(
+    "Missing X API write credentials (need X OAuth 1.0a keys or X_OAUTH2_ACCESS_TOKEN with tweet.write & media.write)."
+  );
+}
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export function parseRetryAfterSeconds(headers: Headers): number | undefined {
+  const retryAfterRaw = headers.get("retry-after");
+  if (retryAfterRaw) {
+    const secs = Number(retryAfterRaw);
+    if (Number.isFinite(secs) && secs >= 0) {
+      return Math.ceil(secs);
+    }
+  }
+  const resetRaw = headers.get("x-rate-limit-reset");
+  if (resetRaw) {
+    const resetEpochSec = Number(resetRaw);
+    if (Number.isFinite(resetEpochSec) && resetEpochSec > 0) {
+      const delta = Math.ceil(resetEpochSec - Date.now() / 1000);
+      return Math.max(1, delta);
+    }
+  }
+  return undefined;
+}
+
+async function fetchWithXRetry(
+  url: string,
+  buildInit: () => RequestInit,
+  errorPrefix: string,
+  transport: XApiTransportOptions = {}
+): Promise<Response> {
+  const fetchFn = transport.fetchImpl || fetch;
+  const sleepFn = transport.sleepImpl || defaultSleep;
+  const maxRetries = Math.max(0, transport.maxRateLimitRetries ?? 2);
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const res = await fetchFn(url, buildInit());
+    if (res.ok) return res;
+
+    const retryAfterSec = parseRetryAfterSeconds(res.headers);
+    const body = await res.text().catch(() => "");
+    const isTransient = res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504;
+
+    if (isTransient && attempt < maxRetries) {
+      const backoffMs =
+        retryAfterSec !== undefined
+          ? Math.min(30_000, Math.max(500, retryAfterSec * 1000))
+          : Math.min(16_000, 1000 * 2 ** attempt);
+      await sleepFn(backoffMs);
+      continue;
+    }
+
+    throw new XApiError(
+      `${errorPrefix} (${res.status}): ${body.slice(0, 240)}`,
+      res.status,
+      retryAfterSec
+    );
+  }
+
+  throw new XApiError(`${errorPrefix}: exhausted retry attempts`, 503);
+}
+
+export async function fetchBotUserId(
+  config: XBotAuthConfig,
+  transport?: XApiTransportOptions
+): Promise<string> {
+  const cleanHandle = config.botHandle.replace(/^@/, "");
+
+  // Prefer OAuth user context (/2/users/me): free/zero user-lookup cost and verifies token owner.
+  if (hasOAuth1Credentials(config) || config.oauth2UserToken) {
+    try {
+      const meUrl = "https://api.x.com/2/users/me";
+      const meRes = await fetchWithXRetry(
+        meUrl,
+        () => ({
+          headers: {
+            Authorization: getWriteAuthHeader(config, "GET", meUrl),
+          },
+        }),
+        "X self-user lookup failed",
+        transport
+      );
+      const meData = (await meRes.json()) as {
+        data?: { id?: string; username?: string };
+      };
+      if (meData?.data?.id) {
+        if (
+          meData.data.username &&
+          meData.data.username.toLowerCase() !== cleanHandle.toLowerCase()
+        ) {
+          console.warn(
+            `[X Auth Warn] Token owner is @${meData.data.username}, expected BOT_X_HANDLE=@${cleanHandle}.`
+          );
+        } else {
+          return meData.data.id;
+        }
+      }
+    } catch {
+      // Fall back to username lookup below
+    }
+  }
+
+  const url = `https://api.x.com/2/users/by/username/${encodeURIComponent(cleanHandle)}`;
+  const res = await fetchWithXRetry(
+    url,
+    () => ({
+      headers: {
+        Authorization: getReadAuthHeader(config, "GET", url),
+      },
+    }),
+    "X user lookup failed",
+    transport
+  );
   const data = (await res.json()) as { data?: { id?: string } };
   if (!data?.data?.id) {
     throw new Error(`Unable to resolve X user ID for @${cleanHandle}`);
@@ -276,6 +522,7 @@ interface RawXTweet {
   id: string;
   text: string;
   author_id?: string;
+  in_reply_to_user_id?: string;
   conversation_id?: string;
   created_at?: string;
   entities?: {
@@ -290,12 +537,14 @@ interface RawXTweet {
 export async function fetchBotMentions(
   config: XBotAuthConfig,
   botUserId: string,
-  sinceId?: string | null
+  sinceId?: string | null,
+  transport?: XApiTransportOptions
 ): Promise<XMentionItem[]> {
   const qs = new URLSearchParams({
     max_results: "10",
     expansions: "referenced_tweets.id,author_id",
-    "tweet.fields": "created_at,conversation_id,entities,referenced_tweets",
+    "tweet.fields":
+      "created_at,conversation_id,author_id,in_reply_to_user_id,entities,referenced_tweets",
     "user.fields": "username",
   });
   if (sinceId) {
@@ -306,16 +555,16 @@ export async function fetchBotMentions(
     botUserId
   )}/mentions?${qs.toString()}`;
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: getReadAuthHeader(config, "GET", url),
-    },
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`X mentions fetch failed (${res.status}): ${body.slice(0, 240)}`);
-  }
+  const res = await fetchWithXRetry(
+    url,
+    () => ({
+      headers: {
+        Authorization: getReadAuthHeader(config, "GET", url),
+      },
+    }),
+    "X mentions fetch failed",
+    transport
+  );
 
   const json = (await res.json()) as {
     data?: RawXTweet[];
@@ -348,6 +597,7 @@ export async function fetchBotMentions(
     text: t.text,
     authorId: t.author_id,
     authorUsername: t.author_id ? userMap.get(t.author_id) : undefined,
+    inReplyToUserId: t.in_reply_to_user_id,
     conversationId: t.conversation_id,
     createdAt: t.created_at,
     expandedUrls: extractUrls(t),
@@ -356,6 +606,7 @@ export async function fetchBotMentions(
       return {
         type: ref.type,
         id: ref.id,
+        authorId: resolved?.author_id,
         text: resolved?.text,
         expandedUrls: extractUrls(resolved),
       };
@@ -363,47 +614,138 @@ export async function fetchBotMentions(
   }));
 }
 
+function extractUploadedMediaId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const obj = payload as { data?: { id?: unknown }; media_id_string?: unknown };
+  if (typeof obj.data?.id === "string" && obj.data.id) return obj.data.id;
+  if (typeof obj.media_id_string === "string" && obj.media_id_string) {
+    return obj.media_id_string;
+  }
+  return null;
+}
+
+async function uploadMediaChunkedV2(
+  config: XBotAuthConfig,
+  pngBuffer: Buffer,
+  transport?: XApiTransportOptions
+): Promise<string> {
+  const initUrl = "https://api.x.com/2/media/upload/initialize";
+  const initRes = await fetchWithXRetry(
+    initUrl,
+    () => ({
+      method: "POST",
+      headers: {
+        Authorization: getWriteAuthHeader(config, "POST", initUrl),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        media_type: "image/png",
+        total_bytes: pngBuffer.byteLength,
+        media_category: "tweet_image",
+      }),
+    }),
+    "X media v2 initialize failed",
+    transport
+  );
+  const initJson = (await initRes.json()) as unknown;
+  const mediaId = extractUploadedMediaId(initJson);
+  if (!mediaId) {
+    throw new Error("X media v2 initialize response missing data.id");
+  }
+
+  const chunkSize = 2 * 1024 * 1024;
+  let segmentIndex = 0;
+  for (let offset = 0; offset < pngBuffer.byteLength; offset += chunkSize) {
+    const slice = pngBuffer.subarray(offset, offset + chunkSize);
+    const appendUrl = `https://api.x.com/2/media/upload/${encodeURIComponent(mediaId)}/append`;
+    await fetchWithXRetry(
+      appendUrl,
+      () => {
+        const form = new FormData();
+        form.append("segment_index", String(segmentIndex));
+        form.append("media", new Blob([new Uint8Array(slice)], { type: "image/png" }), "buildcheck.png");
+        return {
+          method: "POST",
+          headers: {
+            Authorization: getWriteAuthHeader(config, "POST", appendUrl),
+          },
+          body: form,
+        };
+      },
+      "X media v2 append failed",
+      transport
+    );
+    segmentIndex += 1;
+  }
+
+  const finalizeUrl = `https://api.x.com/2/media/upload/${encodeURIComponent(mediaId)}/finalize`;
+  const finalizeRes = await fetchWithXRetry(
+    finalizeUrl,
+    () => ({
+      method: "POST",
+      headers: {
+        Authorization: getWriteAuthHeader(config, "POST", finalizeUrl),
+      },
+    }),
+    "X media v2 finalize failed",
+    transport
+  );
+  const finalizeJson = (await finalizeRes.json().catch(() => null)) as unknown;
+  return extractUploadedMediaId(finalizeJson) || mediaId;
+}
+
+/**
+ * Uploads an Evidence Card PNG via X API v2 (`POST https://api.x.com/2/media/upload`),
+ * automatically falling back to chunked v2 (`initialize` -> `append` -> `finalize`) for large payloads.
+ */
 export async function uploadEvidencePngToX(
   config: XBotAuthConfig,
-  pngBuffer: Buffer
+  pngBuffer: Buffer,
+  transport?: XApiTransportOptions
 ): Promise<string> {
-  if (!hasOAuth1Credentials(config)) {
-    throw new Error(
-      "OAuth 1.0a credentials (X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET) are required to upload media."
+  if (pngBuffer.byteLength > 4_500_000) {
+    return uploadMediaChunkedV2(config, pngBuffer, transport);
+  }
+
+  const url = "https://api.x.com/2/media/upload";
+  try {
+    const res = await fetchWithXRetry(
+      url,
+      () => {
+        const form = new FormData();
+        form.append(
+          "media",
+          new Blob([new Uint8Array(pngBuffer)], { type: "image/png" }),
+          "buildcheck.png"
+        );
+        form.append("media_category", "tweet_image");
+        return {
+          method: "POST",
+          headers: {
+            Authorization: getWriteAuthHeader(config, "POST", url),
+          },
+          body: form,
+        };
+      },
+      "X media v2 upload failed",
+      transport
     );
+
+    const json = (await res.json()) as unknown;
+    const mediaId = extractUploadedMediaId(json);
+    if (!mediaId) {
+      throw new Error("X media v2 upload response missing data.id");
+    }
+    return mediaId;
+  } catch (err) {
+    const canTryChunkedFallback =
+      err instanceof XApiError &&
+      (err.status === 400 || err.status === 413 || err.status === 415);
+    if (!canTryChunkedFallback) {
+      throw err;
+    }
+    return uploadMediaChunkedV2(config, pngBuffer, transport);
   }
-
-  const url = "https://upload.twitter.com/1.1/media/upload.json";
-  const form = new FormData();
-  form.append("media", new Blob([new Uint8Array(pngBuffer)], { type: "image/png" }), "buildcheck.png");
-
-  const authHeader = signOAuth1Header({
-    method: "POST",
-    url,
-    apiKey: config.apiKey!,
-    apiSecret: config.apiSecret!,
-    accessToken: config.accessToken!,
-    accessSecret: config.accessSecret!,
-  });
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: authHeader,
-    },
-    body: form,
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`X media upload failed (${res.status}): ${body.slice(0, 240)}`);
-  }
-
-  const data = (await res.json()) as { media_id_string?: string };
-  if (!data?.media_id_string) {
-    throw new Error("X media upload response missing media_id_string");
-  }
-  return data.media_id_string;
 }
 
 export async function postReplyTweetOnX(
@@ -412,24 +754,10 @@ export async function postReplyTweetOnX(
     text: string;
     replyToTweetId: string;
     mediaId?: string;
-  }
+  },
+  transport?: XApiTransportOptions
 ): Promise<{ tweetId: string }> {
-  if (!hasOAuth1Credentials(config)) {
-    throw new Error(
-      "OAuth 1.0a credentials (X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET) are required to post replies."
-    );
-  }
-
   const url = "https://api.x.com/2/tweets";
-  const authHeader = signOAuth1Header({
-    method: "POST",
-    url,
-    apiKey: config.apiKey!,
-    apiSecret: config.apiSecret!,
-    accessToken: config.accessToken!,
-    accessSecret: config.accessSecret!,
-  });
-
   const payload: Record<string, unknown> = {
     text: params.text,
     reply: {
@@ -442,19 +770,19 @@ export async function postReplyTweetOnX(
     };
   }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`X post reply failed (${res.status}): ${body.slice(0, 240)}`);
-  }
+  const res = await fetchWithXRetry(
+    url,
+    () => ({
+      method: "POST",
+      headers: {
+        Authorization: getWriteAuthHeader(config, "POST", url),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }),
+    "X post reply failed",
+    transport
+  );
 
   const data = (await res.json()) as { data?: { id?: string } };
   return { tweetId: data?.data?.id || "unknown" };

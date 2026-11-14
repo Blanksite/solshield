@@ -1,11 +1,16 @@
+import http from "node:http";
 import path from "node:path";
 import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
+import type { BuildCheckReport } from "../src/lib/buildcheck/types";
+import { tokenReportToSummary } from "../src/lib/scanned-token-types";
 import {
-  isAuthorRateLimited,
-  isTweetProcessed,
+  evaluateMentionGuard,
+  getRepliesTodayCount,
   loadBotState,
   recordProcessedMention,
+  recordReplySent,
   saveBotState,
+  type BotPersistedState,
 } from "./bot-state";
 import { renderEvidenceCardPng } from "./card-renderer";
 import { loadLocalEnvFiles } from "./env-loader";
@@ -16,24 +21,122 @@ import {
   postReplyTweetOnX,
   resolveMentionTarget,
   uploadEvidencePngToX,
+  XApiError,
   type XBotAuthConfig,
 } from "./x-client";
 
 loadLocalEnvFiles();
 
+function parseBooleanEnv(raw: string | undefined, defaultValue: boolean): boolean {
+  if (raw === undefined || raw.trim() === "") return defaultValue;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+  return defaultValue;
+}
+
+function parsePositiveIntEnv(
+  raw: string | undefined,
+  defaultValue: number,
+  min = 0
+): number {
+  const num = Number(raw?.trim());
+  if (!Number.isFinite(num)) return defaultValue;
+  return Math.max(min, Math.floor(num));
+}
+
 function getAuthConfig(): XBotAuthConfig {
   return {
-    botHandle: process.env.BOT_X_HANDLE?.trim() || "SolShieldCheck",
+    botHandle: (process.env.BOT_X_HANDLE?.trim() || "usesolshield").replace(/^@/, ""),
     bearerToken: process.env.X_BEARER_TOKEN?.trim() || undefined,
+    oauth2UserToken: process.env.X_OAUTH2_ACCESS_TOKEN?.trim() || undefined,
     apiKey: process.env.X_API_KEY?.trim() || undefined,
     apiSecret: process.env.X_API_SECRET?.trim() || undefined,
     accessToken: process.env.X_ACCESS_TOKEN?.trim() || undefined,
     accessSecret: process.env.X_ACCESS_SECRET?.trim() || undefined,
     appPublicUrl: process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://sol-shield.xyz",
+    includeReplyUrl: parseBooleanEnv(process.env.BOT_INCLUDE_REPLY_URL, true),
   };
 }
 
+function startHealthServer(
+  port: number,
+  readStatus: () => {
+    botHandle: string;
+    dryRun: boolean;
+    state: BotPersistedState;
+    maxRepliesPerDay: number;
+  }
+): http.Server {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/health" || req.url === "/") {
+      const snap = readStatus();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          service: "solshield-x-bot",
+          botHandle: `@${snap.botHandle}`,
+          dryRun: snap.dryRun,
+          repliesTodayCount: getRepliesTodayCount(snap.state),
+          maxRepliesPerDay: snap.maxRepliesPerDay,
+          lastPollAt: snap.state.lastPollAt || null,
+          lastReplyAt: snap.state.lastReplyAt || null,
+          lastError: snap.state.lastError || null,
+        })
+      );
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, error: "Not found" }));
+  });
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`[SolShield X Bot] Health endpoint listening on :${port}/health`);
+  });
+  return server;
+}
+
+async function syncScannedTokenToWeb(
+  report: BuildCheckReport,
+  appPublicUrl: string,
+  syncEnabled: boolean
+): Promise<void> {
+  if (!syncEnabled || !report.chain?.tokenReport) return;
+  const apiSecret = process.env.SOLSHIELD_API_SECRET?.trim();
+  if (!apiSecret) return;
+
+  const endpoint = `${appPublicUrl.replace(/\/+$/, "")}/api/scanned-tokens`;
+  const summary = tokenReportToSummary(report.chain.tokenReport, "buildcheck");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-solshield-api-key": apiSecret,
+      },
+      body: JSON.stringify({ summary }),
+      signal: controller.signal,
+    });
+    if (res.ok) {
+      console.log(`[Sync] Published ${summary.mintAddress.slice(0, 8)}... (${summary.symbol || "SPL"}) to web feed.`);
+    } else {
+      console.warn(`[Sync Warn] Web feed returned HTTP ${res.status} for ${summary.mintAddress}`);
+    }
+  } catch (err) {
+    console.warn(
+      "[Sync Warn] Could not publish scanned token to web feed:",
+      err instanceof Error ? err.message : err
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runSingleCheckCli(rawTarget: string): Promise<void> {
+  const config = getAuthConfig();
+  const syncEnabled = parseBooleanEnv(process.env.BOT_SYNC_TO_WEB, false);
   console.log(`[BuildCheck Bot CLI] Auditing target: ${rawTarget}`);
   const report = await runBuildCheckInvestigation(rawTarget, {
     apiKey: process.env.VENICE_API_KEY?.trim() || undefined,
@@ -47,48 +150,77 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
     },
   });
 
-  const { filePath } = await renderEvidenceCardPng(report);
-  const replyText = formatBuildCheckReplyTweet(
-    report,
-    process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://sol-shield.xyz"
-  );
+  await syncScannedTokenToWeb(report, config.appPublicUrl, syncEnabled);
+
+  const { filePath } = await renderEvidenceCardPng(report, undefined, {
+    botHandle: config.botHandle,
+    appPublicUrl: config.appPublicUrl,
+  });
+  const replyText = formatBuildCheckReplyTweet(report, config.appPublicUrl, {
+    includeUrl: config.includeReplyUrl,
+  });
 
   console.log("\n=== RESULT ===");
+  console.log(`Handle      : @${config.botHandle}`);
   console.log(`Verdict     : ${report.verdict} (${report.authenticityScore}/100)`);
   console.log(`Inference   : ${report.inferenceMode}`);
+  console.log(`URL in text : ${config.includeReplyUrl !== false}`);
   console.log(`PNG Card    : ${filePath}`);
   console.log("X Reply Copy:\n" + "-".repeat(50) + `\n${replyText}\n` + "-".repeat(50));
 }
 
 async function runDaemonLoop(): Promise<void> {
   const config = getAuthConfig();
-  const isDryRun = process.env.BOT_DRY_RUN !== "false";
+  const isDryRun = parseBooleanEnv(process.env.BOT_DRY_RUN, true);
   const pollMs = Math.max(
     15_000,
-    Number(process.env.BOT_POLL_INTERVAL_MS || "60000") || 60_000
+    parsePositiveIntEnv(process.env.BOT_POLL_INTERVAL_MS, 60_000, 15_000)
+  );
+  const maxMentionAgeMinutes = parsePositiveIntEnv(
+    process.env.BOT_MAX_MENTION_AGE_MINUTES,
+    30,
+    0
+  );
+  const authorCooldownMs = parsePositiveIntEnv(
+    process.env.BOT_AUTHOR_COOLDOWN_MS,
+    90_000,
+    0
+  );
+  const maxRepliesPerDay = parsePositiveIntEnv(
+    process.env.BOT_MAX_REPLIES_PER_DAY,
+    40,
+    0
+  );
+  const healthPort = parsePositiveIntEnv(
+    process.env.BOT_HEALTH_PORT || process.env.PORT,
+    0,
+    0
   );
   const stateFile = path.resolve(
     process.cwd(),
     process.env.BOT_STATE_FILE?.trim() || "worker/data/bot-state.json"
   );
 
-  const hasReadCreds = Boolean(
-    config.bearerToken ||
-      (config.apiKey && config.apiSecret && config.accessToken && config.accessSecret)
-  );
-  const hasWriteCreds = Boolean(
+  const hasOAuth1 = Boolean(
     config.apiKey && config.apiSecret && config.accessToken && config.accessSecret
   );
+  const hasReadCreds = Boolean(
+    config.bearerToken || config.oauth2UserToken || hasOAuth1
+  );
+  const hasWriteCreds = Boolean(hasOAuth1 || config.oauth2UserToken);
 
-  console.log(`[SolShieldCheck Daemon] Handle: @${config.botHandle}`);
-  console.log(`[SolShieldCheck Daemon] Mode: ${isDryRun ? "DRY_RUN (no live X posts)" : "LIVE X REPLY"}`);
-  console.log(`[SolShieldCheck Daemon] Poll interval: ${pollMs / 1000}s`);
-  console.log(`[SolShieldCheck Daemon] State file: ${stateFile}`);
+  console.log(`[SolShield X Bot] Handle: @${config.botHandle}`);
+  console.log(`[SolShield X Bot] Mode: ${isDryRun ? "DRY_RUN (no live X posts)" : "LIVE X REPLY"}`);
+  console.log(`[SolShield X Bot] Poll interval: ${pollMs / 1000}s`);
+  console.log(
+    `[SolShield X Bot] Guards: maxAge=${maxMentionAgeMinutes}m · cooldown=${authorCooldownMs / 1000}s · dailyCap=${maxRepliesPerDay || "unlimited"} · urlInText=${config.includeReplyUrl !== false}`
+  );
+  console.log(`[SolShield X Bot] State file: ${stateFile}`);
 
   if (!hasReadCreds) {
     console.error(
-      "[SolShieldCheck Daemon] Missing X API read credentials.\n" +
-        "Set X_BEARER_TOKEN (and X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET for posting) in .env.\n" +
+      "[SolShield X Bot] Missing X API read credentials.\n" +
+        "Set X_BEARER_TOKEN (or X_OAUTH2_ACCESS_TOKEN / X OAuth 1.0a keys) in .env.\n" +
         "Tip: Test local auditing anytime without X credentials via:\n" +
         '  npm run bot:check -- "https://github.com/Blanksite/solshield"'
     );
@@ -97,7 +229,7 @@ async function runDaemonLoop(): Promise<void> {
 
   if (!isDryRun && !hasWriteCreds) {
     console.error(
-      "[SolShieldCheck Daemon] BOT_DRY_RUN=false requires X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET."
+      "[SolShield X Bot] BOT_DRY_RUN=false requires X OAuth 1.0a keys or X_OAUTH2_ACCESS_TOKEN (with tweet.write + media.write)."
     );
     process.exit(1);
   }
@@ -107,38 +239,68 @@ async function runDaemonLoop(): Promise<void> {
     state.botUserId = await fetchBotUserId(config);
     saveBotState(stateFile, state);
   }
-  console.log(`[SolShieldCheck Daemon] Authenticated @${config.botHandle} (userId=${state.botUserId})`);
+  console.log(`[SolShield X Bot] Authenticated @${config.botHandle} (userId=${state.botUserId})`);
+
+  const healthServer =
+    healthPort > 0
+      ? startHealthServer(healthPort, () => ({
+          botHandle: config.botHandle,
+          dryRun: isDryRun,
+          state,
+          maxRepliesPerDay,
+        }))
+      : null;
 
   let stopping = false;
   const shutdown = () => {
     stopping = true;
-    console.log("\n[SolShieldCheck Daemon] Gracefully shutting down...");
+    console.log("\n[SolShield X Bot] Gracefully shutting down...");
+    healthServer?.close();
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
   while (!stopping) {
+    let nextSleepMs = pollMs;
+
     try {
+      state.lastPollAt = new Date().toISOString();
       const mentions = await fetchBotMentions(config, state.botUserId, state.lastMentionId);
+      state.lastError = null;
+      saveBotState(stateFile, state);
+
       if (mentions.length > 0) {
         console.log(`[Poll] Found ${mentions.length} new mention(s).`);
       }
 
       for (const mention of mentions) {
         if (stopping) break;
-        if (isTweetProcessed(state, mention.id)) continue;
 
-        if (isAuthorRateLimited(state, mention.authorId, 90_000)) {
-          console.log(`[Skip] Rate-limited author ${mention.authorId} on tweet ${mention.id}`);
-          recordProcessedMention(state, mention.id, mention.authorId);
-          saveBotState(stateFile, state);
+        const guard = evaluateMentionGuard({
+          mentionId: mention.id,
+          authorId: mention.authorId,
+          createdAt: mention.createdAt,
+          state,
+          maxMentionAgeMinutes,
+          authorCooldownMs,
+          maxRepliesPerDay,
+        });
+
+        if (!guard.allow) {
+          if (guard.reason !== "already_processed") {
+            console.log(`[Skip:${guard.reason}] tweet ${mention.id} (author=${mention.authorId || "unknown"})`);
+          }
+          if (guard.recordProcessed) {
+            recordProcessedMention(state, mention.id);
+            saveBotState(stateFile, state);
+          }
           continue;
         }
 
-        const target = resolveMentionTarget(mention, config.botHandle);
+        const target = resolveMentionTarget(mention, config.botHandle, state.botUserId);
         if (!target) {
-          console.log(`[Skip] No resolvable CA/link/parent target on tweet ${mention.id}`);
-          recordProcessedMention(state, mention.id, mention.authorId);
+          console.log(`[Skip:no_target] No resolvable CA/link/parent target on tweet ${mention.id}`);
+          recordProcessedMention(state, mention.id);
           saveBotState(stateFile, state);
           continue;
         }
@@ -149,30 +311,73 @@ async function runDaemonLoop(): Promise<void> {
           enableBrowser: true,
         });
 
-        const { pngBuffer, filePath } = await renderEvidenceCardPng(report);
-        const replyText = formatBuildCheckReplyTweet(report, config.appPublicUrl);
+        const { pngBuffer, filePath } = await renderEvidenceCardPng(report, undefined, {
+          botHandle: config.botHandle,
+          appPublicUrl: config.appPublicUrl,
+        });
+        const replyText = formatBuildCheckReplyTweet(report, config.appPublicUrl, {
+          includeUrl: config.includeReplyUrl,
+        });
+        const syncEnabled = parseBooleanEnv(process.env.BOT_SYNC_TO_WEB, !isDryRun);
+
+        await syncScannedTokenToWeb(report, config.appPublicUrl, syncEnabled);
 
         if (isDryRun) {
           console.log(`[DRY RUN] Card saved at ${filePath}\nReply draft:\n${replyText}`);
         } else {
-          const mediaId = await uploadEvidencePngToX(config, pngBuffer);
+          let mediaId: string | undefined;
+          try {
+            mediaId = await uploadEvidencePngToX(config, pngBuffer);
+          } catch (mediaErr) {
+            console.warn(
+              `[Media Warn] Falling back to text-only reply on tweet ${mention.id}:`,
+              mediaErr instanceof Error ? mediaErr.message : mediaErr
+            );
+          }
+
           const posted = await postReplyTweetOnX(config, {
             text: replyText,
             replyToTweetId: mention.id,
             mediaId,
           });
-          console.log(`[POSTED] Reply tweet ${posted.tweetId} (mediaId=${mediaId})`);
+          recordReplySent(state);
+          console.log(
+            `[POSTED] Reply tweet ${posted.tweetId} (${mediaId ? `mediaId=${mediaId}` : "text-only"})`
+          );
         }
 
         recordProcessedMention(state, mention.id, mention.authorId);
         saveBotState(stateFile, state);
       }
     } catch (err) {
-      console.error("[Poll Error]", err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : String(err);
+      state.lastError = msg.slice(0, 200);
+      saveBotState(stateFile, state);
+
+      if (err instanceof XApiError) {
+        if (err.isCreditsExhausted) {
+          nextSleepMs = Math.max(pollMs, 15 * 60_000);
+          console.error(
+            `[Poll Error] X API prepaid credits exhausted (HTTP 402). Pausing ${Math.round(
+              nextSleepMs / 60_000
+            )}m: ${msg}`
+          );
+        } else if (err.isRateLimit) {
+          const resetMs = err.retryAfterSec ? err.retryAfterSec * 1000 : pollMs * 2;
+          nextSleepMs = Math.min(15 * 60_000, Math.max(pollMs, resetMs));
+          console.warn(
+            `[Poll Rate-Limit] HTTP 429 — sleeping ${Math.round(nextSleepMs / 1000)}s before next poll.`
+          );
+        } else {
+          console.error("[Poll X API Error]", msg);
+        }
+      } else {
+        console.error("[Poll Error]", msg);
+      }
     }
 
     if (!stopping) {
-      await new Promise((r) => setTimeout(r, pollMs));
+      await new Promise((r) => setTimeout(r, nextSleepMs));
     }
   }
 }
