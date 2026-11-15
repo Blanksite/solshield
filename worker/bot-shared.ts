@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { compactBuildCheckReportForPermalink } from "../src/lib/buildcheck/report-store";
+import { compactBuildCheckReportWithinBudget } from "../src/lib/buildcheck/report-store";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
 import { toScannedTokenExtraFromReport } from "../src/lib/buildcheck/war-room-metrics";
 import { tokenReportToSummary } from "../src/lib/scanned-token-types";
@@ -56,7 +56,7 @@ async function postAuthenticatedWebSync(
   if (!apiSecret) return false;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), 12000);
   try {
     const res = await fetch(endpoint, {
       method: "POST",
@@ -71,8 +71,9 @@ async function postAuthenticatedWebSync(
       console.log(successLog);
       return true;
     }
+    const errText = await res.text().catch(() => "");
     console.warn(
-      `[Sync Warn] ${warnTag} returned HTTP ${res.status} (${new URL(endpoint).host}${new URL(endpoint).pathname})`
+      `[Sync Warn] ${warnTag} returned HTTP ${res.status} (${new URL(endpoint).host}${new URL(endpoint).pathname})${errText ? `: ${errText.slice(0, 120)}` : ""}`
     );
     return false;
   } catch (err) {
@@ -121,7 +122,7 @@ export async function syncBuildCheckReportToWeb(
 ): Promise<boolean> {
   if (!syncEnabled || !report?.id) return false;
   const endpoint = `${appPublicUrl.replace(/\/+$/, "")}/api/buildcheck/report`;
-  const compact = compactBuildCheckReportForPermalink(report);
+  const compact = compactBuildCheckReportWithinBudget(report);
   return postAuthenticatedWebSync(
     endpoint,
     { report: compact },

@@ -1,11 +1,19 @@
 import os from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as getReportHandler, POST as postReportHandler } from "../src/app/api/buildcheck/report/route";
 import { resetApiGuardState } from "../src/lib/api-guard";
 import {
+  LOCAL_REPORT_TTL_MS,
+  findMintByReportIdInTokens,
+  readLocalBuildCheckReport,
+  saveLocalBuildCheckReport,
+} from "../src/lib/buildcheck/local-report-cache";
+import {
+  MAX_REDIS_REPORT_BYTES,
   compactBuildCheckReportForPermalink,
+  compactBuildCheckReportWithinBudget,
   getBuildCheckReportPermalink,
   isValidBuildCheckReportId,
   saveBuildCheckReportPermalink,
@@ -259,5 +267,211 @@ describe("BuildCheck Permalink Store, API & X Reply Links", () => {
     expect(getLiveAuditSwapBlinkUrl("1", "https://sol-shield.xyz")).toBe(
       "https://sol-shield.xyz/api/actions/audit-swap?amount=1"
     );
+  });
+
+  it("enforces strict 450KB Redis budget even on oversized cluster/node reports and persists to mocked Upstash", async () => {
+    const oversized = makeSampleReport("bc_oversize_01");
+    oversized.executiveSummary = "E".repeat(4000);
+    oversized.visionSummary = "V".repeat(4000);
+    oversized.browser.stops = Array.from({ length: 6 }, (_, i) => ({
+      ...oversized.browser.stops[0],
+      url: `https://example.test/${i}`,
+      textExcerpt: "T".repeat(120_000),
+      screenshotBase64: "S".repeat(60_000),
+    }));
+    const mkNode = (idx: number) => ({
+      address: `Addr${String(idx).padStart(36, "0")}xxxx`,
+      tokenAccount: `Tok${String(idx).padStart(37, "0")}xxxx`,
+      pct: 1.5,
+      uiAmount: 1_000_000,
+      role: "cabal" as const,
+      funder: "Funder11111111111111111111111111111111111111",
+      firstSlot: 300_000_000 + idx,
+      isFresh: true,
+      txCount: 4,
+    });
+    oversized.chain = {
+      mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+      tokenReport: null,
+      dexPair: null,
+      accountRecentTxCount: 120,
+      deep: {
+        metadata: {
+          name: "Oversize",
+          symbol: "OVR",
+          description: "D".repeat(2000),
+          imageUrl: null,
+          websites: ["https://sol-shield.xyz"],
+          twitterUrl: null,
+          telegramUrl: null,
+          launchpad: "pump.fun",
+          createdAt: "2026-11-15T00:00:00.000Z",
+        },
+        market: {
+          poolAddress: null,
+          dexId: "raydium",
+          priceUsd: 0.01,
+          marketCapUsd: 100_000,
+          fdvUsd: 100_000,
+          liquidityUsd: 25_000,
+          volume24hUsd: 80_000,
+          priceChange5m: 1,
+          priceChange1h: 5,
+          priceChange6h: 10,
+          priceChange24h: 20,
+          buys1h: 10,
+          sells1h: 4,
+          buys24h: 100,
+          sells24h: 40,
+          lpLockedPct: 100,
+          lpLockedUsd: 25_000,
+        },
+        holders: {
+          score: 80,
+          verdict: "OK",
+          totalHolders: 1200,
+          distribution: {
+            insidersPct: 2,
+            snipersPct: 3,
+            burnedOrLockedPct: 90,
+            devPct: 1,
+            retailPct: 94,
+          },
+          nodes: Array.from({ length: 120 }, (_, i) => mkNode(i)),
+          clusters: Array.from({ length: 12 }, (_, c) => ({
+            clusterId: `cluster_${c}`,
+            kind: "co_funded" as const,
+            label: `Cluster ${c} ` + "L".repeat(250),
+            funder: `Funder${c}`.padEnd(44, "1"),
+            slot: 300_000_000 + c,
+            combinedPct: 5,
+            wallets: Array.from({ length: 60 }, (_, w) => mkNode(c * 100 + w)),
+          })),
+          checks: [],
+          flagsCount: 0,
+          watchCount: 0,
+          clearCount: 1,
+          notes: [],
+        },
+        devHistory: {
+          devAddress: "Dev1111111111111111111111111111111111111111",
+          solBalance: 4.2,
+          tokenHoldingPct: 1,
+          coinsLaunchedCount: 2,
+          flaggedCoinsCount: 0,
+          launchedTokens: Array.from({ length: 20 }, (_, i) => ({
+            mint: `Mint${i}`.padEnd(44, "1"),
+            name: `Launched ${i}`,
+            symbol: `L${i}`,
+            createdAt: "2026-11-15T00:00:00.000Z",
+          })),
+          recentTxs: Array.from({ length: 30 }, (_, i) => ({
+            signature: `Sig${i}`.padEnd(88, "a"),
+            slot: 300_000_000 + i,
+            blockTime: 1794000000 + i,
+            action: "burn" as const,
+            summary: "Burn verified " + "B".repeat(200),
+            err: false,
+          })),
+        },
+      },
+    };
+
+    const rawBefore = Buffer.byteLength(JSON.stringify(oversized), "utf8");
+    expect(rawBefore).toBeGreaterThan(MAX_REDIS_REPORT_BYTES);
+
+    const compacted = compactBuildCheckReportWithinBudget(oversized);
+    const compactedBytes = Buffer.byteLength(JSON.stringify(compacted), "utf8");
+    expect(compactedBytes).toBeLessThanOrEqual(MAX_REDIS_REPORT_BYTES);
+
+    process.env.UPSTASH_REDIS_REST_URL = "https://upstash.example.test";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "token-test-123";
+
+    const origFetch = globalThis.fetch;
+    let postedCmd: unknown = null;
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      postedCmd = JSON.parse(String(init?.body || "[]"));
+      return new Response(JSON.stringify({ result: "OK" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    try {
+      await saveBuildCheckReportPermalink(oversized);
+      expect(Array.isArray(postedCmd)).toBe(true);
+      const args = postedCmd as unknown[];
+      expect(args[0]).toBe("SET");
+      expect(args[1]).toBe("solshield:buildcheck:report:bc_oversize_01");
+      expect(Buffer.byteLength(String(args[2]), "utf8")).toBeLessThanOrEqual(
+        MAX_REDIS_REPORT_BYTES
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it("caches compact reports in browser localStorage and resolves fallback mint from ledger checkpoints", () => {
+    const store = new Map<string, string>();
+    const origWindow = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          store.set(k, v);
+        },
+        removeItem: (k: string) => {
+          store.delete(k);
+        },
+      },
+    };
+
+    try {
+      const sample = makeSampleReport("bc_LocalCache_77");
+      const now = 1_794_764_000_000;
+      saveLocalBuildCheckReport(sample, now);
+
+      const hit = readLocalBuildCheckReport("BC_LOCALCACHE_77", now + 1000);
+      expect(hit).not.toBeNull();
+      expect(hit?.id).toBe("bc_localcache_77");
+      expect(hit?.browser.stops[0].screenshotBase64).toBe("");
+
+      const expired = readLocalBuildCheckReport(
+        "bc_localcache_77",
+        now + LOCAL_REPORT_TTL_MS + 10
+      );
+      expect(expired).toBeNull();
+
+      const mint = findMintByReportIdInTokens(
+        [
+          {
+            mintAddress: "AoQGnPGXWHo9FfSVhPTmhJGvGXisEDwfaRPnDHHRpump",
+            symbol: "TEST",
+            name: "Test Token",
+            tokenProgram: "SPL Token",
+            riskScore: 22,
+            classification: "SAFE",
+            recommendedAction: "VERIFIED_SAFE",
+            verifiedIssuer: null,
+            slot: 1,
+            scannedAt: "2026-11-15T17:39:00.000Z",
+            source: "buildcheck",
+            scanCount: 2,
+            buildCheckId: "bc_latest999",
+            scoreHistory: [
+              {
+                scannedAt: "2026-11-15T16:00:00.000Z",
+                riskScore: 24,
+                reportId: "bc_bf7cef71b6",
+              },
+            ],
+          },
+        ],
+        "bc_bf7cef71b6"
+      );
+      expect(mint).toBe("AoQGnPGXWHo9FfSVhPTmhJGvGXisEDwfaRPnDHHRpump");
+    } finally {
+      (globalThis as { window?: unknown }).window = origWindow;
+    }
   });
 });

@@ -7,7 +7,7 @@ export const BUILDCHECK_REPORT_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 export const BUILDCHECK_REPORT_TTL_MS = BUILDCHECK_REPORT_TTL_SEC * 1000;
 export const BUILDCHECK_REPORT_ID_RE = /^bc_[a-z0-9_-]{4,36}$/i;
 
-const MAX_REDIS_REPORT_BYTES = 450_000;
+export const MAX_REDIS_REPORT_BYTES = 450_000;
 
 function redisReportKey(id: string): string {
   return `solshield:buildcheck:report:${id.toLowerCase()}`;
@@ -107,7 +107,100 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
       : current.chain,
   };
   raw = JSON.stringify(current);
+  if (Buffer.byteLength(raw, "utf8") <= MAX_REDIS_REPORT_BYTES) {
+    return raw;
+  }
+
+  // Pass 3: Strict Redis budget trim (drop heavy graph nodes & long excerpts while preserving verdict/proof)
+  current = {
+    ...current,
+    executiveSummary: current.executiveSummary.slice(0, 800),
+    visionSummary: current.visionSummary ? current.visionSummary.slice(0, 600) : null,
+    claimsVsProof: current.claimsVsProof.slice(0, 8),
+    browser: {
+      ...current.browser,
+      stops: current.browser.stops.slice(0, 4).map((stop) => ({
+        ...stop,
+        screenshotBase64: "",
+        textExcerpt: "",
+        apiPayloads: [],
+      })),
+      inspectedApiPayloads: [],
+    },
+    chain: current.chain
+      ? {
+          ...current.chain,
+          deep: current.chain.deep
+            ? {
+                ...current.chain.deep,
+                holders: {
+                  ...current.chain.deep.holders,
+                  nodes: [],
+                  clusters: (current.chain.deep.holders.clusters || [])
+                    .slice(0, 5)
+                    .map((cluster) => ({
+                      ...cluster,
+                      wallets: (cluster.wallets || []).slice(0, 3),
+                    })),
+                },
+                devHistory: {
+                  ...current.chain.deep.devHistory,
+                  launchedTokens: (
+                    current.chain.deep.devHistory.launchedTokens || []
+                  ).slice(0, 5),
+                  recentTxs: (current.chain.deep.devHistory.recentTxs || []).slice(0, 6),
+                },
+              }
+            : null,
+        }
+      : null,
+  };
+  raw = JSON.stringify(current);
+  if (Buffer.byteLength(raw, "utf8") <= MAX_REDIS_REPORT_BYTES) {
+    return raw;
+  }
+
+  // Pass 4: Extreme emergency trim so oversized targets still persist in Redis
+  current = {
+    ...current,
+    browser: {
+      ...current.browser,
+      stops: current.browser.stops.slice(0, 2),
+    },
+    chain: current.chain
+      ? {
+          ...current.chain,
+          deep: current.chain.deep
+            ? {
+                ...current.chain.deep,
+                holders: {
+                  ...current.chain.deep.holders,
+                  nodes: [],
+                  clusters: [],
+                },
+              }
+            : null,
+        }
+      : null,
+    xPost: current.xPost
+      ? {
+          ...current.xPost,
+          textContent: current.xPost.textContent?.slice(0, 400) ?? null,
+        }
+      : null,
+  };
+  raw = JSON.stringify(current);
   return raw;
+}
+
+/**
+ * Compacts and size-bounds a BuildCheck report so external callers (such as bots)
+ * always post payloads strictly within the Redis permalink storage budget.
+ */
+export function compactBuildCheckReportWithinBudget(
+  report: BuildCheckReport
+): BuildCheckReport {
+  return JSON.parse(serializeWithinSizeBudget(report)) as BuildCheckReport;
 }
 
 /**
@@ -139,14 +232,29 @@ export async function saveBuildCheckReportPermalink(
   let storedInRedis = false;
   try {
     const payload = serializeWithinSizeBudget(compact);
-    if (Buffer.byteLength(payload, "utf8") <= MAX_REDIS_REPORT_BYTES) {
+    const payloadBytes = Buffer.byteLength(payload, "utf8");
+    if (payloadBytes <= MAX_REDIS_REPORT_BYTES) {
       const res = await runUpstashCommand<string>(
         ["SET", redisReportKey(normalizedId), payload, "EX", BUILDCHECK_REPORT_TTL_SEC],
         3500
       );
       storedInRedis = res === "OK";
+      if (!storedInRedis && Boolean(process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL)) {
+        console.warn(
+          `[ReportStore] Redis SET for ${normalizedId} (${payloadBytes} bytes) returned:`,
+          res
+        );
+      }
+    } else {
+      console.warn(
+        `[ReportStore] Report ${normalizedId} (${payloadBytes} bytes) exceeded Redis size limit (${MAX_REDIS_REPORT_BYTES}); skipped Redis save.`
+      );
     }
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[ReportStore] Failed saving ${normalizedId} to Redis:`,
+      err instanceof Error ? err.message : err
+    );
     storedInRedis = false;
   }
 

@@ -286,11 +286,23 @@ export default function BuildCheckWorkbench({
     }
   };
 
-  async function loadPermalinkReport(reportId: string) {
+  async function loadPermalinkReport(reportId: string, fallbackTarget?: string) {
     const cleanId = reportId.trim();
     if (!cleanId) return;
     setErrorMsg(null);
     setIsRunning(true);
+    let handoffToLiveScan = false;
+
+    const hydrateReport = (loaded: BuildCheckReport) => {
+      setReport(loaded);
+      setShowResultLedger(false);
+      setInput(loaded.target.rawInput);
+      setFrames([]);
+      setCollectors(buildCollectorsFromReport(loaded));
+      setLogs(buildLogsFromReport(loaded));
+      syncUrlWithReportId(loaded.id);
+    };
+
     try {
       let res = await fetch(
         `/api/buildcheck/report?id=${encodeURIComponent(cleanId)}`,
@@ -311,24 +323,62 @@ export default function BuildCheckWorkbench({
         report?: BuildCheckReport;
         error?: string;
       };
-      if (!res.ok || !data.ok || !data.report) {
-        setErrorMsg(
-          data.error ||
-            `Shared BuildCheck report "${cleanId}" was not found or expired.`
-        );
+      const cacheMod = await import("@/lib/buildcheck/local-report-cache");
+      if (res.ok && data.ok && data.report) {
+        cacheMod.saveLocalBuildCheckReport(data.report);
+        hydrateReport(data.report);
         return;
       }
-      setReport(data.report);
-      setShowResultLedger(false);
-      setInput(data.report.target.rawInput);
-      setFrames([]);
-      setCollectors(buildCollectorsFromReport(data.report));
-      setLogs(buildLogsFromReport(data.report));
-      syncUrlWithReportId(data.report.id);
+
+      const cachedLocal = cacheMod.readLocalBuildCheckReport(cleanId);
+      if (cachedLocal) {
+        hydrateReport(cachedLocal);
+        return;
+      }
+
+      const activeMint =
+        report?.chain?.mintAddress || report?.target?.mintAddress || undefined;
+      const resolvedFallback =
+        fallbackTarget?.trim() ||
+        activeMint ||
+        (await cacheMod.resolveFallbackMintForReport(cleanId, recentTokens));
+
+      if (resolvedFallback) {
+        setErrorMsg(null);
+        handoffToLiveScan = true;
+        void runCheck(resolvedFallback, { bypassBusyCheck: true });
+        return;
+      }
+
+      setErrorMsg(
+        data.error ||
+          `Shared BuildCheck report "${cleanId}" was not found or expired. Paste a CA or link below to run a fresh live scan.`
+      );
     } catch {
+      try {
+        const cacheMod = await import("@/lib/buildcheck/local-report-cache");
+        const cachedLocal = cacheMod.readLocalBuildCheckReport(cleanId);
+        if (cachedLocal) {
+          hydrateReport(cachedLocal);
+          return;
+        }
+        const resolvedFallback =
+          fallbackTarget?.trim() ||
+          (await cacheMod.resolveFallbackMintForReport(cleanId, recentTokens));
+        if (resolvedFallback) {
+          setErrorMsg(null);
+          handoffToLiveScan = true;
+          void runCheck(resolvedFallback, { bypassBusyCheck: true });
+          return;
+        }
+      } catch {
+        // Ignore cache recovery errors
+      }
       setErrorMsg("Failed to load shared BuildCheck report.");
     } finally {
-      setIsRunning(false);
+      if (!handoffToLiveScan) {
+        setIsRunning(false);
+      }
     }
   }
 
@@ -349,6 +399,9 @@ export default function BuildCheckWorkbench({
     didAutoInitRef.current = true;
 
     if (initialReport) {
+      void import("@/lib/buildcheck/local-report-cache").then((m) =>
+        m.saveLocalBuildCheckReport(initialReport)
+      );
       syncUrlWithReportId(initialReport.id);
       return;
     }
@@ -357,8 +410,36 @@ export default function BuildCheckWorkbench({
       const params = new URLSearchParams(window.location.search);
       const reportParam = params.get("report")?.trim();
       const targetParam = (initialTarget || params.get("target") || "").trim();
-      if (reportParam && !initialReportMissingId) {
-        void loadPermalinkReport(reportParam);
+      if (initialReportMissingId) {
+        void (async () => {
+          try {
+            const cacheMod = await import("@/lib/buildcheck/local-report-cache");
+            const cachedLocal =
+              cacheMod.readLocalBuildCheckReport(initialReportMissingId);
+            if (cachedLocal) {
+              setReport(cachedLocal);
+              setShowResultLedger(false);
+              setErrorMsg(null);
+              setInput(cachedLocal.target.rawInput);
+              setFrames([]);
+              setCollectors(buildCollectorsFromReport(cachedLocal));
+              setLogs(buildLogsFromReport(cachedLocal));
+              syncUrlWithReportId(cachedLocal.id);
+              return;
+            }
+            const fallbackMint =
+              targetParam ||
+              (await cacheMod.resolveFallbackMintForReport(initialReportMissingId));
+            if (fallbackMint) {
+              setErrorMsg(null);
+              void runCheck(fallbackMint, { bypassBusyCheck: true });
+            }
+          } catch {
+            // Keep existing SSR missing-report banner
+          }
+        })();
+      } else if (reportParam) {
+        void loadPermalinkReport(reportParam, targetParam || undefined);
       } else if (targetParam) {
         void runCheck(targetParam);
       }
@@ -388,10 +469,10 @@ export default function BuildCheckWorkbench({
 
   async function runCheck(
     overrideTarget?: string,
-    options?: { forceRefresh?: boolean }
+    options?: { forceRefresh?: boolean; bypassBusyCheck?: boolean }
   ) {
     const query = (overrideTarget ?? input).trim();
-    if (!query || isRunning) return;
+    if (!query || (isRunning && !options?.bypassBusyCheck)) return;
     if (overrideTarget) setInput(overrideTarget);
 
     abortRef.current?.abort();
@@ -505,6 +586,9 @@ export default function BuildCheckWorkbench({
             setReport(event.report);
             setShowResultLedger(false);
             syncUrlWithReportId(event.report.id);
+            void import("@/lib/buildcheck/local-report-cache").then((m) =>
+              m.saveLocalBuildCheckReport(event.report)
+            );
             if (event.report.chain?.tokenReport) {
               saveLocalScannedToken(
                 event.report.chain.tokenReport,
@@ -1551,7 +1635,9 @@ export default function BuildCheckWorkbench({
           {!isRunning && !report && recentTokens.length > 0 && (
             <AuditLedgerSection
               tokens={recentTokens}
-              onOpenPermalink={(reportId) => void loadPermalinkReport(reportId)}
+              onOpenPermalink={(reportId, fallbackTarget) =>
+                void loadPermalinkReport(reportId, fallbackTarget)
+              }
               onRunAudit={(mintAddress) => void runCheck(mintAddress)}
               onRefresh={() => void loadRecentScannedTokens()}
               onClearLocal={() => {
@@ -2029,7 +2115,9 @@ export default function BuildCheckWorkbench({
                   {showResultLedger && (
                     <AuditLedgerSection
                       tokens={recentTokens}
-                      onOpenPermalink={(reportId) => void loadPermalinkReport(reportId)}
+                      onOpenPermalink={(reportId, fallbackTarget) =>
+                        void loadPermalinkReport(reportId, fallbackTarget)
+                      }
                       onRunAudit={(mintAddress) => void runCheck(mintAddress)}
                       onRefresh={() => void loadRecentScannedTokens()}
                       onClearLocal={() => {

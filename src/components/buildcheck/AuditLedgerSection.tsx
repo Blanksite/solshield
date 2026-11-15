@@ -15,7 +15,7 @@ import type { ScannedTokenSummary } from "@/lib/scanned-token-types";
 
 interface AuditLedgerSectionProps {
   tokens: ScannedTokenSummary[];
-  onOpenPermalink: (reportId: string) => void;
+  onOpenPermalink: (reportId: string, fallbackTarget?: string) => void;
   onRunAudit: (mintAddress: string) => void;
   onRefresh: () => void;
   onClearLocal: () => void;
@@ -150,7 +150,7 @@ export function AuditLedgerSection({
                   type="button"
                   onClick={() =>
                     tok.buildCheckId
-                      ? onOpenPermalink(tok.buildCheckId)
+                      ? onOpenPermalink(tok.buildCheckId, tok.mintAddress)
                       : onRunAudit(tok.mintAddress)
                   }
                   className="text-left p-3 space-y-2 cursor-pointer flex-1"
