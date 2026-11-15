@@ -33,7 +33,7 @@ export interface ProofDispatchFormatOptions {
 }
 
 export const DISPATCH_CLOSING_NOTE =
-  "Execution integrity proves the build. Chain posture tracks supply concentration. Verify before signing — DYOR.";
+  "Execution proves the build; chain posture maps the float. Read the receipts before you sign.";
 
 /**
  * Masks full 32–44 char Base58 Solana addresses and 0x EVM addresses inside

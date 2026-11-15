@@ -264,6 +264,8 @@ describe("SolShield Proof Dispatch Story Formatter & X Thread Fallback", () => {
 
     // Ensures zero copied terminology
     expect(text).not.toMatch(/\blarp(?:check)?\b/i);
+    expect(text).not.toMatch(/\bdyor\b/i);
+    expect(text).toContain("Read the receipts before you sign.");
     expect(text).not.toContain("What checks out");
     expect(text).not.toContain("Couldn't confirm yet");
     expect(text).not.toContain("PARTLY REAL");
