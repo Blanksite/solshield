@@ -859,4 +859,98 @@ describe("X Mindshare & KOL Discourse Pulse", () => {
       expect(r.yPct + r.hPct).toBeLessThanOrEqual(100.01);
     }
   });
+
+  it("skips secondary cashtag search and redundant profile lookup when primary search is rich", async () => {
+    process.env.X_BEARER_TOKEN = "test-x-bearer";
+
+    const requestedUrls: string[] = [];
+    const nowIso = new Date().toISOString();
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      requestedUrls.push(url);
+
+      if (url.includes("/2/tweets/search/recent")) {
+        const tweets = Array.from({ length: 8 }, (_, idx) => ({
+          id: String(3000 + idx),
+          author_id: idx === 0 ? "u_official" : `u_${idx}`,
+          created_at: nowIso,
+          text:
+            idx === 0
+              ? "@usesolshield live BuildCheck v2 update"
+              : `$SHIELD @usesolshield review thread #${idx} on Solana`,
+          public_metrics: {
+            like_count: 20 + idx,
+            retweet_count: 5,
+            reply_count: 2,
+            quote_count: 1,
+            bookmark_count: 3,
+            impression_count: 1200,
+          },
+        }));
+        const users = tweets.map((tw, idx) => ({
+          id: tw.author_id,
+          username: idx === 0 ? "usesolshield" : `trader_${idx}`,
+          name: idx === 0 ? "SolShield" : `Trader ${idx}`,
+          verified: idx === 0,
+          created_at: "2025-01-01T00:00:00.000Z",
+          public_metrics: { followers_count: idx === 0 ? 4200 : 2500 + idx * 100 },
+        }));
+
+        return new Response(
+          JSON.stringify({ data: tweets, includes: { users } }),
+          { status: 200 }
+        );
+      }
+
+      return new Response("Unexpected network call", { status: 500 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const social = await collectSocialMindshare({
+      target: {
+        rawInput: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+        kind: "token_ca",
+        mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+      },
+      chain: SAMPLE_CHAIN,
+    });
+
+    const searchUrls = requestedUrls.filter((u) => u.includes("/2/tweets/search/recent"));
+    const userLookupUrls = requestedUrls.filter((u) => u.includes("/2/users/by/username/"));
+
+    expect(searchUrls).toHaveLength(1);
+    expect(searchUrls[0]).toContain("max_results=15");
+    expect(userLookupUrls).toHaveLength(0);
+    expect(social.officialProfile?.username).toBe("usesolshield");
+    expect(social.officialProfile?.followersCount).toBe(4200);
+    expect(social.totalPostsSampled).toBe(8);
+  });
+
+  it("aborts secondary query and profile lookup when primary X search returns 402 credits depleted", async () => {
+    process.env.X_BEARER_TOKEN = "test-x-bearer";
+
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      requestedUrls.push(url);
+      return new Response("CreditsDepleted", { status: 402 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const social = await collectSocialMindshare({
+      target: {
+        rawInput: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+        kind: "token_ca",
+        mintAddress: "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx",
+      },
+      chain: SAMPLE_CHAIN,
+    });
+
+    expect(requestedUrls).toHaveLength(1);
+    expect(social.source).toBe("unavailable");
+    expect(social.errorNote).toContain("credits depleted");
+  });
 });

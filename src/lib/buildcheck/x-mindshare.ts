@@ -23,6 +23,8 @@ import type {
 import { DEFAULT_VENICE_MODEL, VENICE_API_BASE_URL } from "../venice-ai";
 
 const X_API_BASE = "https://api.x.com/2";
+export const X_RECENT_SEARCH_MAX_RESULTS = 15;
+export const X_SECONDARY_QUERY_MIN_POSTS = 8;
 
 const GENERIC_X_HANDLES = new Set([
   "x",
@@ -488,10 +490,11 @@ async function fetchXRecentSearchQuery(
 }> {
   const baseParams = new URLSearchParams({
     query,
-    max_results: "25",
+    max_results: String(X_RECENT_SEARCH_MAX_RESULTS),
     "tweet.fields": "created_at,public_metrics,author_id,lang,note_tweet",
     expansions: "author_id",
-    "user.fields": "username,name,verified,verified_type,public_metrics,profile_image_url",
+    "user.fields":
+      "username,name,created_at,description,verified,verified_type,public_metrics,profile_image_url",
   });
 
   // Prefer relevancy to surface top KOL & engaged voices first; fall back to default order if unsupported.
@@ -1110,6 +1113,50 @@ function buildDailyBuckets(posts: XMindsharePost[]): MindshareBucket[] {
     }));
 }
 
+function formatXSearchStatusError(status: number): string {
+  if (status === 402) return "X API v2 search quota/credits depleted.";
+  if (status === 429) return "X API v2 rate-limited; partial/cached coverage.";
+  return `X API v2 returned HTTP ${status}.`;
+}
+
+function isFatalXSearchStatus(status: number): boolean {
+  return status === 401 || status === 402 || status === 429;
+}
+
+function countRelevantTweets(
+  rawTweetMap: Map<string, RawXApiTweet>,
+  usersById: Map<string, RawXApiUser>,
+  anchors: ProjectSocialAnchors
+): number {
+  let count = 0;
+  for (const tw of rawTweetMap.values()) {
+    const rawText = (tw.note_tweet?.text || tw.text || "").trim();
+    if (!tw.id || !rawText) continue;
+    const rawUser = tw.author_id ? usersById.get(tw.author_id) : undefined;
+    const username = rawUser?.username || tw.author_id || "unknown";
+    if (isTweetRelevantToProject(rawText, username, anchors)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function findUserProfileInMap(
+  usersById: Map<string, RawXApiUser>,
+  handle: string
+): XKolAuthorProfile | null {
+  const target = handle.toLowerCase();
+  for (const user of usersById.values()) {
+    if (
+      user.username?.toLowerCase() === target &&
+      user.public_metrics?.followers_count !== undefined
+    ) {
+      return mapRawUserProfile(user);
+    }
+  }
+  return null;
+}
+
 /**
  * Collects real X (Twitter) discourse, KOL participation, sentiment breakdown,
  * and computes Mindshare Pulse + Hype-vs-Build divergence for a BuildCheck target.
@@ -1132,28 +1179,20 @@ export async function collectSocialMindshare(
   let errorNote: string | null = null;
 
   if (bearerToken && (anchors.officialHandle || queries.length > 0)) {
-    const profilePromise = anchors.officialHandle
-      ? fetchOfficialXProfile(anchors.officialHandle, bearerToken, Math.min(timeoutMs, 4500))
-      : Promise.resolve(null);
-    const searchPromises = queries.map((q) =>
-      fetchXRecentSearchQuery(q, bearerToken, timeoutMs)
-    );
+    let abortFurtherXCalls = false;
 
-    const [profileRes, ...searchResults] = await Promise.all([
-      profilePromise,
-      ...searchPromises,
-    ]);
-    officialProfile = profileRes;
-
-    for (const sr of searchResults) {
+    const recordSearchResult = (sr: {
+      ok: boolean;
+      status: number;
+      tweets: RawXApiTweet[];
+      usersById: Map<string, RawXApiUser>;
+    }) => {
       if (sr.ok) xApiWorked = true;
       else if (sr.status && !errorNote) {
-        errorNote =
-          sr.status === 402
-            ? "X API v2 search quota/credits depleted."
-            : sr.status === 429
-              ? "X API v2 rate-limited; partial/cached coverage."
-              : `X API v2 returned HTTP ${sr.status}.`;
+        errorNote = formatXSearchStatusError(sr.status);
+      }
+      if (!sr.ok && isFatalXSearchStatus(sr.status)) {
+        abortFurtherXCalls = true;
       }
       for (const [uid, u] of sr.usersById.entries()) {
         usersById.set(uid, u);
@@ -1162,6 +1201,32 @@ export async function collectSocialMindshare(
         if (tw.id && !rawTweetMap.has(tw.id)) {
           rawTweetMap.set(tw.id, tw);
         }
+      }
+    };
+
+    if (queries.length > 0) {
+      // Run high-signal primary anchor query first so secondary $SYMBOL lookup only fires if sparse
+      const primaryResult = await fetchXRecentSearchQuery(queries[0], bearerToken, timeoutMs);
+      recordSearchResult(primaryResult);
+
+      if (queries.length > 1 && !abortFurtherXCalls) {
+        const primaryRelevantCount = countRelevantTweets(rawTweetMap, usersById, anchors);
+        if (primaryRelevantCount < X_SECONDARY_QUERY_MIN_POSTS) {
+          const secondaryResult = await fetchXRecentSearchQuery(queries[1], bearerToken, timeoutMs);
+          recordSearchResult(secondaryResult);
+        }
+      }
+    }
+
+    // Reuse profile metadata expanded in search results before spending a dedicated User Read
+    if (anchors.officialHandle) {
+      officialProfile = findUserProfileInMap(usersById, anchors.officialHandle);
+      if (!officialProfile && !abortFurtherXCalls) {
+        officialProfile = await fetchOfficialXProfile(
+          anchors.officialHandle,
+          bearerToken,
+          Math.min(timeoutMs, 4500)
+        );
       }
     }
   } else if (!bearerToken) {
