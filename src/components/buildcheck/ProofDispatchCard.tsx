@@ -238,11 +238,21 @@ export function ProofDispatchCard({ report }: ProofDispatchCardProps) {
 
           {/* Trace & Methodology Footer */}
           <div className="px-5 py-2.5 bg-[#090B10] flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
-            <span>
-              {dispatch.chainTraceLine
-                ? `CHAIN TRACE: ${dispatch.chainTraceLine}`
-                : `TARGET TYPE: ${report.target.kind.replace("_", " ").toUpperCase()}`}
-            </span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                {dispatch.chainTraceLine
+                  ? `CHAIN TRACE: ${dispatch.chainTraceLine}`
+                  : `TARGET TYPE: ${report.target.kind.replace("_", " ").toUpperCase()}`}
+              </span>
+              {dispatch.mindshareLine && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-[#93C5FD]">
+                    X MINDSHARE: {dispatch.mindshareLine}
+                  </span>
+                </>
+              )}
+            </div>
             <span className="text-slate-500 text-[10px]">
               {dispatch.closingNote}
             </span>

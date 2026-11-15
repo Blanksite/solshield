@@ -22,6 +22,7 @@ export interface SolShieldProofDispatch {
   openGaps: string[];
   takeaway: string;
   chainTraceLine: string | null;
+  mindshareLine: string | null;
   reportUrl: string;
   closingNote: string;
 }
@@ -272,6 +273,20 @@ export function buildProofDispatch(
     }
   }
 
+  let mindshareLine: string | null = null;
+  if (report.social && report.social.source !== "unavailable") {
+    const s = report.social;
+    if (s.totalPostsSampled > 0) {
+      mindshareLine = `Mindshare ${s.mindshareScore}/100 (${s.quadrantLabel}) · ${s.kolCount} KOL${
+        s.kolCount === 1 ? "" : "s"
+      } · ${s.sentimentBreakdown.bullishPct}% bull / ${s.sentimentBreakdown.skepticalPct}% skeptical`;
+    } else if (s.officialProfile) {
+      mindshareLine = `@${s.officialProfile.username} (${s.officialProfile.followersCount.toLocaleString(
+        "en-US"
+      )} followers) · Pre-discovery (0 X mentions)`;
+    }
+  }
+
   return {
     subjectLabel,
     targetNameForHeader,
@@ -287,6 +302,7 @@ export function buildProofDispatch(
     openGaps,
     takeaway,
     chainTraceLine,
+    mindshareLine,
     reportUrl: buildReportPermalinkUrl(report.id, appPublicUrl),
     closingNote: DISPATCH_CLOSING_NOTE,
   };
@@ -335,6 +351,9 @@ export function formatSolShieldDispatchText(
   const footerMeta: string[] = [];
   if (d.chainTraceLine) {
     footerMeta.push(`CHAIN TRACE: ${d.chainTraceLine}`);
+  }
+  if (d.mindshareLine) {
+    footerMeta.push(`X MINDSHARE: ${d.mindshareLine}`);
   }
   if (includeUrl) {
     footerMeta.push(`LIVE REPORT: ${d.reportUrl}`);

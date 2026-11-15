@@ -23,6 +23,7 @@ import {
   Loader2,
   Monitor,
   Network,
+  Radio,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -64,6 +65,7 @@ import { AuditLedgerSection } from "./AuditLedgerSection";
 import { DevHistoryPanel } from "./DevHistoryPanel";
 import { generateBuildCheckEvidencePng } from "./evidence-card-canvas";
 import { MarketTelemetryPanel } from "./MarketTelemetryPanel";
+import { MindsharePulsePanel } from "./MindsharePulsePanel";
 import { ProofDispatchCard } from "./ProofDispatchCard";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
 import { SniperCabalGraph } from "./SniperCabalGraph";
@@ -92,6 +94,7 @@ interface CollectorBadgeState {
   chain: { status: "idle" | "ok" | "warn" | "error"; text: string };
   domain: { status: "idle" | "ok" | "warn" | "error"; text: string };
   xpost: { status: "idle" | "ok" | "warn" | "error"; text: string };
+  social: { status: "idle" | "ok" | "warn" | "error"; text: string };
 }
 
 const INITIAL_COLLECTORS: CollectorBadgeState = {
@@ -99,6 +102,7 @@ const INITIAL_COLLECTORS: CollectorBadgeState = {
   chain: { status: "idle", text: "Waiting" },
   domain: { status: "idle", text: "Waiting" },
   xpost: { status: "idle", text: "Waiting" },
+  social: { status: "idle", text: "Waiting" },
 };
 
 function TokenAvatar({
@@ -168,6 +172,24 @@ function buildCollectorsFromReport(
             : report.xPost.methodUsed,
         }
       : { status: "idle", text: "Not present" },
+    social: report.social
+      ? {
+          status:
+            report.social.totalPostsSampled > 0 || report.social.officialProfile
+              ? report.social.quadrant === "NARRATIVE_OVERHEAT"
+                ? "warn"
+                : "ok"
+              : report.social.source === "unavailable"
+                ? "warn"
+                : "ok",
+          text:
+            report.social.totalPostsSampled > 0
+              ? `${report.social.mindshareScore}/100 · ${report.social.kolCount} KOLs · ${report.social.totalPostsSampled} posts`
+              : report.social.officialProfile
+                ? `@${report.social.officialProfile.username} · 0 mentions`
+                : "Pre-discovery",
+        }
+      : { status: "idle", text: "Not scanned" },
   };
 }
 
@@ -245,10 +267,11 @@ export default function BuildCheckWorkbench({
   const [recentTokens, setRecentTokens] = useState<ScannedTokenSummary[]>([]);
   const [showResultLedger, setShowResultLedger] = useState(false);
   const [forensicTab, setForensicTab] = useState<
-    "proof" | "holders" | "dev" | "browser" | "telemetry"
+    "proof" | "mindshare" | "holders" | "dev" | "browser" | "telemetry"
   >("proof");
 
   const abortRef = useRef<AbortController | null>(null);
+  const forensicPanelRef = useRef<HTMLDivElement | null>(null);
   const didAutoInitRef = useRef(false);
 
   const loadRecentScannedTokens = async () => {
@@ -906,14 +929,20 @@ export default function BuildCheckWorkbench({
         </span>
       </div>
 
-      {/* 4 Collector Pills */}
+      {/* 5 Collector Pills */}
       <div className="p-3.5 grid grid-cols-2 gap-2">
         {[
-          { key: "github" as const, label: "GitHub", Icon: Code2 },
-          { key: "chain" as const, label: "Solana Chain", Icon: Coins },
-          { key: "domain" as const, label: "Domain RDAP", Icon: Globe },
-          { key: "xpost" as const, label: "X / Claim", Icon: Activity },
-        ].map(({ key, label, Icon }) => {
+          { key: "github" as const, label: "GitHub", Icon: Code2, span: "" },
+          { key: "chain" as const, label: "Solana Chain", Icon: Coins, span: "" },
+          { key: "domain" as const, label: "Domain RDAP", Icon: Globe, span: "" },
+          { key: "xpost" as const, label: "X / Claim", Icon: Activity, span: "" },
+          {
+            key: "social" as const,
+            label: "X Mindshare & KOLs",
+            Icon: Radio,
+            span: "col-span-2",
+          },
+        ].map(({ key, label, Icon, span }) => {
           const st = collectors[key];
           const tone =
             st.status === "ok"
@@ -922,7 +951,7 @@ export default function BuildCheckWorkbench({
                 ? "border-amber-500/35 bg-amber-500/[0.07] text-amber-300"
                 : "border-white/[0.08] bg-[#080A0F] text-slate-400";
           return (
-            <div key={key} className={`px-2.5 py-2 rounded-lg border transition-colors ${tone}`}>
+            <div key={key} className={`${span} px-2.5 py-2 rounded-lg border transition-colors ${tone}`}>
               <div className="flex items-center justify-between gap-1.5 text-[11px] font-medium">
                 <span className="inline-flex items-center gap-1.5">
                   <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -970,7 +999,10 @@ export default function BuildCheckWorkbench({
   const renderForensicTabPanel = () => {
     if (!report) return null;
     return (
-      <div className="rounded-xl border border-white/[0.08] bg-[#0D1017] overflow-hidden">
+      <div
+        ref={forensicPanelRef}
+        className="rounded-xl border border-white/[0.08] bg-[#0D1017] overflow-hidden scroll-mt-20"
+      >
         {/* Unified Forensic Tab Switcher */}
         <div className="px-4 py-2.5 border-b border-white/[0.07] bg-[#090B10] flex flex-wrap items-center gap-1.5">
           <button
@@ -984,6 +1016,25 @@ export default function BuildCheckWorkbench({
           >
             <FileJson2 className="w-3.5 h-3.5" />
             <span>Claims &amp; API Audits</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="tab-x-mindshare"
+            onClick={() => setForensicTab("mindshare")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+              forensicTab === "mindshare"
+                ? "bg-[#2934FF]/22 text-white border border-[#2934FF]/50"
+                : "text-slate-400 hover:text-white border border-transparent hover:bg-white/[0.04]"
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5 text-[#84A7FF]" />
+            <span>X Mindshare &amp; KOLs</span>
+            {report.social && (
+              <span className="px-1.5 py-0.2 rounded bg-[#2934FF]/25 text-[#BFD0FF] font-mono text-[10px] tabular-nums">
+                {report.social.mindshareScore}
+              </span>
+            )}
           </button>
 
           {report.chain?.deep?.holders && (
@@ -1053,6 +1104,10 @@ export default function BuildCheckWorkbench({
         </div>
 
         {/* Tab Contents */}
+        {forensicTab === "mindshare" && (
+          <MindsharePulsePanel social={report.social} symbol={tokenSymbol} />
+        )}
+
         {forensicTab === "holders" && report.chain?.deep?.holders && (
           <div className="p-5">
             <SniperCabalGraph
@@ -1942,6 +1997,61 @@ export default function BuildCheckWorkbench({
                       );
                     })}
                   </div>
+
+                  {/* X Mindshare & KOL Discourse Pulse Quick Strip */}
+                  {report.social && (
+                    <div
+                      data-testid="mindshare-overview-strip"
+                      className="px-5 py-3 border-t border-white/[0.06] bg-[#080B11] flex flex-wrap items-center justify-between gap-3"
+                    >
+                      <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                        <span className="inline-flex items-center gap-1.5 font-mono uppercase tracking-[0.08em] text-[#93C5FD] font-semibold">
+                          <Radio className="w-3.5 h-3.5" />
+                          <span>X Mindshare</span>
+                          <span className="text-white tabular-nums">
+                            {report.social.mindshareScore}/100
+                          </span>
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase border ${
+                            report.social.quadrant === "CONVICTION_RUNNER"
+                              ? "bg-emerald-500/12 text-emerald-300 border-emerald-500/35"
+                              : report.social.quadrant === "UNDERVALUED_BUILDER"
+                                ? "bg-[#2934FF]/18 text-[#93C5FD] border-[#5D82FF]/40"
+                                : report.social.quadrant === "NARRATIVE_OVERHEAT"
+                                  ? "bg-rose-500/12 text-rose-300 border-rose-500/35"
+                                  : report.social.quadrant === "CONTESTED_DISCOURSE"
+                                    ? "bg-amber-500/12 text-amber-300 border-amber-500/35"
+                                    : "bg-white/[0.05] text-slate-300 border-white/15"
+                          }`}
+                        >
+                          {report.social.quadrantLabel}
+                        </span>
+                        <span className="text-slate-400 font-mono text-[11px] tabular-nums">
+                          {report.social.totalPostsSampled > 0
+                            ? `${report.social.kolCount} KOLs · ${report.social.sentimentBreakdown.bullishPct}% bull / ${report.social.sentimentBreakdown.skepticalPct}% skeptical · ${report.social.totalPostsSampled} posts`
+                            : report.social.officialProfile
+                              ? `@${report.social.officialProfile.username} (${report.social.officialProfile.followersCount.toLocaleString("en-US")} followers) · 0 recent mentions`
+                              : "Pre-discovery on X"}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        data-testid="jump-mindshare-tab"
+                        onClick={() => {
+                          setForensicTab("mindshare");
+                          forensicPanelRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          });
+                        }}
+                        className="px-2.5 py-1 rounded-md border border-[#5D82FF]/35 bg-[#2934FF]/15 hover:bg-[#2934FF]/28 text-[11px] font-mono text-[#BFD0FF] cursor-pointer transition-colors"
+                      >
+                        Inspect X Voices &amp; KOLs →
+                      </button>
+                    </div>
+                  )}
                 </div>
               </SpotlightCard>
 

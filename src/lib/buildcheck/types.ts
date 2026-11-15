@@ -301,6 +301,97 @@ export interface BuildCheckReport {
   chain: ChainTokenIntelReport | null;
   domain: DomainIntelReport | null;
   xPost: XPostIntelReport | null;
+  social?: SocialMindshareReport | null;
+}
+
+export type MindshareStance = "BULLISH" | "NEUTRAL" | "SKEPTICAL" | "SHILL_NOISE";
+export type KolTier = "MEGA" | "ALPHA" | "MID" | "MICRO";
+export type MindshareMomentum = "SURGING" | "ACTIVE" | "EARLY" | "QUIET";
+export type HypeBuildQuadrant =
+  | "CONVICTION_RUNNER"
+  | "UNDERVALUED_BUILDER"
+  | "NARRATIVE_OVERHEAT"
+  | "CONTESTED_DISCOURSE"
+  | "PRE_DISCOVERY";
+
+export interface XKolAuthorProfile {
+  id: string;
+  username: string;
+  name: string;
+  verified: boolean;
+  verifiedType: string | null;
+  followersCount: number;
+  followingCount: number;
+  tweetCount: number;
+  listedCount: number;
+  createdAt: string | null;
+  accountAgeDays: number | null;
+  tier: KolTier;
+  profileImageUrl: string | null;
+  description: string | null;
+}
+
+export interface XMindsharePost {
+  id: string;
+  url: string;
+  text: string;
+  createdAt: string | null;
+  authorUsername: string;
+  authorName: string;
+  authorVerified: boolean;
+  authorVerifiedType: string | null;
+  authorFollowers: number;
+  authorTier: KolTier;
+  likeCount: number;
+  retweetCount: number;
+  replyCount: number;
+  quoteCount: number;
+  bookmarkCount: number;
+  impressionCount: number;
+  engagementScore: number;
+  stance: MindshareStance;
+  stanceReason: string | null;
+  shillFlags: string[];
+  isKol: boolean;
+}
+
+export interface MindshareBucket {
+  date: string;
+  postCount: number;
+  uniqueAuthors: number;
+  kolCount: number;
+  engagementTotal: number;
+}
+
+export interface SocialMindshareReport {
+  source: "x-api-v2" | "venice-x-search" | "hybrid" | "unavailable";
+  fetchedAt: string;
+  queriesUsed: string[];
+  officialProfile: XKolAuthorProfile | null;
+  mindshareScore: number;
+  momentum: MindshareMomentum;
+  quadrant: HypeBuildQuadrant;
+  quadrantLabel: string;
+  quadrantSummary: string;
+  totalPostsSampled: number;
+  uniqueAuthors: number;
+  kolCount: number;
+  totalImpressions: number;
+  totalEngagement: number;
+  organicSignalPct: number;
+  sentimentBreakdown: {
+    bullishPct: number;
+    neutralPct: number;
+    skepticalPct: number;
+    shillNoisePct: number;
+  };
+  consensusSummary: string;
+  bullThemes: string[];
+  skepticQuestions: string[];
+  topVoices: XMindsharePost[];
+  posts: XMindsharePost[];
+  dailyBuckets: MindshareBucket[];
+  errorNote: string | null;
 }
 
 export type BuildCheckStreamEvent =
@@ -324,7 +415,7 @@ export type BuildCheckStreamEvent =
   | {
       type: "collector";
       elapsedMs: number;
-      collector: "github" | "chain" | "domain" | "xpost";
+      collector: "github" | "chain" | "domain" | "xpost" | "social";
       status: "ok" | "warn" | "error";
       summary: string;
     }

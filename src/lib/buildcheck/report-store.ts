@@ -154,6 +154,19 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
             : null,
         }
       : null,
+    social: current.social
+      ? {
+          ...current.social,
+          topVoices: current.social.topVoices.slice(0, 8).map((p) => ({
+            ...p,
+            text: p.text.slice(0, 360),
+          })),
+          posts: current.social.posts.slice(0, 15).map((p) => ({
+            ...p,
+            text: p.text.slice(0, 360),
+          })),
+        }
+      : current.social,
   };
   raw = JSON.stringify(current);
   if (Buffer.byteLength(raw, "utf8") <= MAX_REDIS_REPORT_BYTES) {
@@ -188,6 +201,20 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
           textContent: current.xPost.textContent?.slice(0, 400) ?? null,
         }
       : null,
+    social: current.social
+      ? {
+          ...current.social,
+          topVoices: current.social.topVoices.slice(0, 4).map((p) => ({
+            ...p,
+            text: p.text.slice(0, 240),
+          })),
+          posts: current.social.posts.slice(0, 5).map((p) => ({
+            ...p,
+            text: p.text.slice(0, 240),
+          })),
+          dailyBuckets: [],
+        }
+      : current.social,
   };
   raw = JSON.stringify(current);
   return raw;
