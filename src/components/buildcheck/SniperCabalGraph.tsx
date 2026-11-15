@@ -130,13 +130,20 @@ export function SniperCabalGraph({
         ? "border-amber-500/35 bg-amber-500/15 text-amber-300"
         : "border-rose-500/35 bg-rose-500/15 text-rose-300";
 
+  const verdictDisplayLabel =
+    holders.verdict === "OK"
+      ? "CLEAN POSTURE"
+      : holders.verdict === "SKETCHY"
+        ? "WATCHLIST"
+        : "ELEVATED EXPOSURE";
+
   return (
     <div className="space-y-5">
       {/* Header Summary */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className={`px-2.5 py-1 rounded-md border font-mono text-xs font-semibold ${verdictBadgeClass}`}>
-            {holders.verdict} · {holders.score} / 100
+            {verdictDisplayLabel} · {holders.score} / 100
           </span>
           {holders.distribution.insidersPct > 0 ? (
             <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 font-mono text-[11px] text-rose-300">

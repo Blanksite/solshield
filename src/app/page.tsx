@@ -15,6 +15,10 @@ import {
   type ScannedTokenSummary,
 } from "@/lib/scanned-token-types";
 import { getSolShieldTokenConfig } from "@/lib/token-config";
+import {
+  extractSolanaMintFromFirewallInput,
+  getLiveAuditSwapBlinkUrl,
+} from "@/lib/firewall-input";
 import { deriveSecurityPolicyPda } from "@/lib/anchor-idl";
 import {
   buildInitializePolicyTransaction,
@@ -241,6 +245,21 @@ function CobaltPixelCluster() {
   );
 }
 
+async function fetchWithGuardRetry(
+  url: string,
+  init: RequestInit
+): Promise<Response> {
+  const res = await fetch(url, init);
+  if (res.status !== 401 || typeof window === "undefined") {
+    return res;
+  }
+  await fetch(window.location.pathname || "/", {
+    method: "HEAD",
+    credentials: "same-origin",
+  }).catch(() => undefined);
+  return fetch(url, init);
+}
+
 export default function SolShieldHexaCorePage() {
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [lang, setLang] = useState<"en" | "id">("en");
@@ -301,7 +320,7 @@ export default function SolShieldHexaCorePage() {
     useState<ParsedIntentResponse | null>(null);
 
   // Blinks & Revoke Studio State
-  const [selectedBlinkSol, setSelectedBlinkSol] = useState<string>("");
+  const [selectedBlinkSol, setSelectedBlinkSol] = useState<string>("0.5");
   const [copiedBlinkUrl, setCopiedBlinkUrl] = useState<boolean>(false);
   const [revokeStatus, setRevokeStatus] = useState<"IDLE" | "BUILT">("IDLE");
 
@@ -626,7 +645,20 @@ export default function SolShieldHexaCorePage() {
     setAuditError(null);
     setWalletStatus("PENDING");
     try {
-      const response = await fetch("/api/audit", {
+      const detectedMint =
+        !options?.payload && !rawPayload.toLowerCase().startsWith("solana-action:")
+          ? extractSolanaMintFromFirewallInput(rawPayload)
+          : null;
+      if (detectedMint) {
+        setIsAuditing(false);
+        setAuditError(null);
+        setTechnicalMode("token");
+        setTokenMintInput(detectedMint);
+        await runTokenScan(detectedMint);
+        return;
+      }
+
+      const response = await fetchWithGuardRetry("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -724,7 +756,7 @@ export default function SolShieldHexaCorePage() {
     setTokenScanLoading(true);
     setTokenScanError(null);
     try {
-      const res = await fetch("/api/scan-token", {
+      const res = await fetchWithGuardRetry("/api/scan-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1896,8 +1928,8 @@ export default function SolShieldHexaCorePage() {
                   </h3>
                   <p className="text-[15px] opacity-80 leading-[1.6] mb-5">
                     {lang === "en"
-                      ? "Paste any Base64 serialized Solana transaction or Solana Action (Blink) URL to decode instructions, simulate Mainnet RPC balance deltas, and run zero-retention Venice AI risk scoring."
-                      : "Tempel transaksi Solana Base64 atau URL Solana Action (Blink) untuk mendecode instruksi, simulasi saldo di Mainnet RPC, dan skor risiko Venice AI."}
+                      ? "Paste a Base64 Solana transaction, Solana Action (Blink) URL, or Token Mint CA to decode instructions, simulate Mainnet RPC balance deltas, and run zero-retention Venice AI risk scoring."
+                      : "Tempel transaksi Solana Base64, URL Solana Action (Blink), atau Mint CA token untuk mendecode instruksi, simulasi saldo Mainnet RPC, dan skor risiko Venice AI."}
                   </p>
 
                   {/* Input Type Selector: Base64 Tx vs Blink URL */}
@@ -2028,6 +2060,27 @@ export default function SolShieldHexaCorePage() {
                       {auditError}
                     </div>
                   )}
+
+                  <div className="mt-4 pt-4 border-t border-current/15 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[11.5px] font-mono uppercase tracking-[0.06em] opacity-70">
+                      {lang === "en" ? "LIVE MAINNET TEST" : "UJI LANGSUNG MAINNET"}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isAuditing}
+                      onClick={() => {
+                        const actionUrl = getLiveAuditSwapBlinkUrl("0.5");
+                        setPayloadInputMode("blink");
+                        setTxPayloadInput(actionUrl);
+                        void runPayloadAudit({ mode: "blink", payload: actionUrl });
+                      }}
+                      className="px-3 py-1.5 border border-[#2934FF]/55 bg-[#2934FF]/10 hover:bg-[#2934FF] hover:text-white text-[#6B78FF] text-[11.5px] font-mono font-semibold uppercase tracking-[0.04em] transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {isAuditing
+                        ? "AUDITING BLINK..."
+                        : "Inspect Live 0.5 SOL Jupiter Blink ↗"}
+                    </button>
+                  </div>
 
                   {scannedTokens.length > 0 && (
                     <div className="mt-6 pt-5 border-t border-current/15">
@@ -2507,6 +2560,13 @@ export default function SolShieldHexaCorePage() {
                     <span>DexScreener</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
+                  <Link
+                    href={`/buildcheck?target=${encodeURIComponent(tokenScanReport.mintAddress)}`}
+                    className="col-span-2 py-2.5 px-3 bg-[#0A0A0C] hover:bg-[#2934FF] text-white text-[12px] font-mono uppercase tracking-[0.06em] text-center transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <span>Deep BuildCheck AI Audit (Site + GitHub + Cabal)</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </Link>
                 </div>
               )}
             </div>
@@ -3672,9 +3732,10 @@ export default function SolShieldHexaCorePage() {
                     type="button"
                     disabled={!selectedBlinkSol.trim()}
                     onClick={() => {
-                      const amt = encodeURIComponent(selectedBlinkSol.trim());
-                      const actionUrl = `${window.location.origin}/api/actions/audit-swap?amount=${amt}`;
+                      const actionUrl = getLiveAuditSwapBlinkUrl(selectedBlinkSol);
                       setTechnicalMode("payload");
+                      setPayloadInputMode("blink");
+                      setTxPayloadInput(actionUrl);
                       runPayloadAudit({ mode: "blink", payload: actionUrl });
                       scrollToTechnicalSide();
                     }}

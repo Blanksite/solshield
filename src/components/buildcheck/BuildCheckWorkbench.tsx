@@ -19,9 +19,11 @@ import {
   Globe,
   KeyRound,
   Layers,
+  Link2,
   Loader2,
   Monitor,
   Network,
+  RefreshCw,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -47,17 +49,24 @@ import type {
   BuildCheckStreamEvent,
 } from "@/lib/buildcheck/types";
 import {
+  formatCompactUsd,
+  toScannedTokenExtraFromReport,
+} from "@/lib/buildcheck/war-room-metrics";
+import {
   clearLocalScannedTokens,
   mergeScannedTokenLists,
   readLocalScannedTokens,
   saveLocalScannedToken,
   type ScannedTokenSummary,
 } from "@/lib/scanned-token-types";
+import { AuditLedgerSection } from "./AuditLedgerSection";
 import { DevHistoryPanel } from "./DevHistoryPanel";
 import { generateBuildCheckEvidencePng } from "./evidence-card-canvas";
+import { MarketTelemetryPanel } from "./MarketTelemetryPanel";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
 import { SniperCabalGraph } from "./SniperCabalGraph";
 import { TradingViewTokenChart } from "./TradingViewTokenChart";
+import { WarRoomDualAxisStrip } from "./WarRoomDualAxisStrip";
 
 interface StreamFrameItem {
   url: string;
@@ -90,16 +99,6 @@ const INITIAL_COLLECTORS: CollectorBadgeState = {
   xpost: { status: "idle", text: "Waiting" },
 };
 
-function formatCompactUsd(val: number | null | undefined): string {
-  if (val === null || val === undefined || !Number.isFinite(val)) return "—";
-  if (val >= 1_000_000_000) return `$${(val / 1_000_000_000).toFixed(2)}B`;
-  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}M`;
-  if (val >= 1_000) return `$${(val / 1_000).toFixed(2)}K`;
-  if (val >= 1) return `$${val.toFixed(2)}`;
-  if (val >= 0.0001) return `$${val.toFixed(5)}`;
-  return `$${val.toFixed(8)}`;
-}
-
 function TokenAvatar({
   imageUrl,
   symbol,
@@ -131,45 +130,207 @@ function TokenAvatar({
   );
 }
 
-export default function BuildCheckWorkbench() {
-  const [input, setInput] = useState("");
+function buildCollectorsFromReport(
+  report: BuildCheckReport | null
+): CollectorBadgeState {
+  if (!report) return INITIAL_COLLECTORS;
+  return {
+    github: report.github
+      ? {
+          status: report.github.exists ? "ok" : "warn",
+          text: report.github.exists
+            ? `${report.github.fullName} · ${report.github.stars}★`
+            : report.github.error || "Not verified",
+        }
+      : { status: "idle", text: "Not present" },
+    chain: report.chain?.tokenReport
+      ? {
+          status: report.chain.tokenReport.riskScore < 50 ? "ok" : "warn",
+          text: `${report.chain.tokenReport.symbol || "SPL"} · ${report.chain.tokenReport.classification} (${report.chain.tokenReport.riskScore}/100)`,
+        }
+      : { status: "idle", text: "Not present" },
+    domain: report.domain
+      ? {
+          status: (report.componentScores.domainProof ?? 0) >= 60 ? "ok" : "warn",
+          text:
+            report.domain.domainAgeDays !== null
+              ? `${report.domain.hostname} · ${report.domain.domainAgeDays}d`
+              : report.domain.hostname,
+        }
+      : { status: "idle", text: "Not present" },
+    xpost: report.xPost
+      ? {
+          status: report.xPost.textContent ? "ok" : "warn",
+          text: report.xPost.handle
+            ? `@${report.xPost.handle}`
+            : report.xPost.methodUsed,
+        }
+      : { status: "idle", text: "Not present" },
+  };
+}
+
+function buildLogsFromReport(
+  report: BuildCheckReport | null
+): StreamLogEntry[] {
+  if (!report) return [];
+  const entries: StreamLogEntry[] = [
+    {
+      id: "perm_0",
+      elapsedMs: 0,
+      title: `Loaded BuildCheck Report ${report.id}`,
+      detail: `Target: ${report.target.rawInput}`,
+      phase: "parse",
+    },
+  ];
+  for (const stop of report.browser?.stops || []) {
+    entries.push({
+      id: `perm_stop_${entries.length}`,
+      elapsedMs: stop.loadTimeMs || 0,
+      title: stop.stepLabel || "Browser Stop",
+      detail: `${stop.title || stop.url} · ${stop.xhrCount} XHR`,
+      phase: "browser",
+    });
+  }
+  entries.push({
+    id: `perm_verdict_${entries.length}`,
+    elapsedMs: report.elapsedMs || 0,
+    title: `${report.verdict} (${report.authenticityScore}/100)`,
+    detail: report.headline,
+    phase: "done",
+  });
+  return entries;
+}
+
+export interface BuildCheckWorkbenchProps {
+  initialReport?: BuildCheckReport | null;
+  initialTarget?: string;
+  initialReportMissingId?: string;
+}
+
+export default function BuildCheckWorkbench({
+  initialReport = null,
+  initialTarget,
+  initialReportMissingId,
+}: BuildCheckWorkbenchProps = {}) {
+  const [input, setInput] = useState(
+    initialReport?.target?.rawInput || initialTarget || ""
+  );
   const [veniceApiKey, setVeniceApiKey] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [enableBrowser, setEnableBrowser] = useState(true);
 
   const [isRunning, setIsRunning] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [logs, setLogs] = useState<StreamLogEntry[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(
+    initialReportMissingId
+      ? `Shared BuildCheck report "${initialReportMissingId}" was not found or expired. Paste a CA or link below to run a fresh live scan.`
+      : null
+  );
+  const [logs, setLogs] = useState<StreamLogEntry[]>(() =>
+    buildLogsFromReport(initialReport)
+  );
   const [frames, setFrames] = useState<StreamFrameItem[]>([]);
   const [selectedFrameIdx, setSelectedFrameIdx] = useState(0);
-  const [collectors, setCollectors] =
-    useState<CollectorBadgeState>(INITIAL_COLLECTORS);
-  const [report, setReport] = useState<BuildCheckReport | null>(null);
+  const [collectors, setCollectors] = useState<CollectorBadgeState>(() =>
+    buildCollectorsFromReport(initialReport)
+  );
+  const [report, setReport] = useState<BuildCheckReport | null>(initialReport);
 
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [copiedCa, setCopiedCa] = useState(false);
   const [guestChecksUsed, setGuestChecksUsed] = useState(0);
   const [recentTokens, setRecentTokens] = useState<ScannedTokenSummary[]>([]);
+  const [showResultLedger, setShowResultLedger] = useState(false);
   const [forensicTab, setForensicTab] = useState<
     "proof" | "holders" | "dev" | "browser" | "telemetry"
   >("proof");
 
   const abortRef = useRef<AbortController | null>(null);
+  const didAutoInitRef = useRef(false);
 
   const loadRecentScannedTokens = async () => {
     const localList = readLocalScannedTokens();
     setRecentTokens(localList);
     try {
-      const res = await fetch("/api/scanned-tokens?limit=12");
+      let res = await fetch("/api/scanned-tokens?limit=40", {
+        cache: "no-store",
+      });
+      if (res.status === 401) {
+        await fetch(window.location.pathname || "/buildcheck", {
+          method: "HEAD",
+          credentials: "same-origin",
+        }).catch(() => undefined);
+        res = await fetch("/api/scanned-tokens?limit=40", {
+          cache: "no-store",
+        });
+      }
       const data = await res.json();
       if (data?.ok && Array.isArray(data.tokens)) {
-        setRecentTokens(mergeScannedTokenLists(localList, data.tokens, 12));
+        setRecentTokens(mergeScannedTokenLists(localList, data.tokens, 40));
       }
     } catch {
       // Keep local list on transient network failure
     }
   };
+
+  const syncUrlWithReportId = (reportId: string) => {
+    if (typeof window === "undefined" || !reportId) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("target");
+      url.searchParams.set("report", reportId);
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    } catch {
+      // Ignore history API restrictions
+    }
+  };
+
+  async function loadPermalinkReport(reportId: string) {
+    const cleanId = reportId.trim();
+    if (!cleanId) return;
+    setErrorMsg(null);
+    setIsRunning(true);
+    try {
+      let res = await fetch(
+        `/api/buildcheck/report?id=${encodeURIComponent(cleanId)}`,
+        { cache: "no-store" }
+      );
+      if (res.status === 401) {
+        await fetch(window.location.pathname || "/buildcheck", {
+          method: "HEAD",
+          credentials: "same-origin",
+        }).catch(() => undefined);
+        res = await fetch(
+          `/api/buildcheck/report?id=${encodeURIComponent(cleanId)}`,
+          { cache: "no-store" }
+        );
+      }
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        report?: BuildCheckReport;
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.report) {
+        setErrorMsg(
+          data.error ||
+            `Shared BuildCheck report "${cleanId}" was not found or expired.`
+        );
+        return;
+      }
+      setReport(data.report);
+      setShowResultLedger(false);
+      setInput(data.report.target.rawInput);
+      setFrames([]);
+      setCollectors(buildCollectorsFromReport(data.report));
+      setLogs(buildLogsFromReport(data.report));
+      syncUrlWithReportId(data.report.id);
+    } catch {
+      setErrorMsg("Failed to load shared BuildCheck report.");
+    } finally {
+      setIsRunning(false);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -183,6 +344,27 @@ export default function BuildCheckWorkbench() {
       // Storage unavailable
     }
     void loadRecentScannedTokens();
+
+    if (didAutoInitRef.current) return;
+    didAutoInitRef.current = true;
+
+    if (initialReport) {
+      syncUrlWithReportId(initialReport.id);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const reportParam = params.get("report")?.trim();
+      const targetParam = (initialTarget || params.get("target") || "").trim();
+      if (reportParam && !initialReportMissingId) {
+        void loadPermalinkReport(reportParam);
+      } else if (targetParam) {
+        void runCheck(targetParam);
+      }
+    } catch {
+      // Ignore query parse failures
+    }
   }, []);
 
   useEffect(() => {
@@ -204,7 +386,10 @@ export default function BuildCheckWorkbench() {
     }
   };
 
-  async function runCheck(overrideTarget?: string) {
+  async function runCheck(
+    overrideTarget?: string,
+    options?: { forceRefresh?: boolean }
+  ) {
     const query = (overrideTarget ?? input).trim();
     if (!query || isRunning) return;
     if (overrideTarget) setInput(overrideTarget);
@@ -227,6 +412,7 @@ export default function BuildCheckWorkbench() {
         input: query,
         veniceApiKey: veniceApiKey.trim() || undefined,
         enableBrowser,
+        forceRefresh: options?.forceRefresh === true ? true : undefined,
       });
 
       let response = await fetch("/api/buildcheck/stream", {
@@ -317,8 +503,15 @@ export default function BuildCheckWorkbench() {
             }));
           } else if (event.type === "verdict") {
             setReport(event.report);
+            setShowResultLedger(false);
+            syncUrlWithReportId(event.report.id);
             if (event.report.chain?.tokenReport) {
-              saveLocalScannedToken(event.report.chain.tokenReport, "buildcheck");
+              saveLocalScannedToken(
+                event.report.chain.tokenReport,
+                "buildcheck",
+                40,
+                toScannedTokenExtraFromReport(event.report)
+              );
               void loadRecentScannedTokens();
             }
             setGuestChecksUsed((prev) => {
@@ -389,12 +582,33 @@ export default function BuildCheckWorkbench() {
       .map((r) => `• [${r.status}] ${r.claim}: ${r.evidence}`)
       .join("\n");
 
-    const text = `SolShield® BuildCheck Audit (${report.authenticityScore}/100 — ${verdictLabel})\n\n${report.headline}\n\n${lines}\n\nAudited live via browser + Zero-Retention Venice AI\nsol-shield.xyz/buildcheck`;
+    const shareOrigin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://sol-shield.xyz";
+    const shareUrl = `${shareOrigin}/buildcheck?report=${encodeURIComponent(report.id)}`;
+    const text = `SolShield® BuildCheck Audit (${report.authenticityScore}/100 — ${verdictLabel})\n\n${report.headline}\n\n${lines}\n\nAudited live via browser + Zero-Retention Venice AI\n${shareUrl}`;
 
     try {
       await navigator.clipboard.writeText(text);
       setCopiedSummary(true);
       setTimeout(() => setCopiedSummary(false), 2000);
+    } catch {
+      // Clipboard denied
+    }
+  }
+
+  async function handleCopyShareLink() {
+    if (!report) return;
+    const shareOrigin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://sol-shield.xyz";
+    const shareUrl = `${shareOrigin}/buildcheck?report=${encodeURIComponent(report.id)}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedShareLink(true);
+      setTimeout(() => setCopiedShareLink(false), 2000);
     } catch {
       // Clipboard denied
     }
@@ -416,6 +630,9 @@ export default function BuildCheckWorkbench() {
 
   const tokenMeta = report?.chain?.deep?.metadata;
   const tokenMarket = report?.chain?.deep?.market;
+  const matchedDirectoryEntry = report?.chain?.mintAddress
+    ? recentTokens.find((t) => t.mintAddress === report.chain?.mintAddress) ?? null
+    : null;
   const tokenName =
     tokenMeta?.name || report?.chain?.tokenReport?.name || "Solana Token";
   const tokenSymbol =
@@ -504,6 +721,53 @@ export default function BuildCheckWorkbench() {
             alt={`Live browser observation of ${activeFrame.url}`}
             className="w-full h-full object-contain rb-fade-up"
           />
+        ) : !isRunning && report ? (
+          <div className="p-6 w-full h-full flex flex-col justify-between gap-4 overflow-y-auto">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="px-2.5 py-1 rounded-md bg-[#2934FF]/15 border border-[#2934FF]/35 text-[11px] font-mono text-[#93C5FD]">
+                  Shared Forensic Permalink · {report.id}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => runCheck(report.target.rawInput, { forceRefresh: true })}
+                  disabled={isRunning}
+                  className="px-2.5 py-1 rounded-md bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 text-[11px] font-medium text-white inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Load Live Browser Captures</span>
+                </button>
+              </div>
+              <p className="text-xs text-slate-400">
+                Screenshots are omitted in shareable permalink storage. Recorded browser telemetry ({report.browser?.totalXhrObserved ?? 0} XHR observed):
+              </p>
+            </div>
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+              {(report.browser?.stops || []).length > 0 ? (
+                report.browser.stops.map((stop, idx) => (
+                  <div
+                    key={`${stop.url}-${idx}`}
+                    className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-xs space-y-0.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[#93C5FD] truncate">
+                        {stop.stepLabel}
+                      </span>
+                      <span className="font-mono text-[11px] text-slate-500 shrink-0">
+                        {stop.xhrCount} XHR · {stop.loadTimeMs}ms
+                      </span>
+                    </div>
+                    <p className="text-slate-200 truncate">{stop.title || stop.url}</p>
+                    <p className="font-mono text-[11px] text-slate-500 truncate">{stop.url}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs font-mono text-slate-500">
+                  Target audited via Chain, GitHub, and Domain API telemetry ({report.browser?.mode || "http-fallback"}).
+                </p>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="text-center px-6 py-10 space-y-3 max-w-md relative z-10">
             <div
@@ -1285,59 +1549,16 @@ export default function BuildCheckWorkbench() {
 
           {/* RECENTLY SCANNED TOKENS (Real Audits Only — Zero Dummy Presets) */}
           {!isRunning && !report && recentTokens.length > 0 && (
-            <section className="rounded-xl border border-white/[0.08] bg-[#0D1017] p-5 space-y-3.5 rb-fade-up">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-[0.08em] text-[#93C5FD]">
-                  <Coins className="w-3.5 h-3.5" />
-                  <span>Recently Scanned Tokens ({recentTokens.length})</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    clearLocalScannedTokens();
-                    void loadRecentScannedTokens();
-                  }}
-                  className="text-[11px] font-mono text-slate-400 hover:text-white cursor-pointer"
-                >
-                  Clear Local History
-                </button>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                {recentTokens.slice(0, 8).map((tok) => (
-                  <button
-                    key={tok.mintAddress}
-                    type="button"
-                    onClick={() => void runCheck(tok.mintAddress)}
-                    className="p-3 rounded-lg border border-white/[0.08] bg-[#090B10] hover:border-[#2934FF]/70 text-left transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-sm font-semibold text-white truncate">
-                        {tok.symbol ? `$${tok.symbol}` : `${tok.mintAddress.slice(0, 6)}...`}
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold border shrink-0 ${
-                          tok.classification === "CRITICAL"
-                            ? "border-red-500/40 bg-red-500/10 text-red-400"
-                            : tok.classification === "CAUTION"
-                              ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-                        }`}
-                      >
-                        {tok.classification} · {tok.riskScore}/100
-                      </span>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[11px] font-mono text-slate-400">
-                      <span className="truncate">
-                        {tok.mintAddress.slice(0, 6)}...{tok.mintAddress.slice(-4)}
-                      </span>
-                      <span className="text-slate-500 shrink-0">
-                        {tok.verifiedIssuer || tok.source}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
+            <AuditLedgerSection
+              tokens={recentTokens}
+              onOpenPermalink={(reportId) => void loadPermalinkReport(reportId)}
+              onRunAudit={(mintAddress) => void runCheck(mintAddress)}
+              onRefresh={() => void loadRecentScannedTokens()}
+              onClearLocal={() => {
+                clearLocalScannedTokens();
+                void loadRecentScannedTokens();
+              }}
+            />
           )}
 
           {/* MODE 2 LIVE STREAMING OBSERVATION STAGE */}
@@ -1542,6 +1763,32 @@ export default function BuildCheckWorkbench() {
                           </button>
                           <button
                             type="button"
+                            onClick={handleCopyShareLink}
+                            className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/12 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            {copiedShareLink ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Link Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Link2 className="w-3.5 h-3.5" />
+                                <span>Copy Share Link</span>
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => runCheck(report.target.rawInput, { forceRefresh: true })}
+                            disabled={isRunning}
+                            className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/12 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Re-run Live</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={handleCopyXPost}
                             className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/12 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                           >
@@ -1561,6 +1808,9 @@ export default function BuildCheckWorkbench() {
                       </div>
                     </div>
                   </TiltedCard>
+
+                  {/* Dual-Axis Forensic Profile + Deployer Track Record */}
+                  <WarRoomDualAxisStrip report={report} />
 
                   {/* 4/5 Pillar Scores Strip */}
                   <div
@@ -1642,71 +1892,16 @@ export default function BuildCheckWorkbench() {
                       priceUsd={tokenMarket?.priceUsd}
                     />
 
-                    {/* Market Activity Micro-Pulse */}
-                    {tokenMarket && (
-                      <div className="rounded-xl border border-white/[0.08] bg-[#0D1017] p-4 space-y-3">
-                        <div className="grid grid-cols-4 gap-2 text-center">
-                          {[
-                            { label: "5m", val: tokenMarket.priceChange5m },
-                            { label: "1h", val: tokenMarket.priceChange1h },
-                            { label: "6h", val: tokenMarket.priceChange6h },
-                            { label: "24h", val: tokenMarket.priceChange24h },
-                          ].map((p) => (
-                            <div
-                              key={p.label}
-                              className="rounded-lg border border-white/[0.06] bg-[#080A0F] py-2 px-1"
-                            >
-                              <div className="text-[10px] text-slate-400">{p.label}</div>
-                              <div
-                                className={`font-mono tabular-nums text-xs font-semibold ${
-                                  p.val === null
-                                    ? "text-slate-400"
-                                    : p.val >= 0
-                                      ? "text-emerald-400"
-                                      : "text-rose-400"
-                                }`}
-                              >
-                                {p.val !== null
-                                  ? `${p.val >= 0 ? "+" : ""}${p.val.toFixed(1)}%`
-                                  : "—"}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {(tokenMarket.buys24h !== null || tokenMarket.sells24h !== null) && (
-                          <div className="pt-1 space-y-1.5 text-xs">
-                            <div className="flex items-center justify-between text-[11px] text-slate-400">
-                              <span>
-                                24h Buys{" "}
-                                <strong className="font-mono tabular-nums text-emerald-400">
-                                  {(tokenMarket.buys24h ?? 0).toLocaleString("en-US")}
-                                </strong>
-                              </span>
-                              <span>
-                                Sells{" "}
-                                <strong className="font-mono tabular-nums text-rose-400">
-                                  {(tokenMarket.sells24h ?? 0).toLocaleString("en-US")}
-                                </strong>
-                              </span>
-                            </div>
-                            {(() => {
-                              const b = tokenMarket.buys24h ?? 0;
-                              const s = tokenMarket.sells24h ?? 0;
-                              const tot = b + s || 1;
-                              return (
-                                <div className="h-1.5 w-full rounded-full overflow-hidden bg-rose-500/65 flex">
-                                  <div
-                                    style={{ width: `${(b / tot) * 100}%` }}
-                                    className="bg-emerald-400 h-full"
-                                  />
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {/* Market Telemetry + Delta Since 1st Audit + Audit Checkpoints */}
+                    <MarketTelemetryPanel
+                      tokenMarket={tokenMarket}
+                      dexPair={report.chain.dexPair}
+                      directoryEntry={matchedDirectoryEntry}
+                      activeReportId={report.id}
+                      onSelectReportId={(reportId) =>
+                        void loadPermalinkReport(reportId)
+                      }
+                    />
 
                     {/* Token Security & Dev Spec Sheet */}
                     <div className="rounded-xl border border-white/[0.08] bg-[#0D1017] overflow-hidden">
@@ -1810,6 +2005,39 @@ export default function BuildCheckWorkbench() {
                     {renderAgentFeedCard("lg:col-span-5")}
                   </section>
                   {renderForensicTabPanel()}
+                </div>
+              )}
+
+              {recentTokens.length > 0 && (
+                <div className="pt-2 space-y-3">
+                  <div className="rounded-xl border border-white/[0.08] bg-[#0D1017] px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-mono text-slate-300">
+                      <Coins className="w-3.5 h-3.5 text-[#84A7FF]" />
+                      <span>
+                        Verified Audit Ledger ({recentTokens.length} indexed)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowResultLedger((prev) => !prev)}
+                      className="px-2.5 py-1 rounded-md bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 text-[11px] font-mono text-slate-200 cursor-pointer transition-colors"
+                    >
+                      {showResultLedger ? "Hide Ledger" : "Switch Audited Target"}
+                    </button>
+                  </div>
+
+                  {showResultLedger && (
+                    <AuditLedgerSection
+                      tokens={recentTokens}
+                      onOpenPermalink={(reportId) => void loadPermalinkReport(reportId)}
+                      onRunAudit={(mintAddress) => void runCheck(mintAddress)}
+                      onRefresh={() => void loadRecentScannedTokens()}
+                      onClearLocal={() => {
+                        clearLocalScannedTokens();
+                        void loadRecentScannedTokens();
+                      }}
+                    />
+                  )}
                 </div>
               )}
             </div>

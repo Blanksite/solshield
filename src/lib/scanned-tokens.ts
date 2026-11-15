@@ -5,6 +5,7 @@ import { getScanCacheDir, isScanDiskPersistenceEnabled } from "./scan-cache";
 import { getUpstashConfig, runUpstashCommand } from "./upstash-rest";
 import {
   mergeScannedTokenLists,
+  ScannedTokenExtraMetadata,
   ScannedTokenSource,
   ScannedTokenSummary,
   tokenReportToSummary,
@@ -165,18 +166,26 @@ export async function recordScannedTokenSummary(
   );
   store.lastRemoteSyncAtMs = Date.now();
   await persistItems(store.items);
-  return nextEntry;
+  return (
+    store.items.find((i) => i.mintAddress === entry.mintAddress) ?? nextEntry
+  );
 }
 
 /**
- * Records a genuine on-chain token mint audit in the recently-scanned registry
+ * Records a genuinely scanned token mint audit in the recently-scanned registry
  * (public SPL/Token-2022 mint metadata only, never private wallet keys or prompts).
  */
 export async function recordScannedToken(
   report: TokenScanReport,
-  source: ScannedTokenSource
+  source: ScannedTokenSource,
+  extra?: ScannedTokenExtraMetadata
 ): Promise<ScannedTokenSummary> {
-  const nextEntry = tokenReportToSummary(report, source);
+  const nextEntry = tokenReportToSummary(
+    report,
+    source,
+    new Date().toISOString(),
+    extra
+  );
   return recordScannedTokenSummary(nextEntry);
 }
 

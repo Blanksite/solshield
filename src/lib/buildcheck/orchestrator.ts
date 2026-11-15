@@ -7,6 +7,7 @@ import {
   collectXPostIntel,
 } from "./collectors";
 import { extractEntitiesFromText, parseBuildCheckInput } from "./input-parser";
+import { TOKEN_EXPLORER_URL_RE } from "../firewall-input";
 import type {
   BuildCheckReport,
   BuildCheckStreamEvent,
@@ -26,6 +27,8 @@ import {
   setCachedEntry,
 } from "../scan-cache";
 import { recordScannedToken } from "../scanned-tokens";
+import { saveBuildCheckReportPermalink } from "./report-store";
+import { toScannedTokenExtraFromReport } from "./war-room-metrics";
 import type { ParsedTargetInput } from "./types";
 
 export interface RunBuildCheckOptions extends VeniceBuildCheckOptions {
@@ -53,9 +56,6 @@ function getInFlightMap(): Map<string, InFlightBuildCheck> {
   }
   return g.__solshieldInFlightBuildChecks;
 }
-
-const TOKEN_EXPLORER_URL_RE =
-  /^https?:\/\/(?:www\.)?(?:dexscreener\.com\/solana|pump\.fun\/coin|solscan\.io\/token|birdeye\.so\/token|gmgn\.ai\/sol\/token)\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:[/?#]|$)/i;
 
 function normalizeWebsiteForCacheKey(rawUrl: string): string {
   try {
@@ -306,6 +306,7 @@ export async function runBuildCheckInvestigation(
           cacheKey: cached.cacheKey,
         },
       };
+      await saveBuildCheckReportPermalink(reusedReport).catch(() => undefined);
       if (options.onEvent) {
         replayCachedReportEvents(reusedReport, options.onEvent);
       }
@@ -708,8 +709,14 @@ async function executeFreshBuildCheckInvestigation(
   finalReport.elapsedMs = elapsed();
 
   if (finalReport.chain?.tokenReport) {
-    await recordScannedToken(finalReport.chain.tokenReport, "buildcheck");
+    await recordScannedToken(
+      finalReport.chain.tokenReport,
+      "buildcheck",
+      toScannedTokenExtraFromReport(finalReport)
+    );
   }
+
+  await saveBuildCheckReportPermalink(finalReport).catch(() => undefined);
 
   if (!options.bypassCache) {
     const rawTtl = Number(process.env.BUILDCHECK_CACHE_TTL_MS || DEFAULT_BUILDCHECK_CACHE_TTL_MS);

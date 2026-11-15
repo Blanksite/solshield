@@ -5,6 +5,7 @@ import {
   parsePositiveIntEnv,
   sleepInterruptible,
   startBotHealthServer,
+  syncBuildCheckReportToWeb,
   syncScannedTokenToWeb,
 } from "./bot-shared";
 import {
@@ -90,7 +91,10 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
     },
   });
 
-  await syncScannedTokenToWeb(report, config.appPublicUrl, syncEnabled);
+  await Promise.all([
+    syncScannedTokenToWeb(report, config.appPublicUrl, syncEnabled),
+    syncBuildCheckReportToWeb(report, config.appPublicUrl, syncEnabled),
+  ]);
 
   const { filePath } = await renderEvidenceCardPng(report, undefined, {
     botHandle: config.botHandle,
@@ -263,7 +267,10 @@ async function runDaemonLoop(): Promise<void> {
         });
         const syncEnabled = parseBooleanEnv(process.env.BOT_SYNC_TO_WEB, !isDryRun);
 
-        await syncScannedTokenToWeb(report, config.appPublicUrl, syncEnabled);
+        await Promise.all([
+          syncScannedTokenToWeb(report, config.appPublicUrl, syncEnabled),
+          syncBuildCheckReportToWeb(report, config.appPublicUrl, syncEnabled),
+        ]);
 
         if (isDryRun) {
           console.log(`[DRY RUN] Card saved at ${filePath}\nReply draft:\n${replyText}`);
@@ -278,15 +285,28 @@ async function runDaemonLoop(): Promise<void> {
             );
           }
 
-          const posted = await postReplyTweetOnX(config, {
-            text: replyText,
-            replyToTweetId: mention.id,
-            mediaId,
-          });
-          recordReplySent(state);
-          console.log(
-            `[POSTED] Reply tweet ${posted.tweetId} (${mediaId ? `mediaId=${mediaId}` : "text-only"})`
-          );
+          try {
+            const posted = await postReplyTweetOnX(config, {
+              text: replyText,
+              replyToTweetId: mention.id,
+              mediaId,
+            });
+            recordReplySent(state);
+            console.log(
+              `[POSTED] Reply tweet ${posted.tweetId} (${mediaId ? `mediaId=${mediaId}` : "text-only"})`
+            );
+          } catch (postErr) {
+            if (postErr instanceof XApiError && postErr.isPermanentRejection) {
+              state.lastError = postErr.message.slice(0, 200);
+              console.warn(
+                `[Skip:x_rejected_${postErr.status}] Mention ${mention.id} rejected by X API (${postErr.message.slice(0, 140)}). Marking processed to prevent retry loop.`
+              );
+              recordProcessedMention(state, mention.id, mention.authorId);
+              saveBotState(stateFile, state);
+              continue;
+            }
+            throw postErr;
+          }
         }
 
         recordProcessedMention(state, mention.id, mention.authorId);

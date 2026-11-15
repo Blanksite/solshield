@@ -120,7 +120,8 @@ export async function prepareBuildCheckRequest(
   const enableBrowser =
     typeof body.enableBrowser === "boolean" ? body.enableBrowser : true;
   const forceRefresh =
-    body.forceRefresh === true && auth.authMode === "api-key";
+    body.forceRefresh === true &&
+    (auth.authMode === "api-key" || auth.authMode === "byok");
 
   let reuseState;
   try {

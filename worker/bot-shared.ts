@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { compactBuildCheckReportForPermalink } from "../src/lib/buildcheck/report-store";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
+import { toScannedTokenExtraFromReport } from "../src/lib/buildcheck/war-room-metrics";
 import { tokenReportToSummary } from "../src/lib/scanned-token-types";
 
 export function parseBooleanEnv(
@@ -44,20 +46,15 @@ export function saveJsonAtomic(filePath: string, data: unknown): void {
   fs.renameSync(tmpPath, filePath);
 }
 
-/**
- * Publishes scanned token metadata to the web feed when `syncEnabled` and `SOLSHIELD_API_SECRET` are set.
- */
-export async function syncScannedTokenToWeb(
-  report: BuildCheckReport,
-  appPublicUrl: string,
-  syncEnabled: boolean
-): Promise<void> {
-  if (!syncEnabled || !report.chain?.tokenReport) return;
+async function postAuthenticatedWebSync(
+  endpoint: string,
+  payload: unknown,
+  successLog: string,
+  warnTag: string
+): Promise<boolean> {
   const apiSecret = process.env.SOLSHIELD_API_SECRET?.trim();
-  if (!apiSecret) return;
+  if (!apiSecret) return false;
 
-  const endpoint = `${appPublicUrl.replace(/\/+$/, "")}/api/scanned-tokens`;
-  const summary = tokenReportToSummary(report.chain.tokenReport, "buildcheck");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
@@ -67,26 +64,70 @@ export async function syncScannedTokenToWeb(
         "Content-Type": "application/json",
         "x-solshield-api-key": apiSecret,
       },
-      body: JSON.stringify({ summary }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     if (res.ok) {
-      console.log(
-        `[Sync] Published ${summary.mintAddress.slice(0, 8)}... (${summary.symbol || "SPL"}) to web feed.`
-      );
-    } else {
-      console.warn(
-        `[Sync Warn] Web feed returned HTTP ${res.status} for ${summary.mintAddress}`
-      );
+      console.log(successLog);
+      return true;
     }
+    console.warn(
+      `[Sync Warn] ${warnTag} returned HTTP ${res.status} (${new URL(endpoint).host}${new URL(endpoint).pathname})`
+    );
+    return false;
   } catch (err) {
     console.warn(
-      "[Sync Warn] Could not publish scanned token to web feed:",
+      `[Sync Warn] Could not publish ${warnTag}:`,
       err instanceof Error ? err.message : err
     );
+    return false;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Publishes scanned token metadata to the web feed when `syncEnabled` and `SOLSHIELD_API_SECRET` are set.
+ */
+export async function syncScannedTokenToWeb(
+  report: BuildCheckReport,
+  appPublicUrl: string,
+  syncEnabled: boolean
+): Promise<void> {
+  if (!syncEnabled || !report.chain?.tokenReport) return;
+  const endpoint = `${appPublicUrl.replace(/\/+$/, "")}/api/scanned-tokens`;
+  const summary = tokenReportToSummary(
+    report.chain.tokenReport,
+    "buildcheck",
+    report.createdAt || new Date().toISOString(),
+    toScannedTokenExtraFromReport(report)
+  );
+  await postAuthenticatedWebSync(
+    endpoint,
+    { summary },
+    `[Sync] Published ${summary.mintAddress.slice(0, 8)}... (${summary.symbol || "SPL"}) to web feed.`,
+    `Web feed (${summary.mintAddress})`
+  );
+}
+
+/**
+ * Publishes a compact BuildCheck report permalink to the web app so shared
+ * `/buildcheck?report=<id>` links from X/Telegram resolve immediately.
+ */
+export async function syncBuildCheckReportToWeb(
+  report: BuildCheckReport,
+  appPublicUrl: string,
+  syncEnabled: boolean
+): Promise<boolean> {
+  if (!syncEnabled || !report?.id) return false;
+  const endpoint = `${appPublicUrl.replace(/\/+$/, "")}/api/buildcheck/report`;
+  const compact = compactBuildCheckReportForPermalink(report);
+  return postAuthenticatedWebSync(
+    endpoint,
+    { report: compact },
+    `[Sync] Published BuildCheck permalink ${report.id} to web archive.`,
+    `Report archive (${report.id})`
+  );
 }
 
 export function sleepInterruptible(

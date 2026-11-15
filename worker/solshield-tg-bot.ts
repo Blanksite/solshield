@@ -7,6 +7,7 @@ import {
   parsePositiveIntEnv,
   sleepInterruptible,
   startBotHealthServer,
+  syncBuildCheckReportToWeb,
   syncScannedTokenToWeb,
 } from "./bot-shared";
 import { renderEvidenceCardPng } from "./card-renderer";
@@ -118,7 +119,10 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
     },
   });
 
-  await syncScannedTokenToWeb(report, appPublicUrl, syncEnabled);
+  await Promise.all([
+    syncScannedTokenToWeb(report, appPublicUrl, syncEnabled),
+    syncBuildCheckReportToWeb(report, appPublicUrl, syncEnabled),
+  ]);
 
   const { filePath } = await renderEvidenceCardPng(report, undefined, {
     botHandle: botHandleFallback,
@@ -184,11 +188,18 @@ async function executeScanAndReply(params: {
       forceRefresh: params.forceRefresh,
     });
 
-    await syncScannedTokenToWeb(
-      report,
-      params.config.appPublicUrl,
-      params.syncEnabled
-    );
+    await Promise.all([
+      syncScannedTokenToWeb(
+        report,
+        params.config.appPublicUrl,
+        params.syncEnabled
+      ),
+      syncBuildCheckReportToWeb(
+        report,
+        params.config.appPublicUrl,
+        params.syncEnabled
+      ),
+    ]);
 
     await sendTgChatAction(params.config, params.chatId, "upload_photo").catch(
       () => {}

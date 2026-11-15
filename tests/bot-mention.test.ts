@@ -23,6 +23,7 @@ import {
   fetchBotMentions,
   fetchBotUserId,
   formatBuildCheckReplyTweet,
+  maskCryptoAddresses,
   postReplyTweetOnX,
   resolveMentionTarget,
   signOAuth1Header,
@@ -267,6 +268,203 @@ describe("@usesolshield / @SolShieldCheck X Bot Mention Resolution & Safety", ()
         botId
       )
     ).toBe("CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx");
+  });
+
+  it("ignores media/photo self-links, SolShield own domains, self-thread banter, and casual URL chatter", () => {
+    const botId = "2120976003053023232";
+    const founderId = "881776365497753600";
+
+    // Mention with attached image (/photo/1 auto-expanded by X API v2) and NO CA must NOT self-scan
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121764669945962877",
+          authorId: founderId,
+          text: "Cooking something with BotFather @usesolshield https://t.co/uToUTBKTbn",
+          expandedUrls: [
+            "https://x.com/Rawonbening_/status/2121764669945962877/photo/1",
+          ],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBeNull();
+
+    // Self-reply thread update mentioning @usesolshield with screenshot + non-audit prose must NOT scan
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121819083801014723",
+          authorId: founderId,
+          inReplyToUserId: founderId,
+          text: "@usesolshield Looks like @usesolshield x bot is staying free forever. https://t.co/QNSXi6lfUV",
+          expandedUrls: [
+            "https://x.com/Rawonbening_/status/2121819083801014723/photo/1",
+            "https://pic.x.com/QNSXi6lfUV",
+          ],
+          referencedTweets: [
+            {
+              type: "replied_to",
+              id: "2121818000000000000",
+              authorId: founderId,
+              text: "SolShield announcement",
+            },
+          ],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBeNull();
+
+    // Self-reply narration mentioning "scan" without a target must NOT scan own parent tweet
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121819511221526769",
+          authorId: founderId,
+          inReplyToUserId: founderId,
+          text: "@usesolshield scan cost is $0.16 per audit now",
+          expandedUrls: [],
+          referencedTweets: [
+            {
+              type: "replied_to",
+              id: "2121818000000000000",
+              authorId: founderId,
+              text: "SolShield announcement",
+            },
+          ],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBeNull();
+
+    // Sharing SolShield's own URL alongside @usesolshield must NOT audit sol-shield.xyz
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121900000000000001",
+          authorId: founderId,
+          text: "Try @usesolshield check https://sol-shield.xyz/buildcheck today!",
+          expandedUrls: ["https://sol-shield.xyz/buildcheck"],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBeNull();
+
+    // Casual discussion or partner shoutout linking an external website/X post without audit intent must NOT scan
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121900000000000002",
+          authorId: founderId,
+          text: "@AskVenice @usesolshield https://builtonvenice.ai",
+          expandedUrls: ["https://builtonvenice.ai"],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBeNull();
+
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121900000000000003",
+          authorId: founderId,
+          text: "Proud to ship with @usesolshield and read https://x.com/AskVenice/status/1900000000000000001",
+          expandedUrls: ["https://x.com/AskVenice/status/1900000000000000001"],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBeNull();
+
+    // Casual sentence WITH an explicit Solana CA STILL triggers CA audit
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121900000000000004",
+          authorId: founderId,
+          text: "Thoughts on CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx @usesolshield?",
+          expandedUrls: ["https://x.com/Rawonbening_/status/2121900000000000004/photo/1"],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBe("CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx");
+
+    // Clean command "@usesolshield <url>" or explicit audit keyword + URL STILL triggers audit
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121900000000000005",
+          text: "@usesolshield https://github.com/founder/real-protocol",
+          expandedUrls: ["https://github.com/founder/real-protocol"],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBe("https://github.com/founder/real-protocol");
+
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2121900000000000006",
+          text: "@usesolshield audit https://real-protocol.example",
+          expandedUrls: ["https://real-protocol.example"],
+          referencedTweets: [],
+        },
+        "usesolshield",
+        botId
+      )
+    ).toBe("https://real-protocol.example");
+  });
+
+  it("strips self-photo/video links in fetchBotMentions, masks raw CAs in reply text, and classifies permanent X rejections", async () => {
+    const mentions = await fetchBotMentions(TEST_OAUTH_CONFIG, "2120976003053023232", undefined, {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "9010",
+                text: "Cooking @usesolshield https://t.co/abc",
+                author_id: "881776365497753600",
+                entities: {
+                  urls: [
+                    { expanded_url: "https://x.com/Rawonbening_/status/9010/photo/1" },
+                    { expanded_url: "https://pic.x.com/abc" },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        ),
+    });
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0].expandedUrls).toEqual([]);
+    expect(resolveMentionTarget(mentions[0], "usesolshield", "2120976003053023232")).toBeNull();
+
+    expect(
+      maskCryptoAddresses(
+        "Mint 7TdyYXZFQ5d3QUCi9pGWMdZMhJSoedQMejVaLUsTwxf9 and 0x1234567890abcdef1234567890abcdef12345678 lack locks"
+      )
+    ).toBe("Mint 7TdyYX...wxf9 and 0x1234...5678 lack locks");
+
+    expect(new XApiError("forbidden", 403).isPermanentRejection).toBe(true);
+    expect(new XApiError("bad request", 400).isPermanentRejection).toBe(true);
+    expect(new XApiError("not found", 404).isPermanentRejection).toBe(true);
+    expect(new XApiError("credits", 402).isPermanentRejection).toBe(false);
+    expect(new XApiError("rate limit", 429).isPermanentRejection).toBe(false);
+    expect(new XApiError("unavailable", 503).isPermanentRejection).toBe(false);
   });
 
   it("formats concise X replies within 280 characters with score and buildcheck link", () => {

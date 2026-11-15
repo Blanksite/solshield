@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { extractEntitiesFromText } from "../src/lib/buildcheck/input-parser";
+import { isValidBuildCheckReportId } from "../src/lib/buildcheck/report-store";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
+import { normalizeHostname } from "../src/lib/domain-guard";
 
 export interface XBotAuthConfig {
   botHandle: string;
@@ -37,6 +39,15 @@ export class XApiError extends Error {
 
   get isCreditsExhausted(): boolean {
     return this.status === 402;
+  }
+
+  get isPermanentRejection(): boolean {
+    return (
+      this.status === 400 ||
+      this.status === 403 ||
+      this.status === 404 ||
+      this.status === 422
+    );
   }
 }
 
@@ -147,10 +158,71 @@ export function signOAuth1Header(params: {
 const AUDIT_INTENT_REGEX =
   /\b(audit|check(?!\s+out\b)|cek|scan|verify|verif|larpcheck|buildcheck|larp|legit|proof|evidence|inspect|analy[sz]e|investigate|real\s+or\s+(?:fake|larp))\b/i;
 
-function isBotSummonedForParent(
+const X_HOSTNAMES = new Set([
+  "x.com",
+  "twitter.com",
+  "mobile.twitter.com",
+  "fxtwitter.com",
+  "vxtwitter.com",
+]);
+
+const SOLSHIELD_OWN_HOSTS = new Set([
+  "sol-shield.xyz",
+  "www.sol-shield.xyz",
+  "app.sol-shield.xyz",
+  "solshield-web-production.up.railway.app",
+]);
+
+const X_MEDIA_SUFFIX_REGEX = /^\/(?:[^/]+\/status\/\d+|i\/(?:web\/)?status\/\d+)\/(?:photo|video|analytics|likes|retweets|quotes)(?:\/|$)/i;
+
+/**
+ * Filters X auto-generated media/self-status links (`/photo/1`, `/video/1`, `pic.x.com`)
+ * so attached screenshots/videos are never mistaken for an external audit target.
+ */
+export function isXMediaOrInternalUrl(rawUrl: string, ownTweetId?: string): boolean {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return true;
+  if (trimmed.startsWith("https://twitter.com/i/web")) return true;
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    if (
+      host === "pic.x.com" ||
+      host === "pic.twitter.com" ||
+      host.endsWith(".twimg.com")
+    ) {
+      return true;
+    }
+    if (X_HOSTNAMES.has(host)) {
+      if (ownTweetId && parsed.pathname.includes(`/status/${ownTweetId}`)) {
+        return true;
+      }
+      if (X_MEDIA_SUFFIX_REGEX.test(parsed.pathname)) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function isSolShieldOwnWebsiteUrl(rawUrl: string): boolean {
+  const host = normalizeHostname(rawUrl);
+  return Boolean(host && SOLSHIELD_OWN_HOSTS.has(host));
+}
+
+function analyzeMentionIntent(
   mention: XMentionItem,
   botAliases: string[]
-): boolean {
+): {
+  hasAuditIntent: boolean;
+  isBarePoliteOnly: boolean;
+  nonBotHandlesCount: number;
+  hasSingleLeadingReplyPrefix: boolean;
+  canAcceptDirectNonCaTarget: boolean;
+  isSummonedForParent: boolean;
+} {
   const handles = (mention.text.match(/@[a-z0-9_]+/gi) || []).map((h) =>
     h.slice(1).toLowerCase()
   );
@@ -165,26 +237,36 @@ function isBotSummonedForParent(
     .replace(/@[a-z0-9_]+/gi, " ")
     .trim();
 
-  if (AUDIT_INTENT_REGEX.test(plainBody)) {
-    return true;
-  }
-
-  // Allow bare "@usesolshield" summons (or direct single-parent reply "@author @usesolshield"
-  // where X auto-prepends the parent author before the bot tag) with at most polite filler.
+  const hasAuditIntent = AUDIT_INTENT_REGEX.test(plainBody);
   const isBarePoliteOnly = /^(?:[?!.,…\s]|pls|plz|please)*$/i.test(plainBody);
-  if (!isBarePoliteOnly) {
-    return false;
-  }
-
-  if (nonBotHandles.length === 0) {
-    return handles.some((h) => botAliases.includes(h));
-  }
-
-  const singleLeadingReplyPrefix =
+  const hasSingleLeadingReplyPrefix =
     hasRepliedTo &&
     nonBotHandles.length === 1 &&
     Boolean(firstHandle && !botAliases.includes(firstHandle));
-  return singleLeadingReplyPrefix;
+
+  // Direct URLs (website, X link, GitHub repo) inside a mention tweet only trigger a scan
+  // if the user asked for an audit OR posted a clean command like `@usesolshield <url>`,
+  // never when casually sharing a link or photo in conversation.
+  const canAcceptDirectNonCaTarget =
+    hasAuditIntent ||
+    (isBarePoliteOnly &&
+      (nonBotHandles.length === 0 || hasSingleLeadingReplyPrefix));
+
+  const isSummonedForParent =
+    hasAuditIntent ||
+    (isBarePoliteOnly &&
+      (nonBotHandles.length === 0
+        ? handles.some((h) => botAliases.includes(h))
+        : hasSingleLeadingReplyPrefix));
+
+  return {
+    hasAuditIntent,
+    isBarePoliteOnly,
+    nonBotHandlesCount: nonBotHandles.length,
+    hasSingleLeadingReplyPrefix,
+    canAcceptDirectNonCaTarget,
+    isSummonedForParent,
+  };
 }
 
 export function resolveMentionTarget(
@@ -201,26 +283,43 @@ export function resolveMentionTarget(
       .filter((r) => r.type === "quoted")
       .map((r) => r.id)
   );
+  const intent = analyzeMentionIntent(mention, botAliases);
 
   const pickBestFromSource = (
     text: string,
     expandedUrls: string[] = [],
-    ignoreAutoQuotedLinks = false
+    opts: {
+      ignoreAutoQuotedLinks?: boolean;
+      ignoreTweetId?: string;
+      allowNonCaTarget?: boolean;
+    } = {}
   ): string | null => {
+    const ignoreQuoted = Boolean(opts.ignoreAutoQuotedLinks);
+    const allowNonCa = opts.allowNonCaTarget ?? true;
+    const isIgnoredXUrl = (url: string): boolean => {
+      const lower = url.toLowerCase();
+      if (isXMediaOrInternalUrl(url, opts.ignoreTweetId)) return true;
+      if (ignoreQuoted) {
+        for (const qid of quotedIds) {
+          if (lower.includes(`/status/${qid}`)) return true;
+        }
+      }
+      return false;
+    };
+
     let cleanedText = text;
     for (const alias of botAliases) {
       cleanedText = cleanedText.replace(new RegExp(`@${alias}\\b`, "gi"), " ");
     }
-    const filteredExpanded = ignoreAutoQuotedLinks
-      ? expandedUrls.filter(
-          (u) => !Array.from(quotedIds).some((qid) => u.includes(`/status/${qid}`))
-        )
-      : expandedUrls;
+    const filteredExpanded = expandedUrls.filter((u) => !isIgnoredXUrl(u));
     const combined = `${cleanedText}\n${filteredExpanded.join("\n")}`;
     const entities = extractEntitiesFromText(combined);
 
     if (entities.solanaAddresses.length > 0) {
       return entities.solanaAddresses[0];
+    }
+    if (!allowNonCa) {
+      return null;
     }
     if (entities.githubRepos.length > 0) {
       return `https://github.com/${entities.githubRepos[0]}`;
@@ -230,26 +329,28 @@ export function resolveMentionTarget(
       if (botAliases.some((alias) => lower.includes(`/${alias}`))) {
         return false;
       }
-      if (ignoreAutoQuotedLinks) {
-        for (const qid of quotedIds) {
-          if (lower.includes(`/status/${qid}`)) return false;
-        }
-      }
-      return true;
+      return !isIgnoredXUrl(u);
     });
     if (externalX) return externalX;
-    if (entities.websiteUrls.length > 0) {
-      return entities.websiteUrls[0];
+    const externalWebsite = entities.websiteUrls.find(
+      (u) => !isSolShieldOwnWebsiteUrl(u) && !isXMediaOrInternalUrl(u, opts.ignoreTweetId)
+    );
+    if (externalWebsite) {
+      return externalWebsite;
     }
     return null;
   };
 
-  const direct = pickBestFromSource(mention.text, mention.expandedUrls, true);
+  const direct = pickBestFromSource(mention.text, mention.expandedUrls, {
+    ignoreAutoQuotedLinks: true,
+    ignoreTweetId: mention.id,
+    allowNonCaTarget: intent.canAcceptDirectNonCaTarget,
+  });
   if (direct) return direct;
 
-  // Prefer quoted tweet or direct replied_to tweet only when the user actually summoned the bot
-  // and never audit the bot's own tweet from casual reply banter underneath it.
-  if (!isBotSummonedForParent(mention, botAliases)) {
+  // Prefer quoted tweet or direct replied_to tweet only when the user actually summoned the bot,
+  // never auditing the bot's own tweets or the author's own self-reply thread narration.
+  if (!intent.isSummonedForParent) {
     return null;
   }
 
@@ -262,12 +363,23 @@ export function resolveMentionTarget(
     ) {
       return false;
     }
+    if (
+      r.type === "replied_to" &&
+      mention.authorId &&
+      r.authorId &&
+      r.authorId === mention.authorId
+    ) {
+      return false;
+    }
     return true;
   });
 
   for (const ref of refs) {
     if (ref.text || (ref.expandedUrls && ref.expandedUrls.length > 0)) {
-      const fromParent = pickBestFromSource(ref.text || "", ref.expandedUrls || []);
+      const fromParent = pickBestFromSource(ref.text || "", ref.expandedUrls || [], {
+        ignoreTweetId: ref.id,
+        allowNonCaTarget: true,
+      });
       if (fromParent) return fromParent;
     }
   }
@@ -316,6 +428,23 @@ export function formatTokenIdentityLabel(
 }
 
 /**
+ * Masks un-abbreviated Solana or EVM addresses in reply prose so full CAs stay
+ * on the attached Evidence Card PNG instead of triggering X anti-crypto-address filters.
+ */
+export function maskCryptoAddresses(text: string): string {
+  return text
+    .replace(/\b0x[a-fA-F0-9]{40}\b/g, (addr) => `${addr.slice(0, 6)}...${addr.slice(-4)}`)
+    .replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, (cand) => {
+      const hasUpper = /[A-Z]/.test(cand);
+      const hasDigitOrLower = /[0-9]/.test(cand) || /[a-z]/.test(cand);
+      if (!hasUpper || !hasDigitOrLower || new Set(cand).size < 10) {
+        return cand;
+      }
+      return `${cand.slice(0, 6)}...${cand.slice(-4)}`;
+    });
+}
+
+/**
  * Formats a concise <= 280 character X reply for SolShield BuildCheck evidence card replies.
  * Set `options.includeUrl = false` to omit external links when optimizing Pay-Per-Use costs
  * (the public URL remains rendered inside the attached Evidence Card PNG).
@@ -355,18 +484,26 @@ export function formatBuildCheckReplyTweet(
       ? `${report.componentScores.domainProof}`
       : "N/A";
 
-  const leadFinding =
+  const rawLeadFinding =
     report.verdict === "VERIFIED_BUILD"
       ? report.verifiedSignals[0] || report.headline
       : report.keyRedFlags[0] || report.verifiedSignals[0] || report.headline;
+  const leadFinding = maskCryptoAddresses(rawLeadFinding);
 
   const includeUrl = options.includeUrl ?? true;
   const cleanAppUrl = `${appPublicUrl.replace(/\/+$/, "")}/buildcheck`;
-  const footerLine = includeUrl
-    ? cleanAppUrl
-    : "SolShield x Venice AI Zero-Retention Proof Card attached";
+  const reportPermalinkUrl = isValidBuildCheckReportId(report.id)
+    ? `${cleanAppUrl}?report=${encodeURIComponent(report.id)}`
+    : cleanAppUrl;
 
   const header = `[${verdictTag}] ${report.authenticityScore}/100 — ${targetName}\nCode ${codeTxt} | Chain ${chainTxt} | Web ${webTxt}`;
+  const selectedAppUrl =
+    header.length + reportPermalinkUrl.length + 28 <= 272
+      ? reportPermalinkUrl
+      : cleanAppUrl;
+  const footerLine = includeUrl
+    ? selectedAppUrl
+    : "SolShield x Venice AI Zero-Retention Proof Card attached";
   const budgetForFinding = 272 - header.length - footerLine.length - 6;
   const compactFinding =
     budgetForFinding > 24
@@ -625,7 +762,7 @@ export async function fetchBotMentions(
   const extractUrls = (t?: RawXTweet): string[] =>
     (t?.entities?.urls || [])
       .map((u) => u.unwound_url || u.expanded_url || "")
-      .filter((u) => Boolean(u) && !u.startsWith("https://twitter.com/i/web"));
+      .filter((u) => Boolean(u) && !isXMediaOrInternalUrl(u, t?.id));
 
   // Process oldest mentions first so lastMentionId advances monotonically
   const ordered = [...json.data].reverse();
