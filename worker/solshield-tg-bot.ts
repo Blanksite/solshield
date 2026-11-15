@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
+import { formatTelegramProofDispatchHtml } from "../src/lib/buildcheck/proof-dispatch";
 import {
   parseBooleanEnv,
   parsePositiveIntEnv,
@@ -132,6 +133,7 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
     ? undefined
     : registerCallbackTarget(report.target.normalizedUrl || rawTarget);
   const caption = formatTelegramAuditCaption(report, appPublicUrl);
+  const dispatchHtml = formatTelegramProofDispatchHtml(report, appPublicUrl);
   const keyboard = buildTelegramInlineKeyboard(report, appPublicUrl, callbackHash);
 
   console.log("\n=== TELEGRAM RESULT ===");
@@ -140,6 +142,7 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
   console.log(`PNG Card       : ${filePath}`);
   console.log(`Caption Length : ${caption.length}/1024 chars`);
   console.log("Telegram HTML Caption:\n" + "-".repeat(50) + `\n${caption}\n` + "-".repeat(50));
+  console.log("Telegram Proof Dispatch Follow-up:\n" + "-".repeat(50) + `\n${dispatchHtml}\n` + "-".repeat(50));
   console.log("Inline Keyboard:\n" + JSON.stringify(keyboard, null, 2));
 }
 
@@ -221,13 +224,32 @@ async function executeScanAndReply(params: {
       callbackHash
     );
 
-    await sendTgEvidencePhoto(params.config, {
+    const sentPhoto = await sendTgEvidencePhoto(params.config, {
       chatId: params.chatId,
       pngBuffer: rendered.pngBuffer,
       caption,
       replyToMessageId: params.replyToMessageId,
       replyMarkup,
     });
+
+    if (parseBooleanEnv(process.env.TG_SEND_DISPATCH_STORY, true)) {
+      const dispatchHtml = formatTelegramProofDispatchHtml(
+        report,
+        params.config.appPublicUrl
+      );
+      await sendTgTextMessage(params.config, {
+        chatId: params.chatId,
+        replyToMessageId: sentPhoto?.message_id || params.replyToMessageId,
+        parseMode: "HTML",
+        disableWebPagePreview: true,
+        text: dispatchHtml,
+      }).catch((dispatchErr) => {
+        console.warn(
+          "[TG Dispatch Warn] Follow-up Proof Dispatch message skipped:",
+          dispatchErr instanceof Error ? dispatchErr.message : dispatchErr
+        );
+      });
+    }
 
     recordTgScanCompleted(params.state, params.chatId, params.userId);
     saveTgBotState(params.stateFile, params.state);

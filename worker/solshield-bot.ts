@@ -23,6 +23,9 @@ import {
   fetchBotMentions,
   fetchBotUserId,
   formatBuildCheckReplyTweet,
+  formatBuildCheckStoryThread,
+  formatBuildCheckStoryTweet,
+  isXLengthRestrictionError,
   postReplyTweetOnX,
   resolveMentionTarget,
   uploadEvidencePngToX,
@@ -31,6 +34,14 @@ import {
 } from "./x-client";
 
 loadLocalEnvFiles();
+
+type BotStoryMode = "auto" | "long" | "thread" | "compact";
+
+function getBotStoryMode(): BotStoryMode {
+  const raw = process.env.BOT_STORY_MODE?.trim().toLowerCase();
+  if (raw === "long" || raw === "thread" || raw === "compact") return raw;
+  return "auto";
+}
 
 function getAuthConfig(): XBotAuthConfig {
   return {
@@ -103,6 +114,12 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
   const replyText = formatBuildCheckReplyTweet(report, config.appPublicUrl, {
     includeUrl: config.includeReplyUrl,
   });
+  const storyText = formatBuildCheckStoryTweet(report, config.appPublicUrl, {
+    includeUrl: config.includeReplyUrl,
+  });
+  const thread = formatBuildCheckStoryThread(report, config.appPublicUrl, {
+    includeUrl: config.includeReplyUrl,
+  });
 
   console.log("\n=== RESULT ===");
   console.log(`Handle      : @${config.botHandle}`);
@@ -110,7 +127,9 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
   console.log(`Inference   : ${report.inferenceMode}`);
   console.log(`URL in text : ${config.includeReplyUrl !== false}`);
   console.log(`PNG Card    : ${filePath}`);
-  console.log("X Reply Copy:\n" + "-".repeat(50) + `\n${replyText}\n` + "-".repeat(50));
+  console.log("X Reply Copy (<=280c):\n" + "-".repeat(50) + `\n${replyText}\n` + "-".repeat(50));
+  console.log("X Thread Follow-up (<=280c):\n" + "-".repeat(50) + `\n${thread.followup}\n` + "-".repeat(50));
+  console.log("Full SolShield Proof Dispatch:\n" + "-".repeat(50) + `\n${storyText}\n` + "-".repeat(50));
 }
 
 async function runDaemonLoop(): Promise<void> {
@@ -153,8 +172,11 @@ async function runDaemonLoop(): Promise<void> {
   );
   const hasWriteCreds = Boolean(hasOAuth1 || config.oauth2UserToken);
 
+  const storyMode = getBotStoryMode();
+  const longPostGuard = { blocked: false };
+
   console.log(`[SolShield X Bot] Handle: @${config.botHandle}`);
-  console.log(`[SolShield X Bot] Mode: ${isDryRun ? "DRY_RUN (no live X posts)" : "LIVE X REPLY"}`);
+  console.log(`[SolShield X Bot] Mode: ${isDryRun ? "DRY_RUN (no live X posts)" : "LIVE X REPLY"} · Story=${storyMode}`);
   console.log(`[SolShield X Bot] Poll interval: ${pollMs / 1000}s`);
   console.log(
     `[SolShield X Bot] Guards: maxAge=${maxMentionAgeMinutes}m · cooldown=${authorCooldownMs / 1000}s · dailyCap=${maxRepliesPerDay || "unlimited"} · urlInText=${config.includeReplyUrl !== false}`
@@ -262,7 +284,10 @@ async function runDaemonLoop(): Promise<void> {
           botHandle: config.botHandle,
           appPublicUrl: config.appPublicUrl,
         });
-        const replyText = formatBuildCheckReplyTweet(report, config.appPublicUrl, {
+        const storyText = formatBuildCheckStoryTweet(report, config.appPublicUrl, {
+          includeUrl: config.includeReplyUrl,
+        });
+        const thread = formatBuildCheckStoryThread(report, config.appPublicUrl, {
           includeUrl: config.includeReplyUrl,
         });
         const syncEnabled = parseBooleanEnv(process.env.BOT_SYNC_TO_WEB, !isDryRun);
@@ -273,7 +298,9 @@ async function runDaemonLoop(): Promise<void> {
         ]);
 
         if (isDryRun) {
-          console.log(`[DRY RUN] Card saved at ${filePath}\nReply draft:\n${replyText}`);
+          console.log(
+            `[DRY RUN] Card saved at ${filePath}\nStory draft:\n${storyText}\nThread fallback:\n${thread.primary}\n---\n${thread.followup}`
+          );
         } else {
           let mediaId: string | undefined;
           try {
@@ -286,15 +313,63 @@ async function runDaemonLoop(): Promise<void> {
           }
 
           try {
-            const posted = await postReplyTweetOnX(config, {
-              text: replyText,
-              replyToTweetId: mention.id,
-              mediaId,
-            });
+            let postedPrimaryId: string | null = null;
+            let tryThreadFallback = storyMode === "thread" || (storyMode === "auto" && longPostGuard.blocked);
+
+            if ((storyMode === "auto" || storyMode === "long") && !longPostGuard.blocked) {
+              try {
+                const longPosted = await postReplyTweetOnX(config, {
+                  text: storyText,
+                  replyToTweetId: mention.id,
+                  mediaId,
+                });
+                postedPrimaryId = longPosted.tweetId;
+                console.log(
+                  `[POSTED] Proof Dispatch reply ${longPosted.tweetId} (${mediaId ? `mediaId=${mediaId}` : "text-only"})`
+                );
+              } catch (longErr) {
+                if (isXLengthRestrictionError(longErr)) {
+                  longPostGuard.blocked = true;
+                  console.warn(
+                    `[Post Fallback] X account limited to 280 chars — switching to Proof Dispatch thread.`
+                  );
+                  tryThreadFallback = true;
+                } else {
+                  throw longErr;
+                }
+              }
+            }
+
+            if (!postedPrimaryId) {
+              const primaryPosted = await postReplyTweetOnX(config, {
+                text: thread.primary,
+                replyToTweetId: mention.id,
+                mediaId,
+              });
+              postedPrimaryId = primaryPosted.tweetId;
+              console.log(
+                `[POSTED] Reply tweet ${primaryPosted.tweetId} (${mediaId ? `mediaId=${mediaId}` : "text-only"})`
+              );
+
+              if (tryThreadFallback && thread.followup.trim()) {
+                try {
+                  const followPosted = await postReplyTweetOnX(config, {
+                    text: thread.followup,
+                    replyToTweetId: primaryPosted.tweetId,
+                  });
+                  console.log(
+                    `[POSTED] Proof Dispatch follow-up ${followPosted.tweetId} -> ${primaryPosted.tweetId}`
+                  );
+                } catch (followErr) {
+                  console.warn(
+                    `[Thread Warn] Follow-up story reply failed for ${primaryPosted.tweetId}:`,
+                    followErr instanceof Error ? followErr.message : followErr
+                  );
+                }
+              }
+            }
+
             recordReplySent(state);
-            console.log(
-              `[POSTED] Reply tweet ${posted.tweetId} (${mediaId ? `mediaId=${mediaId}` : "text-only"})`
-            );
           } catch (postErr) {
             if (postErr instanceof XApiError && postErr.isPermanentRejection) {
               state.lastError = postErr.message.slice(0, 200);

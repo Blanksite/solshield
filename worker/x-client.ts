@@ -1,6 +1,11 @@
 import crypto from "node:crypto";
 import { extractEntitiesFromText } from "../src/lib/buildcheck/input-parser";
-import { isValidBuildCheckReportId } from "../src/lib/buildcheck/report-store";
+import {
+  formatDispatchTokenIdentity,
+  formatSolShieldDispatchText,
+  formatSolShieldThreadReplies,
+  maskDispatchAddresses,
+} from "../src/lib/buildcheck/proof-dispatch";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
 import { normalizeHostname } from "../src/lib/domain-guard";
 
@@ -393,38 +398,26 @@ export function resolveMentionTarget(
 }
 
 /**
+ * Returns true when X rejected a tweet specifically because it exceeded the account's
+ * character limit (e.g. non-Premium 280-char tier), allowing safe thread fallback.
+ */
+export function isXLengthRestrictionError(err: unknown): boolean {
+  if (!(err instanceof XApiError)) return false;
+  if (err.status !== 400 && err.status !== 403) return false;
+  if (/crypto address/i.test(err.message)) return false;
+  return /\b280\b|longer|character limit|not permitted to post|text.*length/i.test(
+    err.message
+  );
+}
+
+/**
  * Extracts a compact `Name ($SYMBOL)` label from BuildCheck on-chain/DEX metadata.
  */
 export function formatTokenIdentityLabel(
   report: BuildCheckReport,
   maxNameLen = 28
 ): string | null {
-  const rawName = (
-    report.chain?.deep?.metadata?.name ||
-    report.chain?.tokenReport?.name ||
-    ""
-  ).trim();
-  const rawSymbol = (
-    report.chain?.deep?.metadata?.symbol ||
-    report.chain?.tokenReport?.symbol ||
-    ""
-  )
-    .trim()
-    .replace(/^\$+/, "");
-
-  const cleanName =
-    rawName.length > maxNameLen
-      ? `${rawName.slice(0, maxNameLen - 1).trim()}…`
-      : rawName;
-  const cleanSymbol = rawSymbol ? `$${rawSymbol.slice(0, 12)}` : "";
-
-  if (cleanName && cleanSymbol) {
-    if (rawName.toLowerCase() === rawSymbol.toLowerCase()) {
-      return cleanSymbol;
-    }
-    return `${cleanName} (${cleanSymbol})`;
-  }
-  return cleanSymbol || cleanName || null;
+  return formatDispatchTokenIdentity(report, maxNameLen);
 }
 
 /**
@@ -432,16 +425,7 @@ export function formatTokenIdentityLabel(
  * on the attached Evidence Card PNG instead of triggering X anti-crypto-address filters.
  */
 export function maskCryptoAddresses(text: string): string {
-  return text
-    .replace(/\b0x[a-fA-F0-9]{40}\b/g, (addr) => `${addr.slice(0, 6)}...${addr.slice(-4)}`)
-    .replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, (cand) => {
-      const hasUpper = /[A-Z]/.test(cand);
-      const hasDigitOrLower = /[0-9]/.test(cand) || /[a-z]/.test(cand);
-      if (!hasUpper || !hasDigitOrLower || new Set(cand).size < 10) {
-        return cand;
-      }
-      return `${cand.slice(0, 6)}...${cand.slice(-4)}`;
-    });
+  return maskDispatchAddresses(text);
 }
 
 /**
@@ -454,67 +438,35 @@ export function formatBuildCheckReplyTweet(
   appPublicUrl = "https://sol-shield.xyz",
   options: { includeUrl?: boolean } = {}
 ): string {
-  const verdictTag =
-    report.verdict === "VERIFIED_BUILD"
-      ? "VERIFIED BUILD"
-      : report.verdict === "UNPROVEN_HYPE"
-        ? "UNPROVEN HYPE"
-        : "HIGH FABRICATION RISK";
+  return formatSolShieldThreadReplies(report, appPublicUrl, options).primary;
+}
 
-  const tokenIdentity = formatTokenIdentityLabel(report, 22);
-  const shortMint = report.target.mintAddress
-    ? `${report.target.mintAddress.slice(0, 6)}...${report.target.mintAddress.slice(-4)}`
-    : null;
-  const targetName =
-    report.target.githubOwnerRepo ||
-    (shortMint && tokenIdentity ? `${tokenIdentity} · ${shortMint}` : shortMint) ||
-    report.target.hostname ||
-    "target";
+/**
+ * Formats a multi-section SolShield Proof Dispatch long-form X reply (for X Premium accounts),
+ * with Solana/EVM addresses masked safely.
+ */
+export function formatBuildCheckStoryTweet(
+  report: BuildCheckReport,
+  appPublicUrl = "https://sol-shield.xyz",
+  options: { includeUrl?: boolean } = {}
+): string {
+  return formatSolShieldDispatchText(report, {
+    appPublicUrl,
+    maskAddresses: true,
+    includeUrl: options.includeUrl,
+  });
+}
 
-  const codeTxt =
-    report.componentScores.codeProof !== null
-      ? `${report.componentScores.codeProof}`
-      : "N/A";
-  const chainTxt =
-    report.componentScores.chainProof !== null
-      ? `${report.componentScores.chainProof}`
-      : "N/A";
-  const webTxt =
-    report.componentScores.domainProof !== null
-      ? `${report.componentScores.domainProof}`
-      : "N/A";
-
-  const rawLeadFinding =
-    report.verdict === "VERIFIED_BUILD"
-      ? report.verifiedSignals[0] || report.headline
-      : report.keyRedFlags[0] || report.verifiedSignals[0] || report.headline;
-  const leadFinding = maskCryptoAddresses(rawLeadFinding);
-
-  const includeUrl = options.includeUrl ?? true;
-  const cleanAppUrl = `${appPublicUrl.replace(/\/+$/, "")}/buildcheck`;
-  const reportPermalinkUrl = isValidBuildCheckReportId(report.id)
-    ? `${cleanAppUrl}?report=${encodeURIComponent(report.id)}`
-    : cleanAppUrl;
-
-  const header = `[${verdictTag}] ${report.authenticityScore}/100 — ${targetName}\nCode ${codeTxt} | Chain ${chainTxt} | Web ${webTxt}`;
-  const selectedAppUrl =
-    header.length + reportPermalinkUrl.length + 28 <= 272
-      ? reportPermalinkUrl
-      : cleanAppUrl;
-  const footerLine = includeUrl
-    ? selectedAppUrl
-    : "SolShield x Venice AI Zero-Retention Proof Card attached";
-  const budgetForFinding = 272 - header.length - footerLine.length - 6;
-  const compactFinding =
-    budgetForFinding > 24
-      ? `${leadFinding.replace(/\s+/g, " ").slice(0, budgetForFinding).trim()}`
-      : "";
-
-  const parts = [header];
-  if (compactFinding) parts.push(compactFinding);
-  parts.push(footerLine);
-
-  return parts.join("\n\n").slice(0, 280);
+/**
+ * Formats a crisp 2-tweet Proof Dispatch thread (<=280 chars per tweet) so standard X accounts
+ * deliver both the scorecard permalink and Confirmed Evidence / Open Gaps narrative cleanly.
+ */
+export function formatBuildCheckStoryThread(
+  report: BuildCheckReport,
+  appPublicUrl = "https://sol-shield.xyz",
+  options: { includeUrl?: boolean } = {}
+): { primary: string; followup: string } {
+  return formatSolShieldThreadReplies(report, appPublicUrl, options);
 }
 
 function hasOAuth1Credentials(config: XBotAuthConfig): boolean {

@@ -48,6 +48,7 @@ import type {
   BuildCheckReport,
   BuildCheckStreamEvent,
 } from "@/lib/buildcheck/types";
+import { formatSolShieldDispatchText } from "@/lib/buildcheck/proof-dispatch";
 import {
   formatCompactUsd,
   toScannedTokenExtraFromReport,
@@ -63,6 +64,7 @@ import { AuditLedgerSection } from "./AuditLedgerSection";
 import { DevHistoryPanel } from "./DevHistoryPanel";
 import { generateBuildCheckEvidencePng } from "./evidence-card-canvas";
 import { MarketTelemetryPanel } from "./MarketTelemetryPanel";
+import { ProofDispatchCard } from "./ProofDispatchCard";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
 import { SniperCabalGraph } from "./SniperCabalGraph";
 import { TradingViewTokenChart } from "./TradingViewTokenChart";
@@ -654,24 +656,15 @@ export default function BuildCheckWorkbench({
 
   async function handleCopyXPost() {
     if (!report) return;
-    const verdictLabel =
-      report.verdict === "VERIFIED_BUILD"
-        ? "VERIFIED BUILD"
-        : report.verdict === "UNPROVEN_HYPE"
-          ? "UNPROVEN HYPE"
-          : "HIGH FABRICATION RISK";
-
-    const lines = report.claimsVsProof
-      .slice(0, 3)
-      .map((r) => `• [${r.status}] ${r.claim}: ${r.evidence}`)
-      .join("\n");
-
     const shareOrigin =
       typeof window !== "undefined"
         ? window.location.origin
         : "https://sol-shield.xyz";
-    const shareUrl = `${shareOrigin}/buildcheck?report=${encodeURIComponent(report.id)}`;
-    const text = `SolShield® BuildCheck Audit (${report.authenticityScore}/100 — ${verdictLabel})\n\n${report.headline}\n\n${lines}\n\nAudited live via browser + Zero-Retention Venice AI\n${shareUrl}`;
+    const text = formatSolShieldDispatchText(report, {
+      appPublicUrl: shareOrigin,
+      maskAddresses: false,
+      includeUrl: true,
+    });
 
     try {
       await navigator.clipboard.writeText(text);
@@ -1951,6 +1944,9 @@ export default function BuildCheckWorkbench({
                   </div>
                 </div>
               </SpotlightCard>
+
+              {/* SolShield Proof Dispatch — Original Structured Narrative & Forensic Balance Sheet */}
+              <ProofDispatchCard report={report} />
 
               {/* RESULT BODY — Asymmetric War-Room for Tokens vs Clean Observation+Proof for Repos/Sites */}
               {isTokenReport && report.chain ? (
