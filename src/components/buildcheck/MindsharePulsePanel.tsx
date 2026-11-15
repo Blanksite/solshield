@@ -18,7 +18,10 @@ import {
   Sparkles,
   TrendingUp,
   Users,
+  X,
 } from "lucide-react";
+import type { MindshareArchitectureTile } from "@/lib/buildcheck/mindshare-architecture";
+import { MindshareArchitectureMap } from "./MindshareArchitectureMap";
 import type {
   HypeBuildQuadrant,
   KolTier,
@@ -162,10 +165,19 @@ export function MindsharePulsePanel({
 }) {
   const [filter, setFilter] = useState<DiscourseFilter>("all");
   const [showAllPosts, setShowAllPosts] = useState(false);
+  const [selectedTile, setSelectedTile] = useState<{
+    id: string;
+    title: string;
+    postIds: string[];
+  } | null>(null);
 
   const filteredPosts = useMemo<XMindsharePost[]>(() => {
     if (!social) return [];
-    const list = social.posts || [];
+    let list = social.posts || [];
+    if (selectedTile && selectedTile.postIds.length > 0) {
+      const allowed = new Set(selectedTile.postIds);
+      list = list.filter((p) => allowed.has(p.id));
+    }
     switch (filter) {
       case "kols":
         return list.filter((p) => p.isKol);
@@ -178,7 +190,7 @@ export function MindsharePulsePanel({
       default:
         return list;
     }
-  }, [social, filter]);
+  }, [social, filter, selectedTile]);
 
   if (!social) {
     return (
@@ -417,7 +429,23 @@ export function MindsharePulsePanel({
         </div>
       </div>
 
-      {/* 2. Sentiment Spectrum + Consensus Summary */}
+      {/* 2. CA-Specific X Mindshare Architecture Treemap & Telemetry Lenses */}
+      <MindshareArchitectureMap
+        social={social}
+        symbol={symbol}
+        selectedTileId={selectedTile?.id ?? null}
+        onSelectTile={(tile: MindshareArchitectureTile) => {
+          setSelectedTile({
+            id: tile.id,
+            title: tile.title,
+            postIds: tile.postIds,
+          });
+          setShowAllPosts(false);
+        }}
+        onClearTileFilter={() => setSelectedTile(null)}
+      />
+
+      {/* 3. Sentiment Spectrum + Consensus Summary */}
       <div className="p-5 space-y-4 bg-[#0D1017]">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -572,11 +600,21 @@ export function MindsharePulsePanel({
       {/* 4. Filterable X Voices & KOL Feed */}
       <div className="p-5 space-y-4 bg-[#0D1017]">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Users className="w-3.5 h-3.5 text-[#84A7FF]" />
             <span className="text-xs font-mono uppercase tracking-[0.08em] text-slate-200">
               Real X Voices &amp; KOL Threads ({filteredPosts.length})
             </span>
+            {selectedTile && (
+              <button
+                type="button"
+                onClick={() => setSelectedTile(null)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#2934FF]/22 border border-[#5D82FF]/45 text-[11px] font-mono text-[#BFD0FF] hover:bg-[#2934FF]/35 cursor-pointer"
+              >
+                <span>Block: {selectedTile.title}</span>
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-1">

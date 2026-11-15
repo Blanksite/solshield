@@ -6,6 +6,10 @@ import {
 } from "../src/lib/buildcheck/report-store";
 import type { BuildCheckReport, XMindsharePost } from "../src/lib/buildcheck/types";
 import {
+  buildMindshareArchitectureTiles,
+  computeSquarifiedTreemap,
+} from "../src/lib/buildcheck/mindshare-architecture";
+import {
   buildXMindshareQueries,
   classifyKolTier,
   collectSocialMindshare,
@@ -421,6 +425,14 @@ describe("X Mindshare & KOL Discourse Pulse", () => {
                       "KOLs praise SolShield's live browser XHR + GitHub auditing, while cautious traders note the policy vault remains devnet-scoped.",
                     bullThemes: ["Live Chromium XHR + GitHub commit verification works end-to-end"],
                     skepticQuestions: ["Policy vault still pending Solana Mainnet migration"],
+                    topics: [
+                      { n: "Live XHR & Build Proof", d: "Checking GitHub + Chromium execution", g: ["Builders", "XHR"] },
+                      { n: "Mainnet Vault Readiness", d: "Debating devnet policy vault scope", g: ["Security", "Devnet"] },
+                    ],
+                    meta: {
+                      "0": { t: 0, c: "DEV" },
+                      "1": { t: 1, c: "SEC" },
+                    },
                     postStances: [
                       { id: "1001", stance: "BULLISH", reason: "Validates live Chromium XHR architecture" },
                       { id: "1002", stance: "SKEPTICAL", reason: "Questions devnet-only vault scope" },
@@ -638,5 +650,213 @@ describe("X Mindshare & KOL Discourse Pulse", () => {
     expect(dispatch.mindshareLine).toContain("Mindshare 68/100");
     expect(dispatch.mindshareLine).toContain("25 KOLs");
     expect(formatSolShieldDispatchText(hugeReport)).toContain("X MINDSHARE: Mindshare 68/100");
+  });
+
+  it("computes Mindshare Architecture treemap clusters across all 4 lenses, timeframes & squarified rects", () => {
+    const nowMs = Date.parse("2026-11-16T02:00:00.000Z");
+    const sampleSocial: NonNullable<BuildCheckReport["social"]> = {
+      source: "hybrid",
+      fetchedAt: "2026-11-16T02:00:00.000Z",
+      queriesUsed: ["$SHIELD solana -is:retweet"],
+      officialProfile: {
+        id: "u0",
+        username: "usesolshield",
+        name: "SolShield",
+        verified: true,
+        verifiedType: "blue",
+        followersCount: 180,
+        followingCount: 10,
+        tweetCount: 70,
+        listedCount: 1,
+        createdAt: "2026-11-12T00:00:00.000Z",
+        accountAgeDays: 4,
+        tier: "MICRO",
+        profileImageUrl: null,
+        description: "Pre-sign firewall",
+      },
+      mindshareScore: 62,
+      momentum: "ACTIVE",
+      quadrant: "CONVICTION_RUNNER",
+      quadrantLabel: "CONVICTION ALIGNMENT",
+      quadrantSummary: "High organic mindshare aligned with build proof.",
+      totalPostsSampled: 4,
+      uniqueAuthors: 4,
+      kolCount: 2,
+      totalImpressions: 12_000,
+      totalEngagement: 320,
+      organicSignalPct: 75,
+      sentimentBreakdown: { bullishPct: 50, neutralPct: 0, skepticalPct: 25, shillNoisePct: 25 },
+      consensusSummary: "Builders validate GitHub commits while skeptics watch mainnet timeline.",
+      bullThemes: ["Real pre-sign firewall"],
+      skepticQuestions: ["When mainnet upgrade"],
+      topicCatalog: [
+        { name: "Pre-Sign Security & Audits", description: "Verifying drainers & clusters", tags: ["Security", "Audit"] },
+        { name: "Core Build & GitHub", description: "Shipping open-source code", tags: ["Builders", "Devs"] },
+      ],
+      topVoices: [],
+      posts: [
+        {
+          id: "t1",
+          url: "https://x.com/builder1/status/1",
+          text: "$SHIELD GitHub repo + open source Chromium build verification works cleanly.",
+          createdAt: "2026-11-15T20:00:00.000Z",
+          authorUsername: "builder1",
+          authorName: "Builder One",
+          authorVerified: true,
+          authorVerifiedType: "blue",
+          authorFollowers: 18_000,
+          authorTier: "ALPHA",
+          likeCount: 120,
+          retweetCount: 30,
+          replyCount: 12,
+          quoteCount: 4,
+          bookmarkCount: 25,
+          impressionCount: 6000,
+          engagementScore: 420,
+          stance: "BULLISH",
+          stanceReason: "Build proof",
+          shillFlags: [],
+          isKol: true,
+          topicName: "Core Build & GitHub",
+          authorCohort: "BUILDERS",
+        },
+        {
+          id: "t2",
+          url: "https://x.com/auditor2/status/2",
+          text: "$SHIELD firewall caught simulation drainer in pre-sign check, solid security.",
+          createdAt: "2026-11-15T18:00:00.000Z",
+          authorUsername: "auditor2",
+          authorName: "Sec Scout",
+          authorVerified: true,
+          authorVerifiedType: "blue",
+          authorFollowers: 6_500,
+          authorTier: "MID",
+          likeCount: 60,
+          retweetCount: 10,
+          replyCount: 5,
+          quoteCount: 1,
+          bookmarkCount: 8,
+          impressionCount: 3200,
+          engagementScore: 220,
+          stance: "BULLISH",
+          stanceReason: "Security utility",
+          shillFlags: [],
+          isKol: true,
+          topicName: "Pre-Sign Security & Audits",
+          authorCohort: "SECURITY",
+        },
+        {
+          id: "t3",
+          url: "https://x.com/skeptic3/status/3",
+          text: "Need mainnet policy vault upgrade soon before calling $SHIELD finished.",
+          createdAt: "2026-11-13T10:00:00.000Z",
+          authorUsername: "skeptic3",
+          authorName: "Skeptic Three",
+          authorVerified: false,
+          authorVerifiedType: null,
+          authorFollowers: 900,
+          authorTier: "MICRO",
+          likeCount: 12,
+          retweetCount: 2,
+          replyCount: 4,
+          quoteCount: 0,
+          bookmarkCount: 1,
+          impressionCount: 700,
+          engagementScore: 45,
+          stance: "SKEPTICAL",
+          stanceReason: "Vault readiness",
+          shillFlags: [],
+          isKol: false,
+          topicName: "Pre-Sign Security & Audits",
+          authorCohort: "ALPHA_KOL",
+        },
+        {
+          id: "t4",
+          url: "https://x.com/spam4/status/4",
+          text: "Claim free airdrop $SHIELD $AAA $BBB $CCC 100x gem",
+          createdAt: "2026-11-12T10:00:00.000Z",
+          authorUsername: "spam4",
+          authorName: "Promo Account",
+          authorVerified: false,
+          authorVerifiedType: null,
+          authorFollowers: 150,
+          authorTier: "MICRO",
+          likeCount: 1,
+          retweetCount: 0,
+          replyCount: 0,
+          quoteCount: 0,
+          bookmarkCount: 0,
+          impressionCount: 50,
+          engagementScore: 5,
+          stance: "SHILL_NOISE",
+          stanceReason: "Airdrop spam",
+          shillFlags: ["AIRDROP_BAIT"],
+          isKol: false,
+        },
+      ],
+      dailyBuckets: [],
+      errorNote: null,
+    };
+
+    const topicsRes = buildMindshareArchitectureTiles({
+      social: sampleSocial,
+      lens: "topics",
+      timeframe: "7d",
+      weightMode: "relative",
+      nowMs,
+    });
+    expect(topicsRes.tiles.length).toBeGreaterThanOrEqual(2);
+    const totalPct = topicsRes.tiles.reduce((s, t) => s + t.sharePct, 0);
+    expect(Math.round(totalPct * 10) / 10).toBe(100);
+
+    const cohortsRes = buildMindshareArchitectureTiles({
+      social: sampleSocial,
+      lens: "cohorts",
+      timeframe: "7d",
+      weightMode: "posts",
+      nowMs,
+    });
+    expect(cohortsRes.tiles.map((t) => t.title)).toEqual(
+      expect.arrayContaining(["Builders & Core Devs", "On-Chain Security & Audits"])
+    );
+
+    const accountsRes = buildMindshareArchitectureTiles({
+      social: sampleSocial,
+      lens: "accounts",
+      timeframe: "7d",
+      weightMode: "relative",
+      nowMs,
+    });
+    expect(accountsRes.tiles[0].title).toBe("@builder1");
+
+    const driversRes = buildMindshareArchitectureTiles({
+      social: sampleSocial,
+      lens: "drivers",
+      timeframe: "24h",
+      weightMode: "relative",
+      nowMs,
+    });
+    // In 24h window only t1 and t2 fall within 24h of nowMs
+    expect(driversRes.scopedPosts).toHaveLength(2);
+
+    const filteredRes = buildMindshareArchitectureTiles({
+      social: sampleSocial,
+      lens: "topics",
+      timeframe: "7d",
+      weightMode: "relative",
+      searchQuery: "Security",
+      nowMs,
+    });
+    expect(filteredRes.tiles.length).toBe(1);
+    expect(filteredRes.tiles[0].title).toContain("Security");
+
+    const rects = computeSquarifiedTreemap(cohortsRes.tiles);
+    expect(rects).toHaveLength(cohortsRes.tiles.length);
+    for (const r of rects) {
+      expect(r.wPct).toBeGreaterThan(0);
+      expect(r.hPct).toBeGreaterThan(0);
+      expect(r.xPct + r.wPct).toBeLessThanOrEqual(100.01);
+      expect(r.yPct + r.hPct).toBeLessThanOrEqual(100.01);
+    }
   });
 });

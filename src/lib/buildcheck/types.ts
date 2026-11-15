@@ -307,12 +307,23 @@ export interface BuildCheckReport {
 export type MindshareStance = "BULLISH" | "NEUTRAL" | "SKEPTICAL" | "SHILL_NOISE";
 export type KolTier = "MEGA" | "ALPHA" | "MID" | "MICRO";
 export type MindshareMomentum = "SURGING" | "ACTIVE" | "EARLY" | "QUIET";
+export type SocialCohortId =
+  | "BUILDERS"
+  | "SECURITY"
+  | "ALPHA_KOL"
+  | "COMMUNITY";
 export type HypeBuildQuadrant =
   | "CONVICTION_RUNNER"
   | "UNDERVALUED_BUILDER"
   | "NARRATIVE_OVERHEAT"
   | "CONTESTED_DISCOURSE"
   | "PRE_DISCOVERY";
+
+export interface MindshareTopicClusterMeta {
+  name: string;
+  description: string;
+  tags: string[];
+}
 
 export interface XKolAuthorProfile {
   id: string;
@@ -353,6 +364,8 @@ export interface XMindsharePost {
   stanceReason: string | null;
   shillFlags: string[];
   isKol: boolean;
+  topicName?: string | null;
+  authorCohort?: SocialCohortId | null;
 }
 
 export interface MindshareBucket {
@@ -388,6 +401,7 @@ export interface SocialMindshareReport {
   consensusSummary: string;
   bullThemes: string[];
   skepticQuestions: string[];
+  topicCatalog?: MindshareTopicClusterMeta[];
   topVoices: XMindsharePost[];
   posts: XMindsharePost[];
   dailyBuckets: MindshareBucket[];

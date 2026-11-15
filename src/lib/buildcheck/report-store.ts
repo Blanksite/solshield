@@ -212,6 +212,7 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
             ...p,
             text: p.text.slice(0, 240),
           })),
+          topicCatalog: [],
           dailyBuckets: [],
         }
       : current.social,

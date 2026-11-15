@@ -1,3 +1,7 @@
+import {
+  classifyPostCohort,
+  resolvePostTopic,
+} from "./mindshare-architecture";
 import { parseXUrl } from "./input-parser";
 import type {
   ChainTokenIntelReport,
@@ -8,7 +12,9 @@ import type {
   MindshareBucket,
   MindshareMomentum,
   MindshareStance,
+  MindshareTopicClusterMeta,
   ParsedTargetInput,
+  SocialCohortId,
   SocialMindshareReport,
   XKolAuthorProfile,
   XMindsharePost,
@@ -662,7 +668,9 @@ async function synthesizeSocialDiscourseWithVenice(
   consensusSummary?: string;
   bullThemes?: string[];
   skepticQuestions?: string[];
+  topicCatalog?: MindshareTopicClusterMeta[];
   postStances?: Map<string, { stance: MindshareStance; reason: string }>;
+  postMeta?: Map<string, { topicName?: string; cohort?: SocialCohortId }>;
 } | null> {
   if (!apiKey || posts.length === 0) return null;
 
@@ -691,15 +699,15 @@ async function synthesizeSocialDiscourseWithVenice(
       body: JSON.stringify({
         model,
         temperature: 0.1,
-        max_tokens: 420,
+        max_tokens: 580,
         venice_parameters: { include_venice_system_prompt: false },
         messages: [
           {
             role: "system",
             content: `Analyze real X (Twitter) posts about one project. Use ONLY the provided posts; never invent handles or facts.
 Output raw minified JSON ONLY (no markdown, no commentary):
-{"consensusSummary":"<max 2 short factual sentences>","bullThemes":["<up to 3 short specific positive points>"],"skepticQuestions":["<up to 3 short specific concerns/pushbacks, or empty []>"],"stances":{"0":"B"}}
-Codes for stances map (key = post "i"): B=BULLISH, N=NEUTRAL, S=SKEPTICAL, H=SHILL_NOISE. Understand sarcasm/negation ("not a rug"=B).`,
+{"consensusSummary":"<max 2 short factual sentences>","bullThemes":["<up to 3 short specific positive points>"],"skepticQuestions":["<up to 3 short specific concerns/pushbacks, or empty []>"],"topics":[{"n":"<2-4 word narrative theme>","d":"<max 8 word theme summary>","g":["Tag1","Tag2"]}],"stances":{"0":"B"},"meta":{"0":{"t":0,"c":"SEC"}}}
+Codes: stances B=BULLISH, N=NEUTRAL, S=SKEPTICAL, H=SHILL_NOISE ("not a rug"=B); topics up to 4 real themes; meta t=topic index, c=DEV(builders/devs)|SEC(security/audits)|ALPHA(KOLs/alpha callers)|TRAD(traders/community).`,
           },
           {
             role: "user",
@@ -722,11 +730,14 @@ Codes for stances map (key = post "i"): B=BULLISH, N=NEUTRAL, S=SKEPTICAL, H=SHI
       consensusSummary?: string;
       bullThemes?: string[];
       skepticQuestions?: string[];
+      topics?: Array<{ n?: string; name?: string; d?: string; description?: string; g?: string[]; tags?: string[] }>;
       stances?: Record<string, string>;
+      meta?: Record<string, { t?: number; c?: string }>;
       postStances?: Array<{ id?: string; stance?: string; reason?: string }>;
     };
 
     const stanceMap = new Map<string, { stance: MindshareStance; reason: string }>();
+    const postMetaMap = new Map<string, { topicName?: string; cohort?: SocialCohortId }>();
     const normalizeStance = (raw: string | undefined): MindshareStance | null => {
       const up = (raw || "").trim().toUpperCase();
       if (up === "B" || up === "BULLISH") return "BULLISH";
@@ -735,6 +746,34 @@ Codes for stances map (key = post "i"): B=BULLISH, N=NEUTRAL, S=SKEPTICAL, H=SHI
       if (up === "N" || up === "NEUTRAL") return "NEUTRAL";
       return null;
     };
+    const normalizeCohort = (raw: string | undefined): SocialCohortId | undefined => {
+      const up = (raw || "").trim().toUpperCase();
+      if (up === "DEV" || up === "BUILDERS") return "BUILDERS";
+      if (up === "SEC" || up === "SECURITY") return "SECURITY";
+      if (up === "ALPHA" || up === "ALPHA_KOL") return "ALPHA_KOL";
+      if (up === "TRAD" || up === "COMMUNITY") return "COMMUNITY";
+      return undefined;
+    };
+
+    const topicCatalog: MindshareTopicClusterMeta[] = [];
+    for (const rawTopic of (parsed.topics ?? []).slice(0, 5)) {
+      const name = String(rawTopic?.n || rawTopic?.name || "").trim().slice(0, 48);
+      if (!name) continue;
+      const description = String(rawTopic?.d || rawTopic?.description || "")
+        .trim()
+        .slice(0, 110);
+      const tags = Array.isArray(rawTopic?.g || rawTopic?.tags)
+        ? (rawTopic?.g || rawTopic?.tags)!
+            .map((tag) => String(tag).trim().slice(0, 20))
+            .filter(Boolean)
+            .slice(0, 2)
+        : [];
+      topicCatalog.push({
+        name,
+        description: description || "Live X narrative sub-theme",
+        tags: tags.length > 0 ? tags : ["X Theme"],
+      });
+    }
 
     if (parsed.stances && typeof parsed.stances === "object") {
       for (const [k, v] of Object.entries(parsed.stances)) {
@@ -746,6 +785,20 @@ Codes for stances map (key = post "i"): B=BULLISH, N=NEUTRAL, S=SKEPTICAL, H=SHI
             stance: st,
             reason: `Venice AI context (${st.toLowerCase()})`,
           });
+        }
+      }
+    }
+
+    if (parsed.meta && typeof parsed.meta === "object") {
+      for (const [k, v] of Object.entries(parsed.meta)) {
+        const idx = Number(k);
+        const targetPost = Number.isInteger(idx) && chosen[idx] ? chosen[idx] : null;
+        if (!targetPost || !v) continue;
+        const tIdx = typeof v.t === "number" && Number.isInteger(v.t) ? v.t : -1;
+        const topicName = tIdx >= 0 && topicCatalog[tIdx] ? topicCatalog[tIdx].name : undefined;
+        const cohort = normalizeCohort(v.c);
+        if (topicName || cohort) {
+          postMetaMap.set(targetPost.id, { topicName, cohort });
         }
       }
     }
@@ -768,7 +821,9 @@ Codes for stances map (key = post "i"): B=BULLISH, N=NEUTRAL, S=SKEPTICAL, H=SHI
       skepticQuestions: Array.isArray(parsed.skepticQuestions)
         ? parsed.skepticQuestions.map((s) => String(s).trim()).filter(Boolean).slice(0, 4)
         : undefined,
+      topicCatalog: topicCatalog.length > 0 ? topicCatalog : undefined,
       postStances: stanceMap,
+      postMeta: postMetaMap,
     };
   } catch {
     return null;
@@ -1222,6 +1277,7 @@ export async function collectSocialMindshare(
   let consensusSummary = "";
   let bullThemes: string[] = [];
   let skepticQuestions: string[] = [];
+  let topicCatalog: MindshareTopicClusterMeta[] = [];
 
   // Distinguish third-party community/KOL posts from the project's own brand tweets
   const officialHandleLower = anchors.officialHandle?.toLowerCase() || null;
@@ -1264,23 +1320,40 @@ export async function collectSocialMindshare(
       if (synthesis.consensusSummary) consensusSummary = synthesis.consensusSummary;
       if (synthesis.bullThemes) bullThemes = synthesis.bullThemes;
       if (synthesis.skepticQuestions) skepticQuestions = synthesis.skepticQuestions;
-      if (synthesis.postStances) {
+      if (synthesis.topicCatalog) topicCatalog = synthesis.topicCatalog;
+      if (synthesis.postStances || synthesis.postMeta) {
         posts = posts.map((p) => {
-          const override = synthesis.postStances!.get(p.id);
-          if (!override) return p;
-          // Preserve deterministic high-confidence spam flags and bot classification
-          if (p.shillFlags.length >= 2 || isAutomatedBotUsername(p.authorUsername)) {
-            return p;
-          }
+          const override = synthesis.postStances?.get(p.id);
+          const metaOverride = synthesis.postMeta?.get(p.id);
+          const preserveDet = p.shillFlags.length >= 2 || isAutomatedBotUsername(p.authorUsername);
           return {
             ...p,
-            stance: override.stance,
-            stanceReason: override.reason || p.stanceReason,
+            stance: override && !preserveDet ? override.stance : p.stance,
+            stanceReason: override && !preserveDet ? override.reason || p.stanceReason : p.stanceReason,
+            topicName: metaOverride?.topicName || p.topicName,
+            authorCohort: metaOverride?.cohort || p.authorCohort,
           };
         });
       }
     }
   }
+
+  // Enrich any remaining unannotated posts deterministically so every treemap lens populates cleanly
+  const seenCatalogTopics = new Map<string, MindshareTopicClusterMeta>(
+    topicCatalog.map((t) => [t.name.toLowerCase(), t])
+  );
+  posts = posts.map((p) => {
+    const resolvedTopic = resolvePostTopic(p, topicCatalog);
+    if (!seenCatalogTopics.has(resolvedTopic.name.toLowerCase())) {
+      seenCatalogTopics.set(resolvedTopic.name.toLowerCase(), resolvedTopic);
+    }
+    return {
+      ...p,
+      topicName: p.topicName || resolvedTopic.name,
+      authorCohort: p.authorCohort || classifyPostCohort(p, anchors.officialHandle),
+    };
+  });
+  topicCatalog = Array.from(seenCatalogTopics.values()).slice(0, 6);
 
   const finalExternalPosts = officialHandleLower
     ? posts.filter((p) => p.authorUsername.toLowerCase() !== officialHandleLower)
@@ -1465,6 +1538,7 @@ export async function collectSocialMindshare(
     consensusSummary,
     bullThemes,
     skepticQuestions,
+    topicCatalog,
     topVoices,
     posts,
     dailyBuckets: buildDailyBuckets(posts),

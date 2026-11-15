@@ -950,8 +950,25 @@ export default function BuildCheckWorkbench({
               : st.status === "warn"
                 ? "border-amber-500/35 bg-amber-500/[0.07] text-amber-300"
                 : "border-white/[0.08] bg-[#080A0F] text-slate-400";
+          const canOpenSocial = key === "social" && Boolean(report?.social);
           return (
-            <div key={key} className={`${span} px-2.5 py-2 rounded-lg border transition-colors ${tone}`}>
+            <div
+              key={key}
+              onClick={
+                canOpenSocial
+                  ? () => {
+                      setForensicTab("mindshare");
+                      forensicPanelRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      });
+                    }
+                  : undefined
+              }
+              className={`${span} px-2.5 py-2 rounded-lg border transition-colors ${tone} ${
+                canOpenSocial ? "cursor-pointer hover:border-[#5D82FF]/60" : ""
+              }`}
+            >
               <div className="flex items-center justify-between gap-1.5 text-[11px] font-medium">
                 <span className="inline-flex items-center gap-1.5">
                   <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -1022,17 +1039,17 @@ export default function BuildCheckWorkbench({
             type="button"
             data-testid="tab-x-mindshare"
             onClick={() => setForensicTab("mindshare")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`min-h-[44px] px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-all cursor-pointer ${
               forensicTab === "mindshare"
-                ? "bg-[#2934FF]/22 text-white border border-[#2934FF]/50"
-                : "text-slate-400 hover:text-white border border-transparent hover:bg-white/[0.04]"
+                ? "bg-[#2934FF] text-white border border-[#60A5FA]/70 shadow-[0_6px_20px_rgba(41,52,255,0.34)]"
+                : "bg-[#2934FF]/14 text-[#E0EAFF] hover:bg-[#2934FF]/24 border border-[#5D82FF]/45"
             }`}
           >
-            <Radio className="w-3.5 h-3.5 text-[#84A7FF]" />
+            <Radio className="w-4 h-4 text-[#93C5FD] shrink-0" />
             <span>X Mindshare &amp; KOLs</span>
             {report.social && (
-              <span className="px-1.5 py-0.2 rounded bg-[#2934FF]/25 text-[#BFD0FF] font-mono text-[10px] tabular-nums">
-                {report.social.mindshareScore}
+              <span className="px-2 py-0.5 rounded-md bg-black/30 border border-white/15 text-[#BFD0FF] font-mono text-[11px] tabular-nums">
+                {report.social.mindshareScore}/100 · {report.social.kolCount} KOLs
               </span>
             )}
           </button>
@@ -1882,11 +1899,30 @@ export default function BuildCheckWorkbench({
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
+                          {report.social && (
+                            <button
+                              type="button"
+                              data-testid="verdict-mindshare-cta"
+                              onClick={() => {
+                                setForensicTab("mindshare");
+                                forensicPanelRef.current?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "start",
+                                });
+                              }}
+                              className="min-h-[42px] px-4 py-2 rounded-xl bg-gradient-to-r from-[#0284C7] to-[#2934FF] hover:brightness-110 border border-[#60A5FA]/55 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 shadow-[0_8px_22px_rgba(2,132,199,0.28)] cursor-pointer transition-all"
+                            >
+                              <Radio className="w-4 h-4 shrink-0" />
+                              <span>
+                                X Mindshare ({report.social.mindshareScore}/100)
+                              </span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={handleExportPng}
                             disabled={isExportingPng}
-                            className="px-3 py-1.5 rounded-lg bg-[#2934FF] hover:bg-[#1E28E6] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                            className="min-h-[40px] px-3.5 py-2 rounded-lg bg-[#2934FF] hover:bg-[#1E28E6] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>
@@ -2002,38 +2038,41 @@ export default function BuildCheckWorkbench({
                   {report.social && (
                     <div
                       data-testid="mindshare-overview-strip"
-                      className="px-5 py-3 border-t border-white/[0.06] bg-[#080B11] flex flex-wrap items-center justify-between gap-3"
+                      className="px-5 py-4 border-t border-[#5D82FF]/25 bg-gradient-to-r from-[#0B1120] via-[#090D18] to-[#0B101D] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
-                      <div className="flex flex-wrap items-center gap-2.5 text-xs">
-                        <span className="inline-flex items-center gap-1.5 font-mono uppercase tracking-[0.08em] text-[#93C5FD] font-semibold">
-                          <Radio className="w-3.5 h-3.5" />
-                          <span>X Mindshare</span>
-                          <span className="text-white tabular-nums">
-                            {report.social.mindshareScore}/100
+                      <div className="space-y-1.5 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs sm:text-sm">
+                          <span className="inline-flex items-center gap-1.5 font-mono uppercase tracking-[0.08em] text-[#93C5FD] font-bold">
+                            <Radio className="w-4 h-4" />
+                            <span>X Mindshare Architecture</span>
+                            <span className="text-white tabular-nums">
+                              {report.social.mindshareScore}/100
+                            </span>
                           </span>
-                        </span>
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase border ${
-                            report.social.quadrant === "CONVICTION_RUNNER"
-                              ? "bg-emerald-500/12 text-emerald-300 border-emerald-500/35"
-                              : report.social.quadrant === "UNDERVALUED_BUILDER"
-                                ? "bg-[#2934FF]/18 text-[#93C5FD] border-[#5D82FF]/40"
-                                : report.social.quadrant === "NARRATIVE_OVERHEAT"
-                                  ? "bg-rose-500/12 text-rose-300 border-rose-500/35"
-                                  : report.social.quadrant === "CONTESTED_DISCOURSE"
-                                    ? "bg-amber-500/12 text-amber-300 border-amber-500/35"
-                                    : "bg-white/[0.05] text-slate-300 border-white/15"
-                          }`}
-                        >
-                          {report.social.quadrantLabel}
-                        </span>
-                        <span className="text-slate-400 font-mono text-[11px] tabular-nums">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase border ${
+                              report.social.quadrant === "CONVICTION_RUNNER"
+                                ? "bg-emerald-500/12 text-emerald-300 border-emerald-500/35"
+                                : report.social.quadrant === "UNDERVALUED_BUILDER"
+                                  ? "bg-[#2934FF]/18 text-[#93C5FD] border-[#5D82FF]/40"
+                                  : report.social.quadrant === "NARRATIVE_OVERHEAT"
+                                    ? "bg-rose-500/12 text-rose-300 border-rose-500/35"
+                                    : report.social.quadrant === "CONTESTED_DISCOURSE"
+                                      ? "bg-amber-500/12 text-amber-300 border-amber-500/35"
+                                      : "bg-white/[0.05] text-slate-300 border-white/15"
+                            }`}
+                          >
+                            {report.social.quadrantLabel}
+                          </span>
+                        </div>
+
+                        <div className="text-slate-300 font-mono text-xs tabular-nums">
                           {report.social.totalPostsSampled > 0
-                            ? `${report.social.kolCount} KOLs · ${report.social.sentimentBreakdown.bullishPct}% bull / ${report.social.sentimentBreakdown.skepticalPct}% skeptical · ${report.social.totalPostsSampled} posts`
+                            ? `${report.social.kolCount} KOLs · ${report.social.sentimentBreakdown.bullishPct}% bull / ${report.social.sentimentBreakdown.skepticalPct}% skeptical · ${report.social.totalPostsSampled} live posts across topics & cohorts`
                             : report.social.officialProfile
                               ? `@${report.social.officialProfile.username} (${report.social.officialProfile.followersCount.toLocaleString("en-US")} followers) · 0 recent mentions`
                               : "Pre-discovery on X"}
-                        </span>
+                        </div>
                       </div>
 
                       <button
@@ -2046,9 +2085,10 @@ export default function BuildCheckWorkbench({
                             block: "start",
                           });
                         }}
-                        className="px-2.5 py-1 rounded-md border border-[#5D82FF]/35 bg-[#2934FF]/15 hover:bg-[#2934FF]/28 text-[11px] font-mono text-[#BFD0FF] cursor-pointer transition-colors"
+                        className="min-h-[46px] px-5 py-2.5 rounded-xl border border-[#60A5FA]/60 bg-[#2934FF] hover:bg-[#1E28E6] text-xs sm:text-sm font-semibold text-white inline-flex items-center justify-center gap-2 shadow-[0_10px_28px_rgba(41,52,255,0.34)] cursor-pointer transition-all shrink-0"
                       >
-                        Inspect X Voices &amp; KOLs →
+                        <Radio className="w-4 h-4 shrink-0" />
+                        <span>Open X Mindshare &amp; Treemap →</span>
                       </button>
                     </div>
                   )}
