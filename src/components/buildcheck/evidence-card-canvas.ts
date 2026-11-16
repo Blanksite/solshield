@@ -187,14 +187,18 @@ export async function generateBuildCheckEvidencePng(
 
   // Try loading token logo
   let tokenLogoDrawn = false;
-  if (report.chain?.deep?.metadata?.imageUrl) {
+  const tokenLogoUrl =
+    report.chain?.deep?.metadata?.imageUrl ||
+    report.chain?.dexPair?.imageUrl ||
+    null;
+  if (tokenLogoUrl) {
     try {
       const tImg = new Image();
       tImg.crossOrigin = "anonymous";
       await new Promise<void>((res, rej) => {
         tImg.onload = () => res();
         tImg.onerror = () => rej();
-        tImg.src = report.chain!.deep!.metadata!.imageUrl!;
+        tImg.src = tokenLogoUrl;
       });
       ctx.save();
       ctx.beginPath();
@@ -218,9 +222,23 @@ export async function generateBuildCheckEvidencePng(
   }
   ctx.restore();
 
-  // Hero Headline
+  // Determine if target is a verified Tech/dApp product vs Authentic Meme vs Vaporware
+  const hasLiveDapp = Boolean(
+    (report.browser && (report.browser.totalXhrObserved > 0 || (report.browser.inspectedApiPayloads && report.browser.inspectedApiPayloads.length > 0))) ||
+    (report.claimsVsProof && report.claimsVsProof.some((c) => c.status === "VERIFIED" && /product|marketplace|api|platform|dapp|app/i.test(c.claim)))
+  );
+
+  const isVerifiedTechProduct =
+    report.verdict === "VERIFIED_BUILD" && (Boolean(hasGithub) || hasLiveDapp);
+
+  const isMemeListing =
+    rhStatus === "OFFICIAL_LISTED" ||
+    Boolean(report.chain?.tokenReport?.isPumpFunSuffix) ||
+    (!hasGithub && !hasLiveDapp && report.authenticityScore >= 70);
+
+  // Hero Headline (Strictly harmonious with codebase verdict, never contradictory)
   let heroHeadline = "REAL CODE. REAL ARCHITECTURE.";
-  if (rhStatus === "OFFICIAL_LISTED") {
+  if (rhStatus === "OFFICIAL_LISTED" || isMemeListing) {
     heroHeadline = "YES, IT'S THE REAL DEAL.";
   } else if (rhStatus === "IMPOSTOR_ALERT") {
     heroHeadline = "CLONE TRAP DETECTED.";
@@ -228,6 +246,12 @@ export async function generateBuildCheckEvidencePng(
     heroHeadline = "ALL MARKETING. ZERO COMMITS.";
   } else if (report.verdict === "HIGH_FABRICATION_RISK") {
     heroHeadline = "CERTIFIED VAPORWARE LARP.";
+  } else if (isVerifiedTechProduct) {
+    heroHeadline = "REAL CODE. REAL ARCHITECTURE.";
+  } else if (report.authenticityScore >= 75) {
+    heroHeadline = "YES, IT'S THE REAL DEAL.";
+  } else {
+    heroHeadline = "ALL MARKETING. ZERO COMMITS.";
   }
 
   ctx.fillStyle = "#FFFFFF";
@@ -256,9 +280,19 @@ export async function generateBuildCheckEvidencePng(
   if (hasGithub && report.github) {
     s1Val = `${report.github.recentCommitCount || 0} Commits`;
     s1Sub = `${report.github.uniqueAuthorCount || 1} Active Core Devs`;
-  } else if (report.componentScores.codeProof !== null) {
+  } else if (report.componentScores.codeProof !== null && report.componentScores.codeProof !== undefined && report.componentScores.codeProof > 0) {
     s1Val = `${Math.round(report.componentScores.codeProof)}/100`;
     s1Sub = "Codebase Score";
+  } else if (hasLiveDapp && report.verdict === "VERIFIED_BUILD") {
+    const xhrCount = report.browser?.totalXhrObserved || report.browser?.inspectedApiPayloads?.length || 0;
+    s1Val = xhrCount > 0 ? "Live dApp" : "Verified App";
+    s1Sub = xhrCount > 0 ? `${xhrCount} Live API Calls` : "Operational Web3";
+  } else if (report.verdict === "UNPROVEN_HYPE" || report.verdict === "HIGH_FABRICATION_RISK") {
+    s1Val = "No Code";
+    s1Sub = "Unverified Tech Claims";
+  } else {
+    s1Val = "Pure Meme";
+    s1Sub = "Zero Fake Tech LARP";
   }
 
   // Stat 2: SMART CONTRACT

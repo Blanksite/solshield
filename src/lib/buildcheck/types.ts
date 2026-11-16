@@ -104,6 +104,7 @@ export interface DexPairSummary {
   socials: Array<{ type: string; url: string }>;
   baseSymbol?: string | null;
   quoteSymbol?: string | null;
+  imageUrl?: string | null;
 }
 
 export interface TokenDeepMetadata {

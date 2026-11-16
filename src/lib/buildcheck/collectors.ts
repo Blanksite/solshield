@@ -600,6 +600,7 @@ export async function collectChainTokenIntel(
             .filter((s) => Boolean(s.url)),
           baseSymbol: tokenSymbol,
           quoteSymbol: top.quoteToken?.symbol || (isDeployedOnHood ? "ETH" : "USD"),
+          imageUrl: top.info?.imageUrl?.trim() || null,
         };
       }
     }
@@ -657,12 +658,58 @@ export async function collectChainTokenIntel(
         : [],
     };
 
+    const syntheticDeep: any = {
+      mintAddress: resolvedContractAddress,
+      metadata: {
+        name: tokenName,
+        symbol: tokenSymbol,
+        description: null,
+        imageUrl: dexPair?.imageUrl || null,
+        websites: dexPair?.websites || [],
+        twitterUrl: dexPair?.socials?.find((s) => s.type === "twitter" || s.url?.includes("x.com"))?.url || null,
+        telegramUrl: dexPair?.socials?.find((s) => s.type === "telegram" || s.url?.includes("t.me"))?.url || null,
+        launchpad: isDeployedOnHood ? "Robinhood Chain L2" : null,
+        createdAt: dexPair?.pairCreatedAt || null,
+      },
+      market: {
+        poolAddress: dexPair?.pairAddress || null,
+        dexId: dexPair?.dexId || `${topPairChain}-dex`,
+        priceUsd: null,
+        marketCapUsd: dexPair?.fdv || null,
+        fdvUsd: dexPair?.fdv || null,
+        liquidityUsd: dexPair?.liquidityUsd || 0,
+        volume24hUsd: dexPair?.volume24hUsd || 0,
+        priceChange5m: null,
+        priceChange1h: null,
+        priceChange6h: null,
+        priceChange24h: null,
+        buys1h: null,
+        sells1h: null,
+        buys24h: null,
+        sells24h: null,
+      },
+      holders: {
+        totalHolders: null,
+        top10ConcentrationPct: 0,
+        nodes: [],
+        clusters: [],
+      },
+      devHistory: {
+        deployerAddress: null,
+        fundedBy: null,
+        totalTxs: 0,
+        firstActiveAt: null,
+        launchedTokens: [],
+        recentTxs: [],
+      },
+    };
+
     return {
       mintAddress: resolvedContractAddress,
       tokenReport: syntheticTokenReport,
       dexPair,
       accountRecentTxCount: null,
-      deep: null,
+      deep: syntheticDeep,
       robinhood: robinhoodReport,
       chainFamily: "evm",
       networkName: isDeployedOnHood ? "Robinhood Chain" : `${topPairChain.toUpperCase()} Network`,
@@ -737,6 +784,7 @@ export async function collectChainTokenIntel(
           .filter((s) => Boolean(s.url)),
         baseSymbol: top.baseToken?.symbol || null,
         quoteSymbol: top.quoteToken?.symbol || "SOL",
+        imageUrl: dexImageUrl,
       };
     }
   }

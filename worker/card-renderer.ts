@@ -419,9 +419,23 @@ export function buildEvidenceCardHtml(
       ? `<div class="token-avatar token-avatar-fallback">${escapeHtml(extractTokenMonogram(report))}</div>`
       : "";
 
-  // Dynamic Headline
+  // Determine if target is a verified Tech/dApp product vs Authentic Meme vs Vaporware
+  const hasLiveDapp = Boolean(
+    (report.browser && (report.browser.totalXhrObserved > 0 || (report.browser.inspectedApiPayloads && report.browser.inspectedApiPayloads.length > 0))) ||
+    (report.claimsVsProof && report.claimsVsProof.some((c) => c.status === "VERIFIED" && /product|marketplace|api|platform|dapp|app/i.test(c.claim)))
+  );
+
+  const isVerifiedTechProduct =
+    report.verdict === "VERIFIED_BUILD" && (Boolean(hasGithub) || hasLiveDapp);
+
+  const isMemeListing =
+    rhStatus === "OFFICIAL_LISTED" ||
+    Boolean(report.chain?.tokenReport?.isPumpFunSuffix) ||
+    (!hasGithub && !hasLiveDapp && report.authenticityScore >= 70);
+
+  // 1. Dynamic Headline (Strictly harmonious with codebase verdict, never contradictory)
   let heroHeadline = "REAL CODE. REAL ARCHITECTURE.";
-  if (rhStatus === "OFFICIAL_LISTED") {
+  if (rhStatus === "OFFICIAL_LISTED" || isMemeListing) {
     heroHeadline = "YES, IT'S THE REAL DEAL.";
   } else if (rhStatus === "IMPOSTOR_ALERT") {
     heroHeadline = "CLONE TRAP DETECTED.";
@@ -429,8 +443,12 @@ export function buildEvidenceCardHtml(
     heroHeadline = "ALL MARKETING. ZERO COMMITS.";
   } else if (report.verdict === "HIGH_FABRICATION_RISK") {
     heroHeadline = "CERTIFIED VAPORWARE LARP.";
-  } else if (!hasGithub && report.target.kind === "token_ca") {
-    heroHeadline = report.authenticityScore >= 75 ? "YES, IT'S THE REAL DEAL." : "ALL MARKETING. ZERO COMMITS.";
+  } else if (isVerifiedTechProduct) {
+    heroHeadline = "REAL CODE. REAL ARCHITECTURE.";
+  } else if (report.authenticityScore >= 75) {
+    heroHeadline = "YES, IT'S THE REAL DEAL.";
+  } else {
+    heroHeadline = "ALL MARKETING. ZERO COMMITS.";
   }
 
   // 4 Modern Metric Cards (Clean text titles, NO emoji icons, "TECH CODEBASE" as first card)
@@ -443,9 +461,19 @@ export function buildEvidenceCardHtml(
     techCodebaseSub = report.github.uniqueAuthorCount
       ? `${report.github.uniqueAuthorCount} Active Core Devs`
       : `${report.github.topLanguages[0] || "Open Source"} Stack`;
-  } else if (report.componentScores.codeProof !== null && report.componentScores.codeProof !== undefined) {
+  } else if (report.componentScores.codeProof !== null && report.componentScores.codeProof !== undefined && report.componentScores.codeProof > 0) {
     techCodebaseVal = `${Math.round(report.componentScores.codeProof)}/100`;
     techCodebaseSub = report.componentScores.codeProof >= 70 ? "Active Builders" : "Low Code Footprint";
+  } else if (hasLiveDapp && report.verdict === "VERIFIED_BUILD") {
+    const xhrCount = report.browser?.totalXhrObserved || report.browser?.inspectedApiPayloads?.length || 0;
+    techCodebaseVal = xhrCount > 0 ? "Live dApp" : "Verified App";
+    techCodebaseSub = xhrCount > 0 ? `${xhrCount} Live API Calls` : "Operational Web3";
+  } else if (report.verdict === "UNPROVEN_HYPE" || report.verdict === "HIGH_FABRICATION_RISK") {
+    techCodebaseVal = "No Code";
+    techCodebaseSub = "Unverified Tech Claims";
+  } else {
+    techCodebaseVal = "Pure Meme";
+    techCodebaseSub = "Zero Fake Tech LARP";
   }
 
   // Card 2: OPEN SOURCE TECH / SMART CONTRACT
@@ -1055,7 +1083,9 @@ export async function renderEvidenceCardPng(
     if (!browser) throw new Error("Failed to acquire browser instance");
 
     const tokenLogoDataUri = await loadTokenLogoDataUri(
-      report.chain?.deep?.metadata?.imageUrl
+      report.chain?.deep?.metadata?.imageUrl ||
+      report.chain?.dexPair?.imageUrl ||
+      null
     );
     const page = await browser.newPage();
     try {
