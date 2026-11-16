@@ -68,6 +68,7 @@ import { generateBuildCheckEvidencePng } from "./evidence-card-canvas";
 import { MarketTelemetryPanel } from "./MarketTelemetryPanel";
 import { MindsharePulsePanel } from "./MindsharePulsePanel";
 import { ProofDispatchCard } from "./ProofDispatchCard";
+import { RobinhoodAuditCard } from "./RobinhoodAuditCard";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
 import { SniperCabalGraph } from "./SniperCabalGraph";
 import { TradingViewTokenChart } from "./TradingViewTokenChart";
@@ -268,7 +269,7 @@ export default function BuildCheckWorkbench({
   const [recentTokens, setRecentTokens] = useState<ScannedTokenSummary[]>([]);
   const [showResultLedger, setShowResultLedger] = useState(false);
   const [forensicTab, setForensicTab] = useState<
-    "proof" | "mindshare" | "holders" | "dev" | "browser" | "telemetry"
+    "proof" | "mindshare" | "robinhood" | "holders" | "dev" | "browser" | "telemetry"
   >("proof");
   const [isScanningMindshare, setIsScanningMindshare] = useState(false);
   const [mindshareScanError, setMindshareScanError] = useState<string | null>(null);
@@ -1118,6 +1119,30 @@ export default function BuildCheckWorkbench({
             )}
           </button>
 
+          {/* Robinhood Listing & Forensics Tab */}
+          <button
+            type="button"
+            data-testid="tab-robinhood"
+            onClick={() => setForensicTab("robinhood")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+              forensicTab === "robinhood"
+                ? "bg-[#2934FF]/22 text-white border border-[#2934FF]/50"
+                : "text-slate-400 hover:text-white border border-transparent hover:bg-white/[0.04]"
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Robinhood Listing</span>
+            {report.robinhood && report.robinhood.status === "IMPOSTOR_ALERT" && (
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+            )}
+            {report.robinhood && report.robinhood.status === "OFFICIAL_LISTED" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            )}
+            {report.robinhood && report.robinhood.status === "ROBINHOOD_CHAIN_NATIVE" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+            )}
+          </button>
+
           {report.chain?.deep?.holders && (
             <button
               type="button"
@@ -1193,6 +1218,17 @@ export default function BuildCheckWorkbench({
             isScanningMindshare={isScanningMindshare}
             scanError={mindshareScanError}
           />
+        )}
+
+        {forensicTab === "robinhood" && (
+          <div className="p-5">
+            <RobinhoodAuditCard
+              robinhood={report.robinhood || report.chain?.robinhood}
+              tokenSymbol={report.chain?.tokenReport?.symbol || tokenSymbol}
+              tokenName={report.chain?.tokenReport?.name}
+              address={report.chain?.mintAddress || report.target.mintAddress}
+            />
+          </div>
         )}
 
         {forensicTab === "holders" && report.chain?.deep?.holders && (
@@ -2215,6 +2251,71 @@ export default function BuildCheckWorkbench({
                           )}
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Robinhood Forensics & Listing Status Strip */}
+                  {report.robinhood && (
+                    <div
+                      data-testid="robinhood-overview-strip"
+                      className={`px-5 py-3.5 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                        report.robinhood.status === "IMPOSTOR_ALERT"
+                          ? "border-red-500/40 bg-gradient-to-r from-red-950/40 via-[#0A0D14] to-red-950/30"
+                          : report.robinhood.status === "TICKER_CLONE_WARNING"
+                            ? "border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-[#0A0D14] to-amber-950/30"
+                            : report.robinhood.status === "OFFICIAL_LISTED"
+                              ? "border-emerald-500/40 bg-gradient-to-r from-emerald-950/40 via-[#0A0D14] to-emerald-950/30"
+                              : report.robinhood.status === "ROBINHOOD_CHAIN_NATIVE"
+                                ? "border-sky-500/40 bg-gradient-to-r from-sky-950/40 via-[#0A0D14] to-sky-950/30"
+                                : "border-white/[0.08] bg-[#0A0C12]"
+                      }`}
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 text-white">
+                            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                            <span>Robinhood Telemetry:</span>
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono uppercase font-bold border ${
+                              report.robinhood.status === "OFFICIAL_LISTED"
+                                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+                                : report.robinhood.status === "IMPOSTOR_ALERT"
+                                  ? "bg-red-500/20 text-red-300 border-red-500/50 animate-pulse"
+                                  : report.robinhood.status === "TICKER_CLONE_WARNING"
+                                    ? "bg-amber-500/20 text-amber-300 border-amber-500/50"
+                                    : report.robinhood.status === "ROBINHOOD_CHAIN_NATIVE"
+                                      ? "bg-sky-500/20 text-sky-300 border-sky-500/50"
+                                      : "bg-white/[0.05] text-slate-400 border-white/10"
+                            }`}
+                          >
+                            {report.robinhood.status.replace(/_/g, " ")}
+                          </span>
+                          {report.robinhood.tradingPair && (
+                            <span className="text-emerald-300 font-mono text-[11px]">
+                              ({report.robinhood.tradingPair})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-300 line-clamp-1">
+                          {report.robinhood.warning || report.robinhood.summary}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        data-testid="jump-robinhood-tab"
+                        onClick={() => {
+                          setForensicTab("robinhood");
+                          forensicPanelRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                          });
+                        }}
+                        className="self-start sm:self-auto px-3.5 py-1.5 rounded-lg text-xs font-semibold font-mono text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.15] transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        Inspect Robinhood Receipts →
+                      </button>
                     </div>
                   )}
                 </div>

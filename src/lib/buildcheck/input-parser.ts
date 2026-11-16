@@ -2,6 +2,7 @@ import { normalizeHostname } from "../domain-guard";
 import type { ParsedTargetInput } from "./types";
 
 const BASE58_MINT_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/i;
 const GITHUB_RESERVED_ROOTS = new Set([
   "features",
   "enterprise",
@@ -138,7 +139,21 @@ export function parseBuildCheckInput(raw: string): ParsedTargetInput {
       rawInput: trimmed,
       kind: "token_ca",
       mintAddress: candidateToken,
+      contractAddress: candidateToken,
+      chainFamily: "solana",
       normalizedUrl: `https://dexscreener.com/solana/${candidateToken}`,
+      hostname: "dexscreener.com",
+    };
+  }
+
+  if (EVM_ADDRESS_REGEX.test(candidateToken)) {
+    return {
+      rawInput: trimmed,
+      kind: "evm_contract",
+      mintAddress: candidateToken,
+      contractAddress: candidateToken,
+      chainFamily: "evm",
+      normalizedUrl: `https://dexscreener.com/search?q=${candidateToken}`,
       hostname: "dexscreener.com",
     };
   }
@@ -146,6 +161,27 @@ export function parseBuildCheckInput(raw: string): ParsedTargetInput {
   const normalizedHttp = /^https?:\/\//i.test(candidateToken)
     ? candidateToken
     : `https://${candidateToken}`;
+
+  try {
+    const candidateUrl = new URL(normalizedHttp);
+    if (candidateUrl.hostname.toLowerCase().includes("robinhoodchain.blockscout.com")) {
+      const parts = candidateUrl.pathname.split("/").filter(Boolean);
+      const addr = parts.find((p) => EVM_ADDRESS_REGEX.test(p));
+      if (addr) {
+        return {
+          rawInput: trimmed,
+          kind: "evm_contract",
+          mintAddress: addr,
+          contractAddress: addr,
+          chainFamily: "evm",
+          normalizedUrl: `https://robinhoodchain.blockscout.com/address/${addr}`,
+          hostname: "robinhoodchain.blockscout.com",
+        };
+      }
+    }
+  } catch {
+    // continue
+  }
 
   const xParsed = parseXUrl(normalizedHttp);
   if (xParsed) {

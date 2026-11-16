@@ -298,9 +298,47 @@ export function buildDeterministicBuildCheck(
       }
     }
 
+    if (input.chain.robinhood) {
+      const rh = input.chain.robinhood;
+      if (rh.status === "IMPOSTOR_ALERT") {
+        s = Math.min(s, 15);
+        keyRedFlags.push(rh.warning || "CRITICAL: Token exploits Robinhood branding without authorization.");
+        claimsVsProof.push({
+          claim: "Official Robinhood Affiliation / Listing",
+          status: "CONTRADICTED",
+          evidence: rh.warning || "Robinhood has not issued a meme token on DEXs.",
+        });
+      } else if (rh.status === "TICKER_CLONE_WARNING") {
+        s = Math.min(s, 28);
+        keyRedFlags.push(rh.warning || `LOOKALIKE: Ticker mimics official Robinhood asset without matching contract.`);
+        claimsVsProof.push({
+          claim: `Official $${tok?.symbol || "TOKEN"} Contract`,
+          status: "CONTRADICTED",
+          evidence: rh.warning || "Contract mismatch against canonical Robinhood asset.",
+        });
+      } else if (rh.status === "OFFICIAL_LISTED") {
+        s = Math.max(s, 85);
+        verifiedSignals.push(rh.summary);
+        claimsVsProof.push({
+          claim: `Robinhood Crypto Listing (${rh.tradingPair || "Listed"})`,
+          status: "VERIFIED",
+          evidence: rh.summary,
+        });
+      } else if (rh.status === "ROBINHOOD_CHAIN_NATIVE") {
+        s = Math.max(s, 80);
+        verifiedSignals.push(rh.summary);
+        claimsVsProof.push({
+          claim: "Robinhood Chain L2 Deployment (Chain ID 4663)",
+          status: "VERIFIED",
+          evidence: rh.summary,
+        });
+      }
+    }
+
     chainProof = clampScore(s);
+    const chainLabel = input.chain.chainFamily === "evm" ? "EVM Smart Contract" : "On-chain Solana Mint";
     claimsVsProof.push({
-      claim: `On-chain Solana Mint (${input.chain.mintAddress.slice(0, 8)}...)`,
+      claim: `${chainLabel} (${input.chain.mintAddress.slice(0, 8)}...)`,
       status:
         chainProof >= 68 ? "VERIFIED" : chainProof >= 40 ? "MIXED" : "CONTRADICTED",
       evidence: tok
@@ -309,7 +347,7 @@ export function buildDeterministicBuildCheck(
           : `${tok.tokenProgram} · MintAuth=${tok.mintAuthority ? "ACTIVE" : "Null"} · FreezeAuth=${
               tok.freezeAuthority ? "ACTIVE" : "Null"
             } · Top5=${tok.top5Pct.toFixed(1)}%`
-        : input.chain.error || "Unable to verify SPL mint structure.",
+        : input.chain.error || "Unable to verify token structure.",
     });
   }
 

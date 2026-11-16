@@ -8,6 +8,10 @@ import {
   parseXUrl,
 } from "./input-parser";
 import { collectTokenDeepIntel } from "./token-forensics";
+import {
+  verifyRobinhoodChainDeployment,
+  verifyRobinhoodStatus,
+} from "./robinhood-verifier";
 import type {
   ChainTokenIntelReport,
   DexPairSummary,
@@ -477,6 +481,129 @@ export async function collectGitHubForensics(
 export async function collectChainTokenIntel(
   mintAddress: string
 ): Promise<ChainTokenIntelReport> {
+  const isEvm = mintAddress.startsWith("0x");
+
+  if (isEvm) {
+    const [dexRes, hoodDeploy] = await Promise.allSettled([
+      fetchJsonWithTimeout<{
+        pairs?: Array<{
+          chainId?: string;
+          dexId?: string;
+          url?: string;
+          pairAddress?: string;
+          baseToken?: { address?: string; name?: string; symbol?: string };
+          liquidity?: { usd?: number };
+          fdv?: number;
+          volume?: { h24?: number };
+          pairCreatedAt?: number;
+          info?: {
+            imageUrl?: string;
+            websites?: Array<{ url?: string }>;
+            socials?: Array<{ type?: string; url?: string }>;
+          };
+        }>;
+      }>(`https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(mintAddress)}`),
+      verifyRobinhoodChainDeployment(mintAddress),
+    ]);
+
+    const isDeployedOnHood =
+      hoodDeploy.status === "fulfilled" && hoodDeploy.value.isDeployed;
+
+    let dexPair: DexPairSummary | null = null;
+    let tokenName = "EVM Token";
+    let tokenSymbol = "EVM";
+    let topPairChain = isDeployedOnHood ? "robinhood" : "ethereum";
+
+    if (dexRes.status === "fulfilled" && dexRes.value.ok && dexRes.value.data?.pairs) {
+      const pairs = [...dexRes.value.data.pairs].sort(
+        (a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0)
+      );
+      const top = pairs[0];
+      if (top) {
+        if (top.baseToken?.name) tokenName = top.baseToken.name;
+        if (top.baseToken?.symbol) tokenSymbol = top.baseToken.symbol;
+        if (top.chainId) topPairChain = top.chainId;
+        const createdMs = top.pairCreatedAt ?? null;
+        const ageHours = createdMs
+          ? Number(((Date.now() - createdMs) / 3_600_000).toFixed(1))
+          : null;
+        dexPair = {
+          dexId: top.dexId || `${topPairChain}-dex`,
+          pairAddress: top.pairAddress || "",
+          pairUrl: top.url || `https://dexscreener.com/${topPairChain}/${mintAddress}`,
+          liquidityUsd: Math.round(top.liquidity?.usd ?? 0),
+          fdv: top.fdv ? Math.round(top.fdv) : null,
+          volume24hUsd: Math.round(top.volume?.h24 ?? 0),
+          pairCreatedAt: createdMs ? new Date(createdMs).toISOString() : null,
+          pairAgeHours: ageHours,
+          websites: (top.info?.websites ?? [])
+            .map((w) => w.url || "")
+            .filter(Boolean),
+          socials: (top.info?.socials ?? [])
+            .map((s) => ({ type: s.type || "social", url: s.url || "" }))
+            .filter((s) => Boolean(s.url)),
+        };
+      }
+    }
+
+    const robinhoodReport = await verifyRobinhoodStatus({
+      address: mintAddress,
+      name: tokenName,
+      symbol: tokenSymbol,
+      chainFamily: "evm",
+      isRobinhoodChain: isDeployedOnHood,
+    });
+
+    const isHighRisk = robinhoodReport.impostorRiskScore >= 70;
+    const syntheticTokenReport: any = {
+      mintAddress,
+      tokenProgram: "SPL Token",
+      programId: isDeployedOnHood ? "ROBINHOOD_CHAIN_L2" : "EVM_ERC20",
+      isToken2022: false,
+      isPumpFunSuffix: false,
+      name: tokenName,
+      symbol: tokenSymbol,
+      decimals: 18,
+      rawSupply: "0",
+      supplyUi: 0,
+      mintAuthority: null,
+      freezeAuthority: null,
+      extensions: isDeployedOnHood ? ["Robinhood Chain Arbitrum Orbit"] : [],
+      transferFeeBps: null,
+      permanentDelegate: null,
+      transferHookProgramId: null,
+      defaultAccountState: null,
+      topHolders: [],
+      top5Pct: 0,
+      top10Pct: 0,
+      riskScore: isHighRisk ? robinhoodReport.impostorRiskScore : 10,
+      classification: isHighRisk ? "CRITICAL" : "SAFE",
+      recommendedAction: isHighRisk ? "HIGH_RUG_RISK" : "VERIFIED_SAFE",
+      executiveSummary: robinhoodReport.summary,
+      flags: robinhoodReport.warning
+        ? [
+            {
+              code: "ROBINHOOD_WARNING",
+              severity: isHighRisk ? "HIGH" : "MEDIUM",
+              title: "Robinhood Asset Warning",
+              description: robinhoodReport.warning,
+            },
+          ]
+        : [],
+    };
+
+    return {
+      mintAddress,
+      tokenReport: syntheticTokenReport,
+      dexPair,
+      accountRecentTxCount: null,
+      deep: null,
+      robinhood: robinhoodReport,
+      chainFamily: "evm",
+      networkName: isDeployedOnHood ? "Robinhood Chain" : `${topPairChain.toUpperCase()} Network`,
+    };
+  }
+
   const [tokenRes, dexRes, sigRes] = await Promise.allSettled([
     scanSolanaTokenMint(mintAddress),
     fetchJsonWithTimeout<{
@@ -627,12 +754,23 @@ export async function collectChainTokenIntel(
     }
   }
 
+  const robinhoodReport = await verifyRobinhoodStatus({
+    address: mintAddress,
+    name: tokenReport?.name || null,
+    symbol: tokenReport?.symbol || null,
+    chainFamily: "solana",
+    metadataText: deep?.metadata?.description || null,
+  });
+
   return {
     mintAddress,
     tokenReport,
     dexPair,
     accountRecentTxCount,
     deep,
+    robinhood: robinhoodReport,
+    chainFamily: "solana",
+    networkName: "Solana Mainnet",
     error: errorMsg,
   };
 }

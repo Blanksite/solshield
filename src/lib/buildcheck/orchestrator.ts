@@ -88,7 +88,7 @@ export function buildBuildCheckCacheKeys(
   enableBrowser: boolean
 ): { primaryKey: string; fallbackKeys: string[] } {
   let baseKey: string;
-  if (target.kind === "token_ca" && target.mintAddress) {
+  if ((target.kind === "token_ca" || target.kind === "evm_contract") && target.mintAddress) {
     baseKey = `mint:${target.mintAddress}`;
   } else if (target.kind === "github_repo" && target.githubOwnerRepo) {
     baseKey = `gh:${target.githubOwnerRepo.toLowerCase()}`;
@@ -293,7 +293,7 @@ export async function runBuildCheckInvestigation(
   const enableBrowser = options.enableBrowser !== false;
   const target = parseBuildCheckInput(rawInput);
 
-  if (target.normalizedUrl && target.kind !== "token_ca") {
+  if (target.normalizedUrl && target.kind !== "token_ca" && target.kind !== "evm_contract") {
     await assertSafePublicHttpUrl(target.normalizedUrl);
   }
 
@@ -505,7 +505,7 @@ async function executeFreshBuildCheckInvestigation(
       url: target.normalizedUrl,
       label: `GitHub · ${target.githubOwnerRepo}`,
     });
-  } else if (target.kind === "token_ca") {
+  } else if (target.kind === "token_ca" || target.kind === "evm_contract") {
     const linkedSite = chainReport?.dexPair?.websites?.[0];
     if (linkedSite) {
       try {
@@ -786,6 +786,8 @@ async function executeFreshBuildCheckInvestigation(
   } else {
     finalReport.social = null;
   }
+
+  finalReport.robinhood = chainReport?.robinhood || null;
 
   finalReport.elapsedMs = elapsed();
 

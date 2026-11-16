@@ -3,6 +3,7 @@ import type { TokenScanReport } from "../token-scanner";
 
 export type BuildCheckTargetKind =
   | "token_ca"
+  | "evm_contract"
   | "x_post"
   | "x_profile"
   | "github_repo"
@@ -12,6 +13,8 @@ export interface ParsedTargetInput {
   rawInput: string;
   kind: BuildCheckTargetKind;
   mintAddress?: string;
+  contractAddress?: string;
+  chainFamily?: "solana" | "evm" | "unknown";
   githubOwnerRepo?: string;
   xHandle?: string;
   xTweetId?: string;
@@ -220,12 +223,40 @@ export interface TokenDeepForensics {
   devHistory: DevWalletHistory;
 }
 
+export type RobinhoodListingStatus =
+  | "OFFICIAL_LISTED"
+  | "IMPOSTOR_ALERT"
+  | "TICKER_CLONE_WARNING"
+  | "ROBINHOOD_CHAIN_NATIVE"
+  | "NOT_LISTED";
+
+export interface RobinhoodVerificationReport {
+  status: RobinhoodListingStatus;
+  isListedOnRobinhood: boolean;
+  isRobinhoodChain: boolean;
+  tradingPair?: string | null;
+  assetType: "crypto_token" | "tokenized_rwa" | "layer1_coin" | "unlisted";
+  summary: string;
+  warning?: string | null;
+  officialContract?: string | null;
+  officialChain?: string | null;
+  impostorRiskScore: number;
+  chainFamily: "solana" | "evm" | "unknown";
+  networkName?: string;
+  chainId?: number | null;
+  verifiedAt: string;
+  blockscoutUrl?: string | null;
+}
+
 export interface ChainTokenIntelReport {
   mintAddress: string;
   tokenReport: TokenScanReport | null;
   dexPair: DexPairSummary | null;
   accountRecentTxCount: number | null;
   deep?: TokenDeepForensics | null;
+  robinhood?: RobinhoodVerificationReport | null;
+  chainFamily?: "solana" | "evm" | "unknown";
+  networkName?: string;
   error?: string;
 }
 
@@ -303,6 +334,7 @@ export interface BuildCheckReport {
   domain: DomainIntelReport | null;
   xPost: XPostIntelReport | null;
   social?: SocialMindshareReport | null;
+  robinhood?: RobinhoodVerificationReport | null;
 }
 
 export type MindshareStance = "BULLISH" | "NEUTRAL" | "SKEPTICAL" | "SHILL_NOISE";
