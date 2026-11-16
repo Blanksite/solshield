@@ -3,16 +3,24 @@
 import React, { useEffect, useState } from "react";
 import {
   Clock,
+  ExternalLink,
+  Globe,
   Info,
+  Layers,
   Loader2,
   ShieldCheck,
 } from "lucide-react";
+import type { RobinhoodVerificationReport } from "@/lib/buildcheck/types";
 
 interface ShieldedSwapPanelProps {
   mintAddress: string;
   symbol?: string | null;
   decimals?: number;
   priceUsd?: number | null;
+  chainFamily?: "solana" | "evm" | "unknown";
+  networkName?: string;
+  robinhood?: RobinhoodVerificationReport | null;
+  dexPairUrl?: string | null;
 }
 
 interface QuotePreview {
@@ -34,6 +42,10 @@ export function ShieldedSwapPanel({
   symbol,
   decimals = 6,
   priceUsd,
+  chainFamily = "solana",
+  networkName,
+  robinhood,
+  dexPairUrl,
 }: ShieldedSwapPanelProps) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amountInput, setAmountInput] = useState<string>("0.25");
@@ -42,10 +54,23 @@ export function ShieldedSwapPanel({
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
+  const isEvm =
+    chainFamily === "evm" ||
+    mintAddress.startsWith("0x") ||
+    robinhood?.chainFamily === "evm";
+
   const numericAmount = Number(amountInput);
   const tokenLabel = symbol || mintAddress.slice(0, 5);
 
   useEffect(() => {
+    // If EVM / Robinhood chain, bypass Solana Jupiter router
+    if (isEvm) {
+      setQuote(null);
+      setQuoteLoading(false);
+      setQuoteError(null);
+      return;
+    }
+
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       setQuote(null);
       return;
@@ -93,8 +118,104 @@ export function ShieldedSwapPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [mintAddress, decimals, side, numericAmount, slippageBps]);
+  }, [mintAddress, decimals, side, numericAmount, slippageBps, isEvm]);
 
+  // EVM & Robinhood Chain Routing View
+  if (isEvm) {
+    const isRobinhoodNative =
+      robinhood?.status === "ROBINHOOD_CHAIN_NATIVE" ||
+      networkName?.toLowerCase().includes("robinhood");
+    const isListed =
+      robinhood?.status === "OFFICIAL_LISTED" || Boolean(robinhood?.tradingPair);
+
+    return (
+      <div className="rounded-xl border border-white/[0.08] bg-[#0D1017] p-4 space-y-3.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-white">
+            <Layers className="w-4 h-4 text-[#84A7FF]" />
+            <span>EVM &amp; Robinhood Liquidity</span>
+          </div>
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#2934FF]/15 border border-[#2934FF]/30 text-[10px] font-medium text-[#93C5FD]">
+            {networkName || (isRobinhoodNative ? "Robinhood Chain L2" : "EVM Network")}
+          </span>
+        </div>
+
+        <div className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+          <Info className="w-3.5 h-3.5 text-[#84A7FF] shrink-0 mt-0.5" />
+          <span>
+            Solana Jupiter instant swaps apply only to SPL tokens. For{" "}
+            <span className="text-white font-medium">{tokenLabel}</span>, trading is
+            routed through EVM DEXs or official Robinhood Crypto pairs.
+          </span>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="space-y-2 pt-1">
+          {isListed && (
+            <a
+              href="https://robinhood.com/crypto/"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 px-3 rounded-lg border border-[#00C805]/40 bg-[#00C805]/10 hover:bg-[#00C805]/20 text-[#00C805] text-xs font-semibold inline-flex items-center justify-between gap-2 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Globe className="w-3.5 h-3.5" />
+                <span>Trade on Robinhood Crypto</span>
+              </div>
+              <span className="font-mono text-[11px] bg-[#00C805]/20 px-1.5 py-0.5 rounded">
+                {robinhood?.tradingPair || `${tokenLabel}-USD`}
+              </span>
+            </a>
+          )}
+
+          {dexPairUrl ? (
+            <a
+              href={dexPairUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 px-3 rounded-lg border border-white/10 bg-[#080A0F] hover:border-white/20 text-slate-200 text-xs font-semibold inline-flex items-center justify-between gap-2 transition-colors"
+            >
+              <span>Trade on Uniswap / DEX</span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            </a>
+          ) : (
+            <a
+              href={`https://dexscreener.com/search?q=${encodeURIComponent(mintAddress)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2.5 px-3 rounded-lg border border-white/10 bg-[#080A0F] hover:border-white/20 text-slate-200 text-xs font-semibold inline-flex items-center justify-between gap-2 transition-colors"
+            >
+              <span>Find Pool on DexScreener</span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            </a>
+          )}
+
+          {robinhood?.blockscoutUrl && (
+            <a
+              href={robinhood.blockscoutUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-2 px-3 rounded-lg border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05] text-slate-300 text-xs inline-flex items-center justify-between gap-2 transition-colors"
+            >
+              <span>Inspect on Blockscout Explorer</span>
+              <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            </a>
+          )}
+        </div>
+
+        {priceUsd && priceUsd > 0 && (
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 border-t border-white/[0.06] pt-2.5">
+            <span>Live USD Reference</span>
+            <span className="text-white font-semibold tabular-nums">
+              ${priceUsd < 0.01 ? priceUsd.toFixed(8) : priceUsd.toFixed(4)}
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Solana Jupiter Shielded Swap Panel
   return (
     <div className="rounded-xl border border-white/[0.08] bg-[#0D1017] p-4 space-y-3.5">
       <div className="flex items-center justify-between gap-2">

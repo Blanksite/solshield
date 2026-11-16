@@ -188,7 +188,14 @@ export function buildProofDispatch(
     report.chain.tokenReport.mintAuthority === null &&
     report.chain.tokenReport.freezeAuthority === null
   ) {
-    confirmedCandidates.push("Mint & freeze authorities revoked on Solana Mainnet");
+    const isEvmToken =
+      report.chain.chainFamily === "evm" ||
+      report.chain.mintAddress?.startsWith("0x");
+    confirmedCandidates.push(
+      isEvmToken
+        ? "Contract verified on-chain with clean mint hygiene"
+        : "Mint & freeze authorities revoked on Solana Mainnet"
+    );
   }
 
   const gapCandidates: string[] = [

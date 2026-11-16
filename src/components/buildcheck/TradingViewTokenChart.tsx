@@ -32,6 +32,9 @@ interface TradingViewTokenChartProps {
   symbol?: string | null;
   totalSupply?: number | null;
   devTxs?: DevTxEntry[];
+  chainFamily?: "solana" | "evm" | "unknown";
+  networkName?: string;
+  quoteSymbol?: string | null;
 }
 
 function formatCompactPrice(val: number, isMcap: boolean): string {
@@ -52,6 +55,9 @@ export function TradingViewTokenChart({
   symbol,
   totalSupply,
   devTxs = [],
+  chainFamily = "solana",
+  networkName,
+  quoteSymbol,
 }: TradingViewTokenChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -67,6 +73,8 @@ export function TradingViewTokenChart({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [hoverBar, setHoverBar] = useState<CandleBar | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+
+  const isEvmToken = chainFamily === "evm" || mintAddress.startsWith("0x");
 
   const supplyMultiplier = useMemo(() => {
     if (mode === "mcap" && totalSupply && totalSupply > 0) return totalSupply;
@@ -84,6 +92,11 @@ export function TradingViewTokenChart({
 
     const params = new URLSearchParams({ mint: mintAddress, tf });
     if (poolAddress) params.set("pool", poolAddress);
+    if (networkName) {
+      params.set("network", networkName);
+    } else if (isEvmToken) {
+      params.set("network", "eth");
+    }
 
     fetch(`/api/token-chart?${params.toString()}`, { cache: "no-store" })
       .then((res) => res.json())
@@ -357,7 +370,7 @@ export function TradingViewTokenChart({
           </div>
 
           <span className="hidden sm:inline font-mono text-[11px] text-slate-400 pl-1">
-            {symbol || "TOKEN"}/SOL
+            {symbol || "TOKEN"}/{quoteSymbol || (isEvmToken ? "USD" : "SOL")}
           </span>
         </div>
 

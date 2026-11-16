@@ -994,7 +994,17 @@ export default function BuildCheckWorkbench({
       <div className="p-3.5 grid grid-cols-2 gap-2">
         {[
           { key: "github" as const, label: "GitHub", Icon: Code2, span: "" },
-          { key: "chain" as const, label: "Solana Chain", Icon: Coins, span: "" },
+          {
+            key: "chain" as const,
+            label:
+              report?.chain?.chainFamily === "evm" ||
+              report?.chain?.mintAddress?.startsWith("0x") ||
+              input.trim().startsWith("0x")
+                ? report?.chain?.networkName || "EVM Chain"
+                : "Solana Chain",
+            Icon: Coins,
+            span: "",
+          },
           { key: "domain" as const, label: "Domain RDAP", Icon: Globe, span: "" },
           { key: "xpost" as const, label: "X / Claim", Icon: Activity, span: "" },
           {
@@ -1093,7 +1103,7 @@ export default function BuildCheckWorkbench({
             }`}
           >
             <FileJson2 className="w-3.5 h-3.5" />
-            <span>Claims &amp; API Audits</span>
+            <span>Claims &amp; Tech Audits</span>
           </button>
 
           <button
@@ -1205,7 +1215,7 @@ export default function BuildCheckWorkbench({
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>GitHub, RPC &amp; Vision Logs</span>
+            <span>GitHub Code &amp; Tech Logs</span>
           </button>
         </div>
 
@@ -1346,6 +1356,78 @@ export default function BuildCheckWorkbench({
               </div>
             </div>
 
+            {/* Tech Architecture & Codebase Forensics */}
+            {report.github && report.github.exists && (
+              <div className="p-5 space-y-3 border-t border-white/[0.06]">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Code2 className="w-4 h-4 text-[#84A7FF]" />
+                    <span className="text-sm font-semibold text-white">
+                      Tech Architecture &amp; Open Source Codebase
+                    </span>
+                  </div>
+                  <a
+                    href={report.github.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#2934FF]/15 border border-[#2934FF]/35 text-xs text-[#93C5FD] hover:text-white font-mono transition-colors"
+                  >
+                    <span>{report.github.fullName}</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono">
+                  <div className="p-3 rounded-lg bg-[#080A0F] border border-white/[0.07] space-y-1">
+                    <div className="text-slate-400 text-[11px]">Primary Languages</div>
+                    <div className="text-white font-semibold truncate">
+                      {report.github.topLanguages.join(", ") || "N/A"}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#080A0F] border border-white/[0.07] space-y-1">
+                    <div className="text-slate-400 text-[11px]">Recent Commits</div>
+                    <div className="text-white font-semibold">
+                      {report.github.recentCommitCount} commits
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#080A0F] border border-white/[0.07] space-y-1">
+                    <div className="text-slate-400 text-[11px]">Burst Ratio (Rushed)</div>
+                    <div
+                      className={`font-semibold ${
+                        report.github.burstCommitRatio > 0.6
+                          ? "text-amber-300"
+                          : "text-emerald-300"
+                      }`}
+                    >
+                      {Math.round(report.github.burstCommitRatio * 100)}%
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#080A0F] border border-white/[0.07] space-y-1">
+                    <div className="text-slate-400 text-[11px]">Repo Age &amp; Stars</div>
+                    <div className="text-white font-semibold">
+                      {report.github.ageDays ?? "N/A"}d · {report.github.stars}★
+                    </div>
+                  </div>
+                </div>
+
+                {report.github.topLevelFiles.length > 0 && (
+                  <div className="p-3 rounded-lg bg-[#080A0F] border border-white/[0.07] text-xs font-mono space-y-1">
+                    <div className="text-slate-400 text-[11px]">Key Tech Manifests &amp; Files</div>
+                    <div className="text-slate-200 flex flex-wrap gap-1.5 pt-0.5">
+                      {report.github.topLevelFiles.map((file) => (
+                        <span
+                          key={file}
+                          className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-[11px] text-slate-300"
+                        >
+                          {file}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Inspected Browser XHR API Payloads */}
             {(report.browser.inspectedApiPayloads?.length ||
               (report.browser.pageErrorsCount ?? 0) > 0) && (
@@ -1430,8 +1512,18 @@ export default function BuildCheckWorkbench({
 
             {report.chain && (
               <div className="p-4 rounded-xl bg-[#080A0F] border border-white/[0.07] space-y-2">
-                <div className="text-[#93C5FD]">SOLANA ON-CHAIN MINT &amp; DEX</div>
-                <div className="break-all">Mint: {report.chain.mintAddress}</div>
+                <div className="text-[#93C5FD]">
+                  {report.chain.chainFamily === "evm" || report.chain.mintAddress.startsWith("0x")
+                    ? (report.chain.networkName || "EVM").toUpperCase()
+                    : "SOLANA"}{" "}
+                  ON-CHAIN CONTRACT &amp; DEX
+                </div>
+                <div className="break-all">
+                  {report.chain.chainFamily === "evm" || report.chain.mintAddress.startsWith("0x")
+                    ? "Contract"
+                    : "Mint"}
+                  : {report.chain.mintAddress}
+                </div>
                 {report.chain.tokenReport && (
                   <>
                     <div>
@@ -1907,13 +1999,21 @@ export default function BuildCheckWorkbench({
                               </a>
                             )}
                             <a
-                              href={`https://solscan.io/token/${report.chain.mintAddress}`}
+                              href={
+                                report.chain.chainFamily === "evm" || report.chain.mintAddress.startsWith("0x")
+                                  ? (report.robinhood?.blockscoutUrl || `https://etherscan.io/token/${report.chain.mintAddress}`)
+                                  : `https://solscan.io/token/${report.chain.mintAddress}`
+                              }
                               target="_blank"
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 text-[11px] text-slate-300 hover:text-white"
                             >
                               <ExternalLink className="w-3 h-3 text-[#84A7FF]" />
-                              <span>Solscan</span>
+                              <span>
+                                {report.chain.chainFamily === "evm" || report.chain.mintAddress.startsWith("0x")
+                                  ? (report.chain.networkName?.includes("Robinhood") ? "Blockscout" : "Explorer")
+                                  : "Solscan"}
+                              </span>
                             </a>
                           </div>
                         </div>
@@ -2337,6 +2437,19 @@ export default function BuildCheckWorkbench({
                       symbol={tokenSymbol}
                       totalSupply={report.chain.tokenReport?.supplyUi}
                       devTxs={report.chain.deep?.devHistory.recentTxs}
+                      chainFamily={
+                        report.chain.chainFamily ||
+                        (report.chain.mintAddress.startsWith("0x") ? "evm" : "solana")
+                      }
+                      networkName={report.chain.networkName}
+                      quoteSymbol={
+                        report.chain.dexPair
+                          ? report.chain.chainFamily === "evm" ||
+                            report.chain.mintAddress.startsWith("0x")
+                            ? "USD"
+                            : null
+                          : null
+                      }
                     />
                     {renderForensicTabPanel()}
                   </div>
@@ -2348,6 +2461,13 @@ export default function BuildCheckWorkbench({
                       symbol={tokenSymbol}
                       decimals={report.chain.tokenReport?.decimals ?? 6}
                       priceUsd={tokenMarket?.priceUsd}
+                      chainFamily={
+                        report.chain.chainFamily ||
+                        (report.chain.mintAddress.startsWith("0x") ? "evm" : "solana")
+                      }
+                      networkName={report.chain.networkName}
+                      robinhood={report.robinhood || report.chain.robinhood}
+                      dexPairUrl={report.chain.dexPair?.pairUrl}
                     />
 
                     {/* Market Telemetry + Delta Since 1st Audit + Audit Checkpoints */}
@@ -2433,7 +2553,13 @@ export default function BuildCheckWorkbench({
                           <span className="text-slate-400">Explorers</span>
                           <div className="flex items-center gap-2 font-mono text-[11px]">
                             <a
-                              href={`https://dexscreener.com/solana/${report.chain.mintAddress}`}
+                              href={
+                                report.chain.dexPair?.pairUrl ||
+                                (report.chain.chainFamily === "evm" ||
+                                report.chain.mintAddress.startsWith("0x")
+                                  ? `https://dexscreener.com/search?q=${encodeURIComponent(report.chain.mintAddress)}`
+                                  : `https://dexscreener.com/solana/${report.chain.mintAddress}`)
+                              }
                               target="_blank"
                               rel="noreferrer"
                               className="text-[#84A7FF] hover:text-white"
@@ -2442,12 +2568,23 @@ export default function BuildCheckWorkbench({
                             </a>
                             <span className="text-white/20">·</span>
                             <a
-                              href={`https://solscan.io/token/${report.chain.mintAddress}`}
+                              href={
+                                report.chain.chainFamily === "evm" ||
+                                report.chain.mintAddress.startsWith("0x")
+                                  ? (report.robinhood?.blockscoutUrl ||
+                                      `https://etherscan.io/token/${report.chain.mintAddress}`)
+                                  : `https://solscan.io/token/${report.chain.mintAddress}`
+                              }
                               target="_blank"
                               rel="noreferrer"
                               className="text-[#84A7FF] hover:text-white"
                             >
-                              Solscan
+                              {report.chain.chainFamily === "evm" ||
+                              report.chain.mintAddress.startsWith("0x")
+                                ? (report.chain.networkName?.includes("Robinhood")
+                                    ? "Blockscout"
+                                    : "Explorer")
+                                : "Solscan"}
                             </a>
                           </div>
                         </div>

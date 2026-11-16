@@ -585,11 +585,27 @@ async function executeFreshBuildCheckInvestigation(
           },
         });
 
-  // Follow newly discovered GitHub repo, X post, Mint CA, or Domain from live browser run!
+  // Extract any GitHub repositories listed in DEX pair metadata or socials
+  const dexGhCandidates: string[] = [];
+  if (chainReport?.dexPair) {
+    const urlsToCheck = [
+      ...(chainReport.dexPair.websites || []),
+      ...(chainReport.dexPair.socials?.map((s) => s.url) || []),
+    ];
+    for (const u of urlsToCheck) {
+      const match = u.match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/i);
+      if (match) {
+        dexGhCandidates.push(`${match[1]}/${match[2].replace(/\.git$/i, "")}`);
+      }
+    }
+  }
+
+  // Follow newly discovered GitHub repo, X post, Mint CA, or Domain from live browser run & DEX links!
   const allGhCandidates = Array.from(
     new Set([
       ...browserSummary.discoveredGithubRepos,
       ...(xPostReport?.extractedGithubRepos ?? []),
+      ...dexGhCandidates,
     ])
   );
   const discoveredGh = !githubReport

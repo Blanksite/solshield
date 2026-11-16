@@ -557,7 +557,9 @@ export async function collectChainTokenIntel(
     const isHighRisk = robinhoodReport.impostorRiskScore >= 70;
     const syntheticTokenReport: any = {
       mintAddress,
-      tokenProgram: "SPL Token",
+      tokenProgram: isDeployedOnHood
+        ? "Robinhood Chain L2"
+        : `${topPairChain.toUpperCase()} ERC-20`,
       programId: isDeployedOnHood ? "ROBINHOOD_CHAIN_L2" : "EVM_ERC20",
       isToken2022: false,
       isPumpFunSuffix: false,
