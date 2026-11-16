@@ -99,13 +99,18 @@ const MARKETING_CONTRADICTION_RULES: ContradictionRule[] = [
     check: ({ input }) => {
       const tok = input.chain?.tokenReport;
       const holders = input.chain?.deep?.holders;
+      const isEvmToken =
+        input.chain?.chainFamily === "evm" ||
+        input.chain?.mintAddress?.startsWith("0x");
       if (
         tok &&
         (tok.mintAuthority !== null ||
           tok.freezeAuthority !== null ||
           tok.riskScore >= 55)
       ) {
-        return `Copy highlights a third-party audit while Solana mint/freeze authorities or risk (${tok.riskScore}/100) remain flagged.`;
+        return isEvmToken
+          ? `Copy highlights a third-party audit while smart contract security or risk (${tok.riskScore}/100) remain flagged.`
+          : `Copy highlights a third-party audit while Solana mint/freeze authorities or risk (${tok.riskScore}/100) remain flagged.`;
       }
       if (holders && holders.score < 45) {
         return `Copy claims audited safety, yet on-chain holder hygiene scored ${holders.score}/100.`;
@@ -528,7 +533,7 @@ export function buildDeterministicBuildCheck(
   // Guardrail 1: Zero verifiable code AND zero verifiable chain proof cannot hit VERIFIED_BUILD
   if (codeProof === null && chainProof === null) {
     baseScore = Math.min(baseScore, 62);
-    keyRedFlags.push("No verifiable GitHub repository or Solana Mint CA discovered on target.");
+    keyRedFlags.push("No verifiable GitHub repository or on-chain Token CA discovered on target.");
   }
 
   // Guardrail 2: Bare Token CA with zero verifiable codebase AND zero verifiable website cannot score > 64

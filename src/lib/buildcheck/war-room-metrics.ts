@@ -154,7 +154,7 @@ export function computeDualAxisSummary(report: BuildCheckReport): DualAxisSummar
       score: null,
       label: "OFF-CHAIN TARGET",
       tone: "slate",
-      breakdown: "No Solana mint attached",
+      breakdown: "No on-chain token attached",
       pillars: [],
     };
   } else {

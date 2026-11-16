@@ -127,7 +127,7 @@ export function parseXUrl(rawUrl: string): {
 export function parseBuildCheckInput(raw: string): ParsedTargetInput {
   const trimmed = raw.trim();
   if (!trimmed) {
-    throw new Error("Please paste a Solana token CA, X link, GitHub repo, or website URL.");
+    throw new Error("Please paste a token CA (Solana or EVM/Robinhood), X link, GitHub repo, or website URL.");
   }
 
   // Extract first explicit URL or token if user pasted a multi-word snippet
@@ -209,7 +209,7 @@ export function parseBuildCheckInput(raw: string): ParsedTargetInput {
   const host = normalizeHostname(normalizedHttp);
   if (!host || !host.includes(".")) {
     throw new Error(
-      "Could not recognize a valid Solana CA, GitHub repo, X link, or public domain."
+      "Could not recognize a valid token CA, GitHub repo, X link, or public domain."
     );
   }
 

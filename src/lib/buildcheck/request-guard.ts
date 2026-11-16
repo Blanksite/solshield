@@ -78,7 +78,7 @@ export async function prepareBuildCheckRequest(
       response: NextResponse.json(
         {
           ok: false,
-          error: "Paste a Solana token CA, X link, GitHub repo, or website URL.",
+          error: "Paste a token CA (Solana or EVM/Robinhood), X link, GitHub repo, or website URL.",
         },
         { status: 400, headers: corsHeaders }
       ),
