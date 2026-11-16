@@ -394,6 +394,16 @@ export function buildEvidenceCardHtml(
       ? "VENICE AI · ZERO RETENTION"
       : "ZERO DATA RETENTION";
 
+  const robinhoodPillHtml = report.robinhood
+    ? report.robinhood.status === "IMPOSTOR_ALERT"
+      ? `<div class="robinhood-pill pill-alert">⚠️ IMPOSTOR ALERT</div>`
+      : report.robinhood.status === "OFFICIAL_LISTED"
+        ? `<div class="robinhood-pill pill-listed">✓ ROBINHOOD LISTED (${escapeHtml(report.robinhood.tradingPair || "USD")})</div>`
+        : report.robinhood.status === "ROBINHOOD_CHAIN_NATIVE"
+          ? `<div class="robinhood-pill pill-l2">ROBINHOOD CHAIN L2</div>`
+          : ""
+    : "";
+
   const chipsHtml = [
     formatScoreChip("CODE", report.componentScores.codeProof),
     formatScoreChip("CHAIN", report.componentScores.chainProof),
@@ -514,6 +524,32 @@ export function buildEvidenceCardHtml(
     font-weight: 700;
     font-family: ui-monospace, monospace;
     letter-spacing: 0.05em;
+  }
+  .robinhood-pill {
+    padding: 7px 14px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pill-listed {
+    background: rgba(0, 200, 5, 0.15);
+    border: 1px solid rgba(0, 200, 5, 0.45);
+    color: #00C805;
+  }
+  .pill-alert {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    color: #FCA5A5;
+  }
+  .pill-l2 {
+    background: rgba(14, 165, 233, 0.18);
+    border: 1px solid rgba(14, 165, 233, 0.45);
+    color: #38BDF8;
   }
   .hero {
     display: flex;
@@ -825,6 +861,7 @@ export function buildEvidenceCardHtml(
           </div>
         </div>
         <div class="header-badges">
+          ${robinhoodPillHtml}
           <div class="venice-pill">
             ${veniceLogoDataUri ? `<img class="venice-icon" src="${veniceLogoDataUri}" alt="Venice" />` : ""}
             <span>${escapeHtml(veniceTag)}</span>

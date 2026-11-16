@@ -53,6 +53,22 @@ describe("@usesolshield / @SolShieldCheck X Bot Mention Resolution & Safety", ()
     });
     expect(directCa).toBe("CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx");
 
+    const directEvmRobinhood = resolveMentionTarget({
+      id: "2001b",
+      text: "@usesolshield audit this Robinhood coin 0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      expandedUrls: [],
+      referencedTweets: [],
+    });
+    expect(directEvmRobinhood).toBe("0x6982508145454ce325ddbe47a25d4ec3d2311933");
+
+    const fromRobinhoodBlockscout = resolveMentionTarget({
+      id: "2001c",
+      text: "@usesolshield check https://robinhoodchain.blockscout.com/address/0x1234567890123456789012345678901234567890",
+      expandedUrls: ["https://robinhoodchain.blockscout.com/address/0x1234567890123456789012345678901234567890"],
+      referencedTweets: [],
+    });
+    expect(fromRobinhoodBlockscout).toBe("0x1234567890123456789012345678901234567890");
+
     const fromParentRepo = resolveMentionTarget({
       id: "2002",
       text: "@SolShieldCheck cek repo ini beneran build ga",

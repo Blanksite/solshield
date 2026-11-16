@@ -236,11 +236,13 @@ export function extractEntitiesFromText(text: string): {
   xUrls: string[];
   websiteUrls: string[];
   solanaAddresses: string[];
+  evmAddresses: string[];
 } {
   const githubSet = new Set<string>();
   const xSet = new Set<string>();
   const webSet = new Set<string>();
   const solSet = new Set<string>();
+  const evmSet = new Set<string>();
 
   const urls = text.match(/https?:\/\/[^\s"'<>)\]]+/gi) ?? [];
   for (const rawUrl of urls) {
@@ -254,6 +256,11 @@ export function extractEntitiesFromText(text: string): {
     if (xp) {
       xSet.add(xp.canonicalUrl);
       continue;
+    }
+    // Check if URL embeds an EVM contract address (e.g. Blockscout / Etherscan / DexScreener)
+    const urlEvm = cleanUrl.match(/\b0x[a-fA-F0-9]{40}\b/i);
+    if (urlEvm) {
+      evmSet.add(urlEvm[0]);
     }
     const host = normalizeHostname(cleanUrl);
     if (
@@ -281,6 +288,12 @@ export function extractEntitiesFromText(text: string): {
     }
   }
 
+  // EVM 0x contract address detection (Robinhood Chain, Ethereum, Arbitrum, Base)
+  const evmMatches = text.match(/\b0x[a-fA-F0-9]{40}\b/gi) ?? [];
+  for (const cand of evmMatches) {
+    evmSet.add(cand);
+  }
+
   const solMatches = text.match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g) ?? [];
   for (const cand of solMatches) {
     // Filter common hex/words or repeated characters
@@ -294,6 +307,7 @@ export function extractEntitiesFromText(text: string): {
     xUrls: Array.from(xSet).slice(0, 4),
     websiteUrls: Array.from(webSet).slice(0, 4),
     solanaAddresses: Array.from(solSet).slice(0, 4),
+    evmAddresses: Array.from(evmSet).slice(0, 4),
   };
 }
 

@@ -323,6 +323,9 @@ export function resolveMentionTarget(
     if (entities.solanaAddresses.length > 0) {
       return entities.solanaAddresses[0];
     }
+    if (entities.evmAddresses && entities.evmAddresses.length > 0) {
+      return entities.evmAddresses[0];
+    }
     if (!allowNonCa) {
       return null;
     }
