@@ -1,6 +1,23 @@
 import fs from "fs";
 import path from "path";
-import { getAuthConfig, uploadEvidencePngToX, postReplyTweetOnX } from "./x-client.js";
+import { uploadEvidencePngToX, postReplyTweetOnX, type XBotAuthConfig } from "./x-client.js";
+import { loadLocalEnvFiles } from "./env-loader.js";
+
+loadLocalEnvFiles();
+
+function getAuthConfig(): XBotAuthConfig {
+  return {
+    botHandle: (process.env.BOT_X_HANDLE?.trim() || "usesolshield").replace(/^@/, ""),
+    bearerToken: process.env.X_BEARER_TOKEN?.trim() || undefined,
+    oauth2UserToken: process.env.X_OAUTH2_ACCESS_TOKEN?.trim() || undefined,
+    apiKey: process.env.X_API_KEY?.trim() || undefined,
+    apiSecret: process.env.X_API_SECRET?.trim() || undefined,
+    accessToken: process.env.X_ACCESS_TOKEN?.trim() || undefined,
+    accessSecret: process.env.X_ACCESS_SECRET?.trim() || undefined,
+    appPublicUrl: process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://sol-shield.xyz",
+    includeReplyUrl: true,
+  };
+}
 
 const PROMOS: Record<number, { title: string; imageFile: string; text: string }> = {
   1: {

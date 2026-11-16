@@ -353,6 +353,7 @@ export function ClickSpark({
   sparkRadius = 22,
   sparkCount = 8,
   duration = 420,
+  className = "",
 }: {
   children: ReactNode;
   sparkColor?: string;
@@ -360,6 +361,7 @@ export function ClickSpark({
   sparkRadius?: number;
   sparkCount?: number;
   duration?: number;
+  className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sparksRef = useRef<Spark[]>([]);
@@ -425,7 +427,7 @@ export function ClickSpark({
   };
 
   return (
-    <div onClick={handleClick} className="relative min-h-screen">
+    <div onClick={handleClick} className={`relative ${className}`}>
       <canvas
         ref={canvasRef}
         className="pointer-events-none fixed inset-0 z-50"

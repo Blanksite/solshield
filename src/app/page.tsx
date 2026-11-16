@@ -978,7 +978,7 @@ export default function SolShieldHexaCorePage() {
     Boolean(simulationReport && simulationReport.deterministicRiskScore >= 50);
 
   return (
-    <ClickSpark sparkColor="#2934FF" sparkRadius={26} sparkCount={8}>
+    <ClickSpark sparkColor="#2934FF" sparkRadius={26} sparkCount={8} className="min-h-screen">
       <div className="hexacore-canvas min-h-screen font-sans">
         {/* ====================================================================
             PROTOCOL LAUNCH STRIP — Official CA & Verified Ecosystem Links

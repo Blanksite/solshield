@@ -1034,7 +1034,7 @@ export async function collectChainTokenIntel(
       try {
         const xSocials = await discoverTokenSocialsFromX(
           mintAddress,
-          tokenReport?.symbol || deep.metadata.symbol
+          tokenReport?.symbol || deep.metadata.symbol || undefined
         );
         if (xSocials?.imageUrl) {
           deep.metadata.imageUrl = xSocials.imageUrl;

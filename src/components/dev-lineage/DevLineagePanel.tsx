@@ -23,7 +23,6 @@ import {
   Wallet,
 } from "lucide-react";
 import {
-  ClickSpark,
   CobaltSphere3D,
   CountUp,
   DecryptedText,
@@ -337,7 +336,7 @@ export default function DevLineagePanel({
               </span>
             </p>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
@@ -350,20 +349,18 @@ export default function DevLineagePanel({
                   spellCheck={false}
                 />
               </div>
-              <ClickSpark>
-                <button
-                  onClick={() => runAnalysis()}
-                  disabled={loading || !address.trim()}
-                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Network className="w-4 h-4" />
-                  )}
-                  Trace Lineage
-                </button>
-              </ClickSpark>
+              <button
+                onClick={() => runAnalysis()}
+                disabled={loading || !address.trim()}
+                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2 flex-shrink-0"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Network className="w-4 h-4" />
+                )}
+                Trace Lineage
+              </button>
             </div>
 
             {/* Sample Wallets */}
