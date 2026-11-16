@@ -1548,7 +1548,7 @@ export default function BuildCheckWorkbench({
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Paste CA, repo, or URL..."
+                  placeholder="Paste Solana CA, EVM 0x contract, GitHub, or URL..."
                   className="w-full bg-transparent text-xs text-white placeholder:text-slate-500 focus:outline-none min-w-0"
                 />
                 <button
@@ -1726,7 +1726,7 @@ export default function BuildCheckWorkbench({
                       type="text"
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
-                      placeholder="Paste Solana Mint CA, https://x.com/.../status/..., https://github.com/..., or website URL"
+                      placeholder="Paste Solana CA, EVM 0x contract (Robinhood Chain/ETH), X post, GitHub, or URL"
                       className="w-full px-3 py-3 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none min-w-0"
                     />
                   </div>
