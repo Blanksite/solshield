@@ -279,6 +279,21 @@ export async function authorizeApiCaller(
     };
   }
 
+  // 7. Same-origin browser callers on web-tool utility routes (read-only wallet detox)
+  if (options.profile === "web-tool") {
+    if (
+      (origin && isAllowedWebOrigin(origin, req)) ||
+      (refererOrigin && isAllowedWebOrigin(refererOrigin, req))
+    ) {
+      return {
+        ok: true,
+        authMode: "web-session",
+        clientIp,
+        corsPolicy,
+      };
+    }
+  }
+
   return {
     ok: false,
     status: 401,

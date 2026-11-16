@@ -139,6 +139,7 @@ export default function WalletDetoxPanel({
       const res = await fetch("/api/wallet-detox", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           address: queryAddress,
           cluster: activeCluster,
@@ -205,6 +206,7 @@ export default function WalletDetoxPanel({
       const res = await fetch("/api/wallet-detox/revoke", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           owner: report.walletAddress,
           cluster: report.cluster,
