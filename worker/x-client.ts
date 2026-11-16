@@ -881,7 +881,7 @@ export async function postReplyTweetOnX(
   config: XBotAuthConfig,
   params: {
     text: string;
-    replyToTweetId: string;
+    replyToTweetId?: string;
     mediaId?: string;
   },
   transport?: XApiTransportOptions
@@ -889,10 +889,12 @@ export async function postReplyTweetOnX(
   const url = "https://api.x.com/2/tweets";
   const payload: Record<string, unknown> = {
     text: params.text,
-    reply: {
-      in_reply_to_tweet_id: params.replyToTweetId,
-    },
   };
+  if (params.replyToTweetId) {
+    payload.reply = {
+      in_reply_to_tweet_id: params.replyToTweetId,
+    };
+  }
   if (params.mediaId) {
     payload.media = {
       media_ids: [params.mediaId],
