@@ -31,8 +31,8 @@ function sanitizeAddress(raw: string | null): { address: string; chain: "solana"
   if (!raw) return null;
   const trimmed = raw.trim();
 
-  // EVM 0x address
-  if (/^0x[a-fA-F0-9]{40}$/i.test(trimmed)) {
+  // EVM 0x address (20-byte contract address or 32-byte pool address)
+  if (/^0x[a-fA-F0-9]{40,64}$/i.test(trimmed)) {
     return { address: trimmed.toLowerCase(), chain: "evm" };
   }
 
@@ -47,6 +47,7 @@ function sanitizeAddress(raw: string | null): { address: string; chain: "solana"
 
 function mapChainToGeckoNetwork(chain: string): string {
   const norm = chain.toLowerCase().trim();
+  if (norm === "robinhood" || norm.includes("robinhood")) return "robinhood";
   if (norm === "ethereum" || norm === "eth") return "eth";
   if (norm === "arbitrum" || norm === "arb") return "arbitrum";
   if (norm === "polygon" || norm === "matic") return "polygon_pos";
@@ -171,6 +172,17 @@ export async function GET(req: NextRequest) {
       tf,
       bars: [],
       note: "No indexed liquidity pool OHLCV found for this contract yet.",
+    });
+  }
+
+  if (targetNetwork === "robinhood") {
+    return NextResponse.json({
+      ok: true,
+      poolAddress,
+      network: "robinhood",
+      tf,
+      bars: [],
+      note: "Robinhood Chain L2 DEX pairs are monitored directly via DexScreener & RPC.",
     });
   }
 

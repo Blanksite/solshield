@@ -2,7 +2,7 @@ import { normalizeHostname } from "../domain-guard";
 import type { ParsedTargetInput } from "./types";
 
 const BASE58_MINT_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const EVM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/i;
+const EVM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40,64}$/i;
 const GITHUB_RESERVED_ROOTS = new Set([
   "features",
   "enterprise",
@@ -164,7 +164,43 @@ export function parseBuildCheckInput(raw: string): ParsedTargetInput {
 
   try {
     const candidateUrl = new URL(normalizedHttp);
-    if (candidateUrl.hostname.toLowerCase().includes("robinhoodchain.blockscout.com")) {
+    const candHost = candidateUrl.hostname.toLowerCase();
+
+    // DexScreener URLs: https://dexscreener.com/<chain>/<address>
+    if (candHost.includes("dexscreener.com")) {
+      const parts = candidateUrl.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        const chainPart = parts[0].toLowerCase();
+        const addrPart = parts[1];
+        if (chainPart === "solana" || BASE58_MINT_REGEX.test(addrPart)) {
+          return {
+            rawInput: trimmed,
+            kind: "token_ca",
+            mintAddress: addrPart,
+            contractAddress: addrPart,
+            chainFamily: "solana",
+            normalizedUrl: `https://dexscreener.com/solana/${addrPart}`,
+            hostname: "dexscreener.com",
+          };
+        }
+        if (
+          EVM_ADDRESS_REGEX.test(addrPart) ||
+          ["robinhood", "ethereum", "eth", "arbitrum", "arb", "base", "polygon", "bsc"].includes(chainPart)
+        ) {
+          return {
+            rawInput: trimmed,
+            kind: "evm_contract",
+            mintAddress: addrPart,
+            contractAddress: addrPart,
+            chainFamily: "evm",
+            normalizedUrl: `https://dexscreener.com/${chainPart}/${addrPart}`,
+            hostname: "dexscreener.com",
+          };
+        }
+      }
+    }
+
+    if (candHost.includes("robinhoodchain.blockscout.com")) {
       const parts = candidateUrl.pathname.split("/").filter(Boolean);
       const addr = parts.find((p) => EVM_ADDRESS_REGEX.test(p));
       if (addr) {
@@ -258,7 +294,7 @@ export function extractEntitiesFromText(text: string): {
       continue;
     }
     // Check if URL embeds an EVM contract address (e.g. Blockscout / Etherscan / DexScreener)
-    const urlEvm = cleanUrl.match(/\b0x[a-fA-F0-9]{40}\b/i);
+    const urlEvm = cleanUrl.match(/\b0x[a-fA-F0-9]{40,64}\b/i);
     if (urlEvm) {
       evmSet.add(urlEvm[0]);
     }
@@ -289,7 +325,7 @@ export function extractEntitiesFromText(text: string): {
   }
 
   // EVM 0x contract address detection (Robinhood Chain, Ethereum, Arbitrum, Base)
-  const evmMatches = text.match(/\b0x[a-fA-F0-9]{40}\b/gi) ?? [];
+  const evmMatches = text.match(/\b0x[a-fA-F0-9]{40,64}\b/gi) ?? [];
   for (const cand of evmMatches) {
     evmSet.add(cand);
   }

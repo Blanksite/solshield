@@ -484,7 +484,27 @@ export async function collectChainTokenIntel(
   const isEvm = mintAddress.startsWith("0x");
 
   if (isEvm) {
-    const [dexRes, hoodDeploy] = await Promise.allSettled([
+    let dexData: {
+      pairs?: Array<{
+        chainId?: string;
+        dexId?: string;
+        url?: string;
+        pairAddress?: string;
+        baseToken?: { address?: string; name?: string; symbol?: string };
+        quoteToken?: { address?: string; name?: string; symbol?: string };
+        liquidity?: { usd?: number };
+        fdv?: number;
+        volume?: { h24?: number };
+        pairCreatedAt?: number;
+        info?: {
+          imageUrl?: string;
+          websites?: Array<{ url?: string }>;
+          socials?: Array<{ type?: string; url?: string }>;
+        };
+      }>;
+    } | null = null;
+
+    const [dexTokenRes, hoodDeploy] = await Promise.allSettled([
       fetchJsonWithTimeout<{
         pairs?: Array<{
           chainId?: string;
@@ -492,6 +512,7 @@ export async function collectChainTokenIntel(
           url?: string;
           pairAddress?: string;
           baseToken?: { address?: string; name?: string; symbol?: string };
+          quoteToken?: { address?: string; name?: string; symbol?: string };
           liquidity?: { usd?: number };
           fdv?: number;
           volume?: { h24?: number };
@@ -506,23 +527,58 @@ export async function collectChainTokenIntel(
       verifyRobinhoodChainDeployment(mintAddress),
     ]);
 
-    const isDeployedOnHood =
+    if (dexTokenRes.status === "fulfilled" && dexTokenRes.value.ok && dexTokenRes.value.data?.pairs?.length) {
+      dexData = dexTokenRes.value.data;
+    } else {
+      // Fallback search: resolves pair addresses, pool hashes, or tickers
+      const dexSearchRes = await fetchJsonWithTimeout<{
+        pairs?: Array<{
+          chainId?: string;
+          dexId?: string;
+          url?: string;
+          pairAddress?: string;
+          baseToken?: { address?: string; name?: string; symbol?: string };
+          quoteToken?: { address?: string; name?: string; symbol?: string };
+          liquidity?: { usd?: number };
+          fdv?: number;
+          volume?: { h24?: number };
+          pairCreatedAt?: number;
+          info?: {
+            imageUrl?: string;
+            websites?: Array<{ url?: string }>;
+            socials?: Array<{ type?: string; url?: string }>;
+          };
+        }>;
+      }>(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(mintAddress)}`);
+      if (dexSearchRes.ok && dexSearchRes.data?.pairs?.length) {
+        dexData = dexSearchRes.data;
+      }
+    }
+
+    let isDeployedOnHood =
       hoodDeploy.status === "fulfilled" && hoodDeploy.value.isDeployed;
 
     let dexPair: DexPairSummary | null = null;
     let tokenName = "EVM Token";
     let tokenSymbol = "EVM";
     let topPairChain = isDeployedOnHood ? "robinhood" : "ethereum";
+    let resolvedContractAddress = mintAddress;
 
-    if (dexRes.status === "fulfilled" && dexRes.value.ok && dexRes.value.data?.pairs) {
-      const pairs = [...dexRes.value.data.pairs].sort(
+    if (dexData?.pairs && dexData.pairs.length > 0) {
+      const pairs = [...dexData.pairs].sort(
         (a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0)
       );
       const top = pairs[0];
       if (top) {
         if (top.baseToken?.name) tokenName = top.baseToken.name;
         if (top.baseToken?.symbol) tokenSymbol = top.baseToken.symbol;
-        if (top.chainId) topPairChain = top.chainId;
+        if (top.baseToken?.address) resolvedContractAddress = top.baseToken.address;
+        if (top.chainId) {
+          topPairChain = top.chainId;
+          if (top.chainId.toLowerCase() === "robinhood") {
+            isDeployedOnHood = true;
+          }
+        }
         const createdMs = top.pairCreatedAt ?? null;
         const ageHours = createdMs
           ? Number(((Date.now() - createdMs) / 3_600_000).toFixed(1))
@@ -530,7 +586,7 @@ export async function collectChainTokenIntel(
         dexPair = {
           dexId: top.dexId || `${topPairChain}-dex`,
           pairAddress: top.pairAddress || "",
-          pairUrl: top.url || `https://dexscreener.com/${topPairChain}/${mintAddress}`,
+          pairUrl: top.url || `https://dexscreener.com/${topPairChain}/${resolvedContractAddress}`,
           liquidityUsd: Math.round(top.liquidity?.usd ?? 0),
           fdv: top.fdv ? Math.round(top.fdv) : null,
           volume24hUsd: Math.round(top.volume?.h24 ?? 0),
@@ -542,12 +598,19 @@ export async function collectChainTokenIntel(
           socials: (top.info?.socials ?? [])
             .map((s) => ({ type: s.type || "social", url: s.url || "" }))
             .filter((s) => Boolean(s.url)),
+          baseSymbol: tokenSymbol,
+          quoteSymbol: top.quoteToken?.symbol || (isDeployedOnHood ? "ETH" : "USD"),
         };
       }
     }
 
+    if (!isDeployedOnHood && resolvedContractAddress !== mintAddress) {
+      const checkBase = await verifyRobinhoodChainDeployment(resolvedContractAddress);
+      if (checkBase.isDeployed) isDeployedOnHood = true;
+    }
+
     const robinhoodReport = await verifyRobinhoodStatus({
-      address: mintAddress,
+      address: resolvedContractAddress,
       name: tokenName,
       symbol: tokenSymbol,
       chainFamily: "evm",
@@ -595,7 +658,7 @@ export async function collectChainTokenIntel(
     };
 
     return {
-      mintAddress,
+      mintAddress: resolvedContractAddress,
       tokenReport: syntheticTokenReport,
       dexPair,
       accountRecentTxCount: null,
@@ -614,6 +677,8 @@ export async function collectChainTokenIntel(
         dexId?: string;
         url?: string;
         pairAddress?: string;
+        baseToken?: { symbol?: string };
+        quoteToken?: { symbol?: string };
         liquidity?: { usd?: number };
         fdv?: number;
         volume?: { h24?: number };
@@ -670,6 +735,8 @@ export async function collectChainTokenIntel(
         socials: (top.info?.socials ?? [])
           .map((s) => ({ type: s.type || "social", url: s.url || "" }))
           .filter((s) => Boolean(s.url)),
+        baseSymbol: top.baseToken?.symbol || null,
+        quoteSymbol: top.quoteToken?.symbol || "SOL",
       };
     }
   }

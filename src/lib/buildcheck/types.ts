@@ -37,6 +37,7 @@ export interface BrowserStopCapture {
   outboundGithub: string[];
   outboundX: string[];
   outboundSolanaAddresses: string[];
+  outboundEvmAddresses?: string[];
   networkHosts: string[];
   xhrCount: number;
   loadTimeMs: number;
@@ -52,6 +53,7 @@ export interface BrowserRunSummary {
   discoveredGithubRepos: string[];
   discoveredXUrls: string[];
   discoveredSolanaAddresses: string[];
+  discoveredEvmAddresses?: string[];
   discoveredWebsiteUrls: string[];
   totalXhrObserved: number;
   pageErrorsCount?: number;
@@ -100,6 +102,8 @@ export interface DexPairSummary {
   pairAgeHours: number | null;
   websites: string[];
   socials: Array<{ type: string; url: string }>;
+  baseSymbol?: string | null;
+  quoteSymbol?: string | null;
 }
 
 export interface TokenDeepMetadata {

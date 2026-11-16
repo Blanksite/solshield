@@ -2443,12 +2443,13 @@ export default function BuildCheckWorkbench({
                       }
                       networkName={report.chain.networkName}
                       quoteSymbol={
-                        report.chain.dexPair
-                          ? report.chain.chainFamily === "evm" ||
-                            report.chain.mintAddress.startsWith("0x")
-                            ? "USD"
-                            : null
-                          : null
+                        report.chain.dexPair?.quoteSymbol ||
+                        (report.chain.chainFamily === "evm" ||
+                        report.chain.mintAddress.startsWith("0x")
+                          ? (report.chain.networkName?.toLowerCase().includes("robinhood")
+                              ? "ETH"
+                              : "USD")
+                          : "SOL")
                       }
                     />
                     {renderForensicTabPanel()}

@@ -253,6 +253,7 @@ async function captureStop(
         outboundGithub: entities.githubRepos,
         outboundX: entities.xUrls,
         outboundSolanaAddresses: entities.solanaAddresses,
+        outboundEvmAddresses: entities.evmAddresses,
         networkHosts: Array.from(networkHosts).slice(0, 8),
         xhrCount,
         loadTimeMs: Date.now() - startMs,
@@ -492,6 +493,7 @@ async function executeStopPlan(
   const githubSet = new Set<string>();
   const xSet = new Set<string>();
   const solSet = new Set<string>();
+  const evmSet = new Set<string>();
   const webSet = new Set<string>();
 
   const recordStop = (stop: BrowserStopCapture) => {
@@ -513,6 +515,7 @@ async function executeStopPlan(
       stop.outboundGithub.forEach((g) => githubSet.add(g));
       stop.outboundX.forEach((x) => xSet.add(x));
       stop.outboundSolanaAddresses.forEach((s) => solSet.add(s));
+      stop.outboundEvmAddresses?.forEach((e) => evmSet.add(e));
       websiteUrls.forEach((w) => webSet.add(w));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Stop fetch failed";
@@ -578,6 +581,7 @@ async function executeStopPlan(
     discoveredGithubRepos: Array.from(githubSet).slice(0, 5),
     discoveredXUrls: Array.from(xSet).slice(0, 5),
     discoveredSolanaAddresses: Array.from(solSet).slice(0, 5),
+    discoveredEvmAddresses: Array.from(evmSet).slice(0, 5),
     discoveredWebsiteUrls: Array.from(webSet).slice(0, 5),
     totalXhrObserved: stops.reduce((sum, s) => sum + s.xhrCount, 0),
     pageErrorsCount: stops.reduce(

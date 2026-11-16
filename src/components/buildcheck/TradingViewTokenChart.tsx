@@ -74,7 +74,10 @@ export function TradingViewTokenChart({
   const [hoverBar, setHoverBar] = useState<CandleBar | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
-  const isEvmToken = chainFamily === "evm" || mintAddress.startsWith("0x");
+  const isEvmToken =
+    chainFamily === "evm" ||
+    mintAddress.startsWith("0x") ||
+    Boolean(networkName?.toLowerCase().includes("robinhood"));
 
   const supplyMultiplier = useMemo(() => {
     if (mode === "mcap" && totalSupply && totalSupply > 0) return totalSupply;
@@ -93,7 +96,10 @@ export function TradingViewTokenChart({
     const params = new URLSearchParams({ mint: mintAddress, tf });
     if (poolAddress) params.set("pool", poolAddress);
     if (networkName) {
-      params.set("network", networkName);
+      params.set(
+        "network",
+        networkName.toLowerCase().includes("robinhood") ? "robinhood" : networkName
+      );
     } else if (isEvmToken) {
       params.set("network", "eth");
     }
@@ -123,7 +129,7 @@ export function TradingViewTokenChart({
     return () => {
       cancelled = true;
     };
-  }, [mintAddress, poolAddress, tf, refreshTick]);
+  }, [mintAddress, poolAddress, tf, refreshTick, networkName, isEvmToken]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -370,7 +376,13 @@ export function TradingViewTokenChart({
           </div>
 
           <span className="hidden sm:inline font-mono text-[11px] text-slate-400 pl-1">
-            {symbol || "TOKEN"}/{quoteSymbol || (isEvmToken ? "USD" : "SOL")}
+            {symbol || "TOKEN"}/
+            {quoteSymbol ||
+              (isEvmToken
+                ? networkName?.toLowerCase().includes("robinhood")
+                  ? "ETH"
+                  : "USD"
+                : "SOL")}
           </span>
         </div>
 
@@ -469,7 +481,13 @@ export function TradingViewTokenChart({
         ) : bars.length === 0 ? (
           <div className="h-[400px] flex flex-col items-center justify-center gap-2 px-6 text-center text-xs text-slate-400">
             <Activity className="w-6 h-6 text-slate-500" />
-            <span>{errorMsg || "No indexed liquidity pool OHLCV data available yet."}</span>
+            <span>
+              {errorMsg && !errorMsg.includes("Solana")
+                ? errorMsg
+                : isEvmToken
+                ? "No indexed liquidity pool OHLCV candles available on EVM/Robinhood DEX yet."
+                : "No indexed liquidity pool OHLCV data available yet."}
+            </span>
           </div>
         ) : (
           <div ref={containerRef} className="w-full h-[400px]" />

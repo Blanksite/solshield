@@ -420,7 +420,10 @@ async function executeFreshBuildCheckInvestigation(
   let domainReport: DomainIntelReport | null = null;
   let xPostReport: XPostIntelReport | null = null;
 
-  const initialMint = target.mintAddress || inlineEntities.solanaAddresses[0];
+  const initialMint =
+    target.mintAddress ||
+    inlineEntities.evmAddresses[0] ||
+    inlineEntities.solanaAddresses[0];
   const initialGh = target.githubOwnerRepo || inlineEntities.githubRepos[0];
   const initialXUrl =
     target.kind === "x_post" || target.kind === "x_profile"
@@ -621,6 +624,7 @@ async function executeFreshBuildCheckInvestigation(
   const discoveredMint =
     !chainReport
       ? browserSummary.discoveredSolanaAddresses[0] ||
+        browserSummary.discoveredEvmAddresses?.[0] ||
         xPostReport?.extractedSolanaAddresses[0]
       : null;
 

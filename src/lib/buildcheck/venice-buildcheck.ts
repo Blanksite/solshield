@@ -440,10 +440,11 @@ export function buildDeterministicBuildCheck(
 
   // Inspect live browser XHR JSON payloads vs surface claims
   const allApiPayloads =
-    input.browser.inspectedApiPayloads ||
-    input.browser.stops.flatMap((st) => st.apiPayloads || []);
+    input.browser?.inspectedApiPayloads ||
+    input.browser?.stops.flatMap((st) => st.apiPayloads || []) ||
+    [];
   const combinedCopy = [
-    ...input.browser.stops.map((st) => st.textExcerpt),
+    ...(input.browser?.stops.map((st) => st.textExcerpt) || []),
     input.xPost?.textContent || "",
   ]
     .join(" ")
@@ -493,11 +494,11 @@ export function buildDeterministicBuildCheck(
 
   // Cross-check surface marketing claims (web DOM + X post) against hard code, browser & chain telemetry
   const primaryStopForClaims =
-    (input.domain
+    (input.domain && input.browser
       ? input.browser.stops.find((st) =>
           st.url.includes(input.domain?.hostname || "")
         )
-      : undefined) || input.browser.stops[0];
+      : undefined) || input.browser?.stops[0];
   const claimAudit = evaluateMarketingContradictions(
     input,
     combinedCopy,
@@ -577,7 +578,7 @@ export function buildDeterministicBuildCheck(
     verdict,
     headline,
     contradictionCallout,
-    executiveSummary: `${headline} Analyzed via ${input.browser.mode} (${input.browser.stops.length} live capture stop(s)).`,
+    executiveSummary: `${headline} Analyzed via ${input.browser?.mode || "deterministic forensics"} (${input.browser?.stops.length || 0} live capture stop(s)).`,
     privacyAttestation:
       "Audited under Zero Data Retention · No wallet keys or visitor identity logged.",
     componentScores,
