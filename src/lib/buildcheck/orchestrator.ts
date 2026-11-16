@@ -306,20 +306,27 @@ export async function runBuildCheckInvestigation(
       fallbackKeys
     );
     if (cached) {
-      const reusedReport: BuildCheckReport = {
-        ...cached.value,
-        cache: {
-          hit: true,
-          cachedAt: cached.cachedAt,
-          expiresAt: cached.expiresAt,
-          cacheKey: cached.cacheKey,
-        },
-      };
-      await saveBuildCheckReportPermalink(reusedReport).catch(() => undefined);
-      if (options.onEvent) {
-        replayCachedReportEvents(reusedReport, options.onEvent);
+      const lacksLogo = Boolean(
+        (target.kind === "token_ca" || target.kind === "evm_contract") &&
+        !cached.value.chain?.deep?.metadata?.imageUrl &&
+        !cached.value.chain?.dexPair?.imageUrl
+      );
+      if (!lacksLogo) {
+        const reusedReport: BuildCheckReport = {
+          ...cached.value,
+          cache: {
+            hit: true,
+            cachedAt: cached.cachedAt,
+            expiresAt: cached.expiresAt,
+            cacheKey: cached.cacheKey,
+          },
+        };
+        await saveBuildCheckReportPermalink(reusedReport).catch(() => undefined);
+        if (options.onEvent) {
+          replayCachedReportEvents(reusedReport, options.onEvent);
+        }
+        return reusedReport;
       }
-      return reusedReport;
     }
 
     const inFlightMap = getInFlightMap();

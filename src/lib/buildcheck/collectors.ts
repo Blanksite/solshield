@@ -476,6 +476,103 @@ export async function collectGitHubForensics(
 }
 
 /**
+ * Discovers official token socials, avatar image, website, and GitHub by querying X API
+ * using contract address and/or symbol as search query.
+ */
+async function discoverTokenSocialsFromX(
+  contractAddress: string,
+  symbol?: string
+): Promise<{
+  imageUrl: string | null;
+  twitterUrl: string | null;
+  websiteUrl: string | null;
+  githubUrl: string | null;
+}> {
+  const token = process.env.X_BEARER_TOKEN?.trim();
+  if (!token) return { imageUrl: null, twitterUrl: null, websiteUrl: null, githubUrl: null };
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const url = `https://api.x.com/2/tweets/search/recent?query=${encodeURIComponent(
+      contractAddress
+    )}&tweet.fields=text,entities,author_id&expansions=author_id&user.fields=name,username,profile_image_url,description,entities`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return { imageUrl: null, twitterUrl: null, websiteUrl: null, githubUrl: null };
+
+    const data = (await res.json()) as {
+      data?: Array<{
+        author_id?: string;
+        text?: string;
+        entities?: { urls?: Array<{ expanded_url?: string }> };
+      }>;
+      includes?: {
+        users?: Array<{
+          id?: string;
+          name?: string;
+          username?: string;
+          profile_image_url?: string;
+          description?: string;
+          entities?: { url?: { urls?: Array<{ expanded_url?: string }> } };
+        }>;
+      };
+    };
+
+    const users = data.includes?.users || [];
+    const tweets = data.data || [];
+
+    // Find best matching user: description contains CA or $SYMBOL
+    let bestUser = users.find(
+      (u) =>
+        u.description?.toLowerCase().includes(contractAddress.toLowerCase().slice(0, 10)) ||
+        (symbol && u.description?.toLowerCase().includes(`$${symbol.toLowerCase()}`))
+    );
+
+    if (!bestUser && users.length > 0) {
+      bestUser = users[0];
+    }
+
+    if (!bestUser) return { imageUrl: null, twitterUrl: null, websiteUrl: null, githubUrl: null };
+
+    let avatar = bestUser.profile_image_url || null;
+    if (avatar && avatar.includes("_normal.")) {
+      avatar = avatar.replace("_normal.", "_400x400.");
+    }
+
+    const twitterUrl = bestUser.username ? `https://x.com/${bestUser.username}` : null;
+    let websiteUrl = bestUser.entities?.url?.urls?.[0]?.expanded_url || null;
+    let githubUrl: string | null = null;
+
+    for (const tw of tweets) {
+      if (tw.entities?.urls) {
+        for (const u of tw.entities.urls) {
+          const exp = u.expanded_url || "";
+          if (exp.includes("github.com") && !githubUrl) {
+            githubUrl = exp;
+          }
+          if (
+            !websiteUrl &&
+            !exp.includes("x.com") &&
+            !exp.includes("twitter.com") &&
+            !exp.includes("github.com")
+          ) {
+            websiteUrl = exp;
+          }
+        }
+      }
+    }
+
+    return { imageUrl: avatar, twitterUrl, websiteUrl, githubUrl };
+  } catch {
+    return { imageUrl: null, twitterUrl: null, websiteUrl: null, githubUrl: null };
+  }
+}
+
+/**
  * Queries on-chain Solana mint health via `scanSolanaTokenMint`, live DexScreener
  * liquidity/socials, and recent address transaction count.
  */
@@ -625,6 +722,50 @@ export async function collectChainTokenIntel(
       }
     }
 
+    let xSocials: {
+      imageUrl: string | null;
+      twitterUrl: string | null;
+      websiteUrl: string | null;
+      githubUrl: string | null;
+    } | null = null;
+
+    if (!dexPair?.imageUrl) {
+      xSocials = await discoverTokenSocialsFromX(resolvedContractAddress, tokenSymbol);
+      if (xSocials?.imageUrl) {
+        if (!dexPair) {
+          dexPair = {
+            dexId: `${topPairChain}-dex`,
+            pairAddress: "",
+            pairUrl: `https://dexscreener.com/${topPairChain}/${resolvedContractAddress}`,
+            liquidityUsd: 0,
+            fdv: null,
+            volume24hUsd: 0,
+            pairCreatedAt: null,
+            pairAgeHours: null,
+            websites: xSocials.websiteUrl ? [xSocials.websiteUrl] : [],
+            socials: [
+              ...(xSocials.twitterUrl ? [{ type: "twitter", url: xSocials.twitterUrl }] : []),
+              ...(xSocials.githubUrl ? [{ type: "github", url: xSocials.githubUrl }] : []),
+            ],
+            baseSymbol: tokenSymbol,
+            quoteSymbol: isDeployedOnHood ? "ETH" : "USD",
+            imageUrl: xSocials.imageUrl,
+          };
+        } else {
+          dexPair.imageUrl = xSocials.imageUrl;
+          if (xSocials.websiteUrl && dexPair.websites.length === 0) {
+            dexPair.websites.push(xSocials.websiteUrl);
+          }
+          if (xSocials.twitterUrl && !dexPair.socials.some((s) => s.type === "twitter")) {
+            dexPair.socials.push({ type: "twitter", url: xSocials.twitterUrl });
+          }
+          if (xSocials.githubUrl && !dexPair.socials.some((s) => s.type === "github")) {
+            dexPair.socials.push({ type: "github", url: xSocials.githubUrl });
+          }
+        }
+      }
+    }
+
     const robinhoodReport = await verifyRobinhoodStatus({
       address: resolvedContractAddress,
       name: tokenName,
@@ -679,9 +820,9 @@ export async function collectChainTokenIntel(
         name: tokenName,
         symbol: tokenSymbol,
         description: null,
-        imageUrl: dexPair?.imageUrl || null,
-        websites: dexPair?.websites || [],
-        twitterUrl: dexPair?.socials?.find((s) => s.type === "twitter" || s.url?.includes("x.com"))?.url || null,
+        imageUrl: dexPair?.imageUrl || xSocials?.imageUrl || null,
+        websites: dexPair?.websites?.length ? dexPair.websites : xSocials?.websiteUrl ? [xSocials.websiteUrl] : [],
+        twitterUrl: dexPair?.socials?.find((s) => s.type === "twitter" || s.url?.includes("x.com"))?.url || xSocials?.twitterUrl || null,
         telegramUrl: dexPair?.socials?.find((s) => s.type === "telegram" || s.url?.includes("t.me"))?.url || null,
         launchpad: isDeployedOnHood ? "Robinhood Chain L2" : null,
         createdAt: dexPair?.pairCreatedAt || null,
@@ -887,6 +1028,27 @@ export async function collectChainTokenIntel(
 
     if (!deep.metadata.imageUrl && dexImageUrl) {
       deep.metadata.imageUrl = dexImageUrl;
+    }
+
+    if (!deep.metadata.imageUrl) {
+      try {
+        const xSocials = await discoverTokenSocialsFromX(
+          mintAddress,
+          tokenReport?.symbol || deep.metadata.symbol
+        );
+        if (xSocials?.imageUrl) {
+          deep.metadata.imageUrl = xSocials.imageUrl;
+          if (dexPair) dexPair.imageUrl = xSocials.imageUrl;
+          if (xSocials.websiteUrl && deep.metadata.websites.length === 0) {
+            deep.metadata.websites.push(xSocials.websiteUrl);
+          }
+          if (xSocials.twitterUrl && !deep.metadata.twitterUrl) {
+            deep.metadata.twitterUrl = xSocials.twitterUrl;
+          }
+        }
+      } catch {
+        // non-blocking
+      }
     }
 
     if (tokenReport) {
