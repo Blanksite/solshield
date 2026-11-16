@@ -431,6 +431,77 @@ export function buildEvidenceCardHtml(
     </div>
   `;
 
+  const isRobinhood = Boolean(
+    report.robinhood ||
+    report.chain?.robinhood ||
+    report.chain?.chainFamily === "evm" ||
+    report.target?.mintAddress?.startsWith("0x") ||
+    report.target?.kind === "evm_contract"
+  );
+  const rhStatus = report.robinhood?.status || report.chain?.robinhood?.status;
+
+  let bodyBackground = `
+    radial-gradient(circle at 86% 16%, rgba(41, 52, 255, 0.25), transparent 50%),
+    radial-gradient(circle at 14% 88%, rgba(224, 90, 45, 0.14), transparent 44%),
+    linear-gradient(180deg, #090B12 0%, #05070C 100%)
+  `;
+  let bodyBgColor = "#06080E";
+  let gridBorder = "1.5px solid rgba(255, 255, 255, 0.14)";
+  let gridLines = `
+    linear-gradient(to right, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.045) 1px, transparent 1px)
+  `;
+  let brandSubText = "PROOF-OF-BUILD &amp; ON-CHAIN FORENSIC CARD";
+  let brandSubColor = "#94A3B8";
+
+  if (isRobinhood) {
+    if (rhStatus === "IMPOSTOR_ALERT") {
+      bodyBackground = `
+        radial-gradient(circle at 86% 16%, rgba(239, 68, 68, 0.32), transparent 52%),
+        radial-gradient(circle at 14% 88%, rgba(245, 158, 11, 0.22), transparent 44%),
+        linear-gradient(180deg, #140407 0%, #080203 100%)
+      `;
+      bodyBgColor = "#0A0204";
+      gridBorder = "1.5px solid rgba(239, 68, 68, 0.38)";
+      gridLines = `
+        linear-gradient(to right, rgba(239, 68, 68, 0.07) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(239, 68, 68, 0.07) 1px, transparent 1px)
+      `;
+      brandSubText = "ROBINHOOD IMPOSTOR ALERT &amp; FORENSIC CARD";
+      brandSubColor = "#FCA5A5";
+    } else if (rhStatus === "ROBINHOOD_CHAIN_NATIVE") {
+      bodyBackground = `
+        radial-gradient(circle at 86% 16%, rgba(14, 165, 233, 0.28), transparent 52%),
+        radial-gradient(circle at 14% 88%, rgba(0, 200, 5, 0.20), transparent 44%),
+        linear-gradient(180deg, #02111A 0%, #01080D 100%)
+      `;
+      bodyBgColor = "#01090F";
+      gridBorder = "1.5px solid rgba(56, 189, 248, 0.32)";
+      gridLines = `
+        linear-gradient(to right, rgba(56, 189, 248, 0.065) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(56, 189, 248, 0.065) 1px, transparent 1px)
+      `;
+      brandSubText = "ROBINHOOD CHAIN L2 &amp; FORENSIC EVIDENCE CARD";
+      brandSubColor = "#38BDF8";
+    } else {
+      // Official Robinhood listed / EVM Token (Cyber Emerald Obsidian!)
+      bodyBackground = `
+        radial-gradient(circle at 86% 16%, rgba(0, 200, 5, 0.28), transparent 52%),
+        radial-gradient(circle at 14% 88%, rgba(16, 185, 129, 0.16), transparent 44%),
+        radial-gradient(circle at 50% 50%, rgba(0, 200, 5, 0.04), transparent 60%),
+        linear-gradient(180deg, #03140A 0%, #010904 100%)
+      `;
+      bodyBgColor = "#020905";
+      gridBorder = "1.5px solid rgba(0, 200, 5, 0.30)";
+      gridLines = `
+        linear-gradient(to right, rgba(0, 200, 5, 0.065) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 200, 5, 0.065) 1px, transparent 1px)
+      `;
+      brandSubText = "ROBINHOOD FORENSICS &amp; ON-CHAIN EVIDENCE CARD";
+      brandSubColor = "#00C805";
+    }
+  }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -440,10 +511,8 @@ export function buildEvidenceCardHtml(
   body {
     width: 1200px;
     height: 675px;
-    background: radial-gradient(circle at 86% 16%, rgba(41, 52, 255, 0.25), transparent 50%),
-                radial-gradient(circle at 14% 88%, rgba(224, 90, 45, 0.14), transparent 44%),
-                linear-gradient(180deg, #090B12 0%, #05070C 100%);
-    background-color: #06080E;
+    background: ${bodyBackground};
+    background-color: ${bodyBgColor};
     color: #F8FAFC;
     font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     padding: 22px;
@@ -452,11 +521,9 @@ export function buildEvidenceCardHtml(
   .grid-overlay {
     width: 100%;
     height: 100%;
-    border: 1.5px solid rgba(255, 255, 255, 0.14);
+    border: ${gridBorder};
     border-radius: 14px;
-    background-image:
-      linear-gradient(to right, rgba(148, 163, 184, 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
+    background-image: ${gridLines};
     background-size: 40px 40px;
     padding: 20px 28px;
     display: flex;
@@ -857,7 +924,7 @@ export function buildEvidenceCardHtml(
           ${logoDataUri ? `<img class="logo" src="${logoDataUri}" alt="SolShield" />` : ""}
           <div>
             <div class="brand-title">SOLSHIELD® BUILDCHECK</div>
-            <div class="brand-sub">PROOF-OF-BUILD &amp; ON-CHAIN FORENSIC CARD</div>
+            <div class="brand-sub" style="color:${brandSubColor};">${brandSubText}</div>
           </div>
         </div>
         <div class="header-badges">

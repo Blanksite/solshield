@@ -50,21 +50,63 @@ export async function generateBuildCheckEvidencePng(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable.");
 
-  // Obsidian background with subtle radial cobalt accent
+  const isRobinhood = Boolean(
+    report.robinhood ||
+    report.chain?.robinhood ||
+    report.chain?.chainFamily === "evm" ||
+    report.target?.mintAddress?.startsWith("0x") ||
+    report.target?.kind === "evm_contract"
+  );
+  const rhStatus = report.robinhood?.status || report.chain?.robinhood?.status;
+
+  // Obsidian background (Cobalt for Solana, Signature Emerald for Robinhood, Crimson for Impostors)
   const bg = ctx.createLinearGradient(0, 0, 0, height);
-  bg.addColorStop(0, "#090B12");
-  bg.addColorStop(1, "#05070C");
+  if (isRobinhood) {
+    if (rhStatus === "IMPOSTOR_ALERT") {
+      bg.addColorStop(0, "#140407");
+      bg.addColorStop(1, "#080203");
+    } else if (rhStatus === "ROBINHOOD_CHAIN_NATIVE") {
+      bg.addColorStop(0, "#02111A");
+      bg.addColorStop(1, "#01080D");
+    } else {
+      // Signature Robinhood Cyber Emerald
+      bg.addColorStop(0, "#03140A");
+      bg.addColorStop(1, "#010904");
+    }
+  } else {
+    bg.addColorStop(0, "#090B12");
+    bg.addColorStop(1, "#05070C");
+  }
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
 
   const glow = ctx.createRadialGradient(980, 140, 20, 980, 140, 440);
-  glow.addColorStop(0, "rgba(41, 52, 255, 0.22)");
-  glow.addColorStop(1, "rgba(41, 52, 255, 0)");
+  if (isRobinhood) {
+    if (rhStatus === "IMPOSTOR_ALERT") {
+      glow.addColorStop(0, "rgba(239, 68, 68, 0.30)");
+      glow.addColorStop(1, "rgba(239, 68, 68, 0)");
+    } else if (rhStatus === "ROBINHOOD_CHAIN_NATIVE") {
+      glow.addColorStop(0, "rgba(14, 165, 233, 0.28)");
+      glow.addColorStop(1, "rgba(14, 165, 233, 0)");
+    } else {
+      glow.addColorStop(0, "rgba(0, 200, 5, 0.28)");
+      glow.addColorStop(1, "rgba(0, 200, 5, 0)");
+    }
+  } else {
+    glow.addColorStop(0, "rgba(41, 52, 255, 0.22)");
+    glow.addColorStop(1, "rgba(41, 52, 255, 0)");
+  }
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
 
-  // Subtle grid hairlines
-  ctx.strokeStyle = "rgba(148, 163, 184, 0.05)";
+  // Grid hairlines
+  ctx.strokeStyle = isRobinhood
+    ? rhStatus === "IMPOSTOR_ALERT"
+      ? "rgba(239, 68, 68, 0.07)"
+      : rhStatus === "ROBINHOOD_CHAIN_NATIVE"
+        ? "rgba(56, 189, 248, 0.065)"
+        : "rgba(0, 200, 5, 0.065)"
+    : "rgba(148, 163, 184, 0.05)";
   ctx.lineWidth = 1;
   for (let gx = 0; gx < width; gx += 40) {
     ctx.beginPath();
@@ -80,7 +122,13 @@ export async function generateBuildCheckEvidencePng(
   }
 
   // Outer card frame
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+  ctx.strokeStyle = isRobinhood
+    ? rhStatus === "IMPOSTOR_ALERT"
+      ? "rgba(239, 68, 68, 0.40)"
+      : rhStatus === "ROBINHOOD_CHAIN_NATIVE"
+        ? "rgba(56, 189, 248, 0.35)"
+        : "rgba(0, 200, 5, 0.32)"
+    : "rgba(255, 255, 255, 0.14)";
   ctx.lineWidth = 1.5;
   ctx.strokeRect(24, 24, width - 48, height - 48);
 
@@ -107,9 +155,25 @@ export async function generateBuildCheckEvidencePng(
   ctx.fillStyle = "#F8FAFC";
   ctx.font = "700 20px 'Plus Jakarta Sans', system-ui, sans-serif";
   ctx.fillText("SOLSHIELD® BUILDCHECK", 114, 70);
-  ctx.fillStyle = "#94A3B8";
+  ctx.fillStyle = isRobinhood
+    ? rhStatus === "IMPOSTOR_ALERT"
+      ? "#FCA5A5"
+      : rhStatus === "ROBINHOOD_CHAIN_NATIVE"
+        ? "#38BDF8"
+        : "#00C805"
+    : "#94A3B8";
   ctx.font = "500 13px 'JetBrains Mono', monospace";
-  ctx.fillText("PROOF-OF-BUILD & ON-CHAIN FORENSIC CARD", 114, 92);
+  ctx.fillText(
+    isRobinhood
+      ? rhStatus === "IMPOSTOR_ALERT"
+        ? "ROBINHOOD IMPOSTOR ALERT & FORENSIC CARD"
+        : rhStatus === "ROBINHOOD_CHAIN_NATIVE"
+          ? "ROBINHOOD CHAIN L2 & FORENSIC EVIDENCE CARD"
+          : "ROBINHOOD FORENSICS & ON-CHAIN EVIDENCE CARD"
+      : "PROOF-OF-BUILD & ON-CHAIN FORENSIC CARD",
+    114,
+    92
+  );
 
   // Verdict badge top right
   const verdictMeta =
@@ -129,6 +193,47 @@ export async function generateBuildCheckEvidencePng(
   ctx.stroke();
   ctx.fillStyle = verdictMeta.fg;
   ctx.fillText(verdictMeta.label, width - 54 - badgeW + 17, 72);
+
+  // Optional Robinhood badge next to verdict
+  if (isRobinhood && report.robinhood) {
+    const rhLabel =
+      report.robinhood.status === "OFFICIAL_LISTED"
+        ? `✓ ROBINHOOD LISTED (${report.robinhood.tradingPair || "USD"})`
+        : report.robinhood.status === "IMPOSTOR_ALERT"
+          ? "⚠️ ROBINHOOD IMPOSTOR ALERT"
+          : "ROBINHOOD CHAIN L2";
+    const rhBg =
+      report.robinhood.status === "OFFICIAL_LISTED"
+        ? "rgba(0, 200, 5, 0.16)"
+        : report.robinhood.status === "IMPOSTOR_ALERT"
+          ? "rgba(239, 68, 68, 0.22)"
+          : "rgba(14, 165, 233, 0.18)";
+    const rhBorder =
+      report.robinhood.status === "OFFICIAL_LISTED"
+        ? "rgba(0, 200, 5, 0.45)"
+        : report.robinhood.status === "IMPOSTOR_ALERT"
+          ? "rgba(239, 68, 68, 0.50)"
+          : "rgba(56, 189, 248, 0.45)";
+    const rhFg =
+      report.robinhood.status === "OFFICIAL_LISTED"
+        ? "#00C805"
+        : report.robinhood.status === "IMPOSTOR_ALERT"
+          ? "#FCA5A5"
+          : "#38BDF8";
+
+    ctx.font = "700 12px 'JetBrains Mono', monospace";
+    const rhBadgeW = ctx.measureText(rhLabel).width + 28;
+    const rhX = width - 54 - badgeW - 12 - rhBadgeW;
+
+    ctx.fillStyle = rhBg;
+    ctx.strokeStyle = rhBorder;
+    ctx.beginPath();
+    ctx.roundRect(rhX, 50, rhBadgeW, 34, 999);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = rhFg;
+    ctx.fillText(rhLabel, rhX + 14, 71);
+  }
 
   // Divider line
   ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
