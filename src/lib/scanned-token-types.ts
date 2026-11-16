@@ -31,7 +31,7 @@ export interface ScannedTokenSummary {
   mintAddress: string;
   symbol: string | null;
   name: string | null;
-  tokenProgram: "SPL Token" | "Token-2022";
+  tokenProgram: "SPL Token" | "Token-2022" | "ERC-20";
   riskScore: number;
   classification: "SAFE" | "CAUTION" | "CRITICAL";
   recommendedAction: "VERIFIED_SAFE" | "DYOR_CAUTION" | "HIGH_RUG_RISK";

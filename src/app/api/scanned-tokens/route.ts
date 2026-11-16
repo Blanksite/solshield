@@ -10,7 +10,7 @@ import { listScannedTokens, recordScannedTokenSummary } from "../../../lib/scann
 
 export const dynamic = "force-dynamic";
 
-const BASE58_MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const BASE58_OR_EVM_MINT_RE = /^(?:[1-9A-HJ-NP-Za-km-z]{32,44}|0x[a-fA-F0-9]{40})$/;
 const BUILDCHECK_ID_RE = /^[a-zA-Z0-9_-]{4,64}$/;
 const VALID_CLASSIFICATIONS = new Set(["SAFE", "CAUTION", "CRITICAL"]);
 const VALID_ACTIONS = new Set(["VERIFIED_SAFE", "DYOR_CAUTION", "HIGH_RUG_RISK"]);
@@ -88,7 +88,7 @@ function parseSummaryPayload(raw: unknown): ScannedTokenSummary | null {
 
   const mintAddress =
     typeof candidate.mintAddress === "string" ? candidate.mintAddress.trim() : "";
-  if (!BASE58_MINT_RE.test(mintAddress)) return null;
+  if (!BASE58_OR_EVM_MINT_RE.test(mintAddress)) return null;
 
   const riskScore = Number(candidate.riskScore);
   if (!Number.isFinite(riskScore) || riskScore < 0 || riskScore > 100) return null;
@@ -105,7 +105,11 @@ function parseSummaryPayload(raw: unknown): ScannedTokenSummary | null {
   }
 
   const tokenProgram =
-    candidate.tokenProgram === "Token-2022" ? "Token-2022" : "SPL Token";
+    candidate.tokenProgram === "ERC-20"
+      ? "ERC-20"
+      : candidate.tokenProgram === "Token-2022"
+        ? "Token-2022"
+        : "SPL Token";
   const scannedAt =
     typeof candidate.scannedAt === "string" &&
     Number.isFinite(Date.parse(candidate.scannedAt))
