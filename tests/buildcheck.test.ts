@@ -1018,6 +1018,164 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
       expect(report.inferenceMode).toBe("venice-live-api");
       expect(report.authenticityScore).toBeGreaterThanOrEqual(70);
       expect(report.verdict).toBe("VERIFIED_BUILD");
+      expect(report.contradictionCallout).toBeNull();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("flags cross-claim marketing contradictions in deterministic mode and surfaces single-call Venice contradictionCallout", async () => {
+    const contradictoryInput = {
+      id: "bc_contradict_01",
+      createdAt: "2026-11-16T09:00:00Z",
+      elapsedMs: 1200,
+      target: {
+        rawInput: "https://hyperai-demo.example",
+        kind: "website" as const,
+        normalizedUrl: "https://hyperai-demo.example",
+        hostname: "hyperai-demo.example",
+      },
+      browser: {
+        mode: "http-fallback" as const,
+        executableLabel: "HTTP Fallback",
+        stops: [
+          {
+            url: "https://hyperai-demo.example",
+            title: "HyperAI Infra",
+            stepLabel: "Landing",
+            screenshotBase64: "",
+            textExcerpt:
+              "100% open-source live AI agent protocol audited by CertiK — Coming Soon",
+            outboundGithub: [],
+            outboundX: [],
+            outboundSolanaAddresses: [],
+            networkHosts: [],
+            xhrCount: 0,
+            loadTimeMs: 300,
+            hasPlaceholderCopy: true,
+            consoleErrors: [],
+          },
+        ],
+        discoveredGithubRepos: [],
+        discoveredXUrls: [],
+        discoveredSolanaAddresses: [],
+        discoveredWebsiteUrls: ["https://hyperai-demo.example"],
+        totalXhrObserved: 0,
+        notes: [],
+      },
+      github: null,
+      chain: {
+        mintAddress: "7xK9mN2pQrStUvWxYz1234567890AbCdEfGhIjKlMnOp",
+        tokenReport: {
+          mintAddress: "7xK9mN2pQrStUvWxYz1234567890AbCdEfGhIjKlMnOp",
+          tokenProgram: "SPL Token" as const,
+          programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          isToken2022: false,
+          isPumpFunSuffix: false,
+          verifiedAsset: null,
+          name: "HyperAI",
+          symbol: "HAI",
+          decimals: 6,
+          rawSupply: "1000000000000",
+          supplyUi: 1000000,
+          mintAuthority: "Auth111111111111111111111111111111111111111",
+          freezeAuthority: null,
+          extensions: [],
+          transferFeeBps: null,
+          permanentDelegate: null,
+          transferHookProgramId: null,
+          defaultAccountState: null,
+          topHolders: [],
+          top5Pct: 68.4,
+          top10Pct: 81.2,
+          riskScore: 72,
+          classification: "CRITICAL" as const,
+          recommendedAction: "HIGH_RUG_RISK" as const,
+          executiveSummary: "Active mint authority",
+          flags: [],
+          slot: 400000000,
+          latencyMs: 40,
+          inferenceMode: "deterministic-fallback" as const,
+          privacyAttestation: "Zero retention",
+        },
+        dexPair: null,
+        accountRecentTxCount: 5,
+      },
+      domain: {
+        hostname: "hyperai-demo.example",
+        registrableDomain: "hyperai-demo.example",
+        domainAgeDays: 1,
+        rdapCreatedAt: "2026-11-15T00:00:00Z",
+        pageTitle: "HyperAI",
+        generatorHints: [],
+        domainEval: {
+          hostname: "hyperai-demo.example",
+          status: "UNVERIFIED" as const,
+          riskScore: 48,
+          riskLevel: "HIGH" as const,
+          isAllowlisted: false,
+          isPunycode: false,
+          closestVerifiedBrand: null,
+          matchedVerifiedDomain: null,
+          reasons: ["Newly registered domain"],
+        },
+      },
+      xPost: {
+        url: "https://x.com/hyperai/status/1",
+        handle: "hyperai",
+        tweetId: "1",
+        authorName: "HyperAI",
+        textContent: "Fair launch with 0% dev and live autonomous AI live now!",
+        extractedUrls: [],
+        extractedSolanaAddresses: [],
+        extractedGithubRepos: [],
+        methodUsed: "syndication" as const,
+      },
+    };
+
+    const deterministic = buildDeterministicBuildCheck(contradictoryInput);
+    expect(deterministic.contradictionCallout).toBeTruthy();
+    expect(
+      deterministic.claimsVsProof.some((c) => c.status === "CONTRADICTED")
+    ).toBe(true);
+    expect(deterministic.authenticityScore).toBeLessThan(45);
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    authenticityScore: 22,
+                    headline: "Open-source and live AI claims directly contradict observed evidence.",
+                    contradictionCallout:
+                      "Pitches a 100% open-source CertiK-audited live AI stack, yet ships a 1-day Coming Soon site with no GitHub repo and active Mint authority.",
+                    executiveSummary:
+                      "No public repository exists, rendered copy contains placeholders, and Mint authority remains active.",
+                    claimsVsProof: deterministic.claimsVsProof,
+                    verifiedSignals: [],
+                    keyRedFlags: deterministic.keyRedFlags,
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+    try {
+      const report = await synthesizeWithVeniceBuildCheck(contradictoryInput, {
+        apiKey: "VENICE_INFERENCE_KEY_test_only",
+        enableVision: false,
+      });
+      // Ensures zero additional external Venice API calls beyond the existing synthesis call
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(report.contradictionCallout).toContain("100% open-source CertiK-audited");
+      expect(report.verdict).toBe("HIGH_FABRICATION_RISK");
     } finally {
       fetchSpy.mockRestore();
     }

@@ -18,6 +18,7 @@ export interface SolShieldProofDispatch {
   postureScore: number | null;
   postureLabel: string;
   leadBrief: string;
+  contradictionCallout: string | null;
   confirmedPoints: string[];
   openGaps: string[];
   takeaway: string;
@@ -223,6 +224,16 @@ export function buildProofDispatch(
   const rawExec = cleanText(report.executiveSummary, mask);
   const leadBrief = trimSentence(rawHeadline || rawExec, 150);
 
+  const explicitCallout = cleanText(report.contradictionCallout, mask);
+  const topContradicted = (report.claimsVsProof || []).find(
+    (r) => r.status === "CONTRADICTED"
+  );
+  const derivedCallout = topContradicted
+    ? cleanText(`${topContradicted.claim}: ${topContradicted.evidence}`, mask)
+    : "";
+  const rawCallout = explicitCallout || derivedCallout;
+  const contradictionCallout = rawCallout ? trimSentence(rawCallout, 155) : null;
+
   let takeaway = rawExec;
   if (
     rawHeadline &&
@@ -298,6 +309,7 @@ export function buildProofDispatch(
     postureScore: dual.holderPosture.score,
     postureLabel: dual.holderPosture.label,
     leadBrief,
+    contradictionCallout,
     confirmedPoints,
     openGaps,
     takeaway,
@@ -330,6 +342,10 @@ export function formatSolShieldDispatchText(
 
   if (d.leadBrief) {
     sections.push(d.leadBrief);
+  }
+
+  if (d.contradictionCallout) {
+    sections.push(`CLAIM VS PROOF CALL-OUT:\n⚡ ${d.contradictionCallout}`);
   }
 
   if (d.confirmedPoints.length > 0) {
@@ -406,7 +422,10 @@ export function formatSolShieldThreadReplies(
   const rawLead =
     report.verdict === "VERIFIED_BUILD"
       ? report.verifiedSignals[0] || report.headline
-      : report.keyRedFlags[0] || report.verifiedSignals[0] || report.headline;
+      : d.contradictionCallout ||
+        report.keyRedFlags[0] ||
+        report.verifiedSignals[0] ||
+        report.headline;
   const maskedLead = maskDispatchAddresses(rawLead || "").replace(/\s+/g, " ").trim();
   const compactFinding =
     budgetForFinding > 24 ? maskedLead.slice(0, budgetForFinding).trim() : "";
@@ -481,6 +500,12 @@ export function formatTelegramProofDispatchHtml(
       `<b>Confirmed Evidence</b>\n${d.confirmedPoints
         .map((p) => `✅ ${escapeHtmlBasic(p)}`)
         .join("\n")}`
+    );
+  }
+
+  if (d.contradictionCallout) {
+    blocks.push(
+      `⚡ <b>Claim vs Proof Call-Out:</b> ${escapeHtmlBasic(d.contradictionCallout)}`
     );
   }
 

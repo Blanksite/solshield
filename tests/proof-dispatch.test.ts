@@ -319,4 +319,38 @@ describe("SolShield Proof Dispatch Story Formatter & X Thread Fallback", () => {
     ).toBe(false);
     expect(isXLengthRestrictionError(new XApiError("Credits exhausted", 402))).toBe(false);
   });
+
+  it("propagates masked Claim vs Proof Call-Out across dispatch, X thread, and Telegram HTML", () => {
+    const report: BuildCheckReport = {
+      ...makeSampleTokenReport(),
+      verdict: "HIGH_FABRICATION_RISK",
+      authenticityScore: 28,
+      contradictionCallout:
+        "Claims 100% open-source build, yet Mint CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx has no GitHub repo & active Mint authority.",
+    };
+
+    const dispatch = buildProofDispatch(report, {
+      appPublicUrl: "https://sol-shield.xyz",
+      maskAddresses: true,
+    });
+    expect(dispatch.contradictionCallout).toContain("CMYb1B...2Sqx");
+    expect(dispatch.contradictionCallout).not.toContain(
+      "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx"
+    );
+
+    const story = formatSolShieldDispatchText(report, {
+      appPublicUrl: "https://sol-shield.xyz",
+      maskAddresses: true,
+    });
+    expect(story).toContain("CLAIM VS PROOF CALL-OUT:");
+    expect(story).not.toMatch(/\blarp(?:check)?\b/i);
+
+    const thread = formatSolShieldThreadReplies(report, "https://sol-shield.xyz");
+    expect(thread.primary.length).toBeLessThanOrEqual(280);
+    expect(thread.followup.length).toBeLessThanOrEqual(280);
+    expect(thread.primary).toContain("100% open-source");
+
+    const tg = formatTelegramProofDispatchHtml(report, "https://sol-shield.xyz");
+    expect(tg).toContain("Claim vs Proof Call-Out:");
+  });
 });

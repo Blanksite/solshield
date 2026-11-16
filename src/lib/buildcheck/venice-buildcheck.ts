@@ -42,6 +42,165 @@ function deriveVerdict(score: number): BuildCheckVerdict {
   return "HIGH_FABRICATION_RISK";
 }
 
+interface ContradictionRule {
+  claimLabel: string;
+  pattern: RegExp;
+  penalty: number;
+  check: (ctx: {
+    input: VeniceBuildCheckInput;
+    matchingStop: VeniceBuildCheckInput["browser"]["stops"][number] | undefined;
+  }) => string | null;
+}
+
+const MARKETING_CONTRADICTION_RULES: ContradictionRule[] = [
+  {
+    claimLabel: "Open-source engineering claim",
+    pattern:
+      /\b(100%\s*open[- ]?source|open[- ]?source\s+(?:protocol|infra|ai|codebase)|public\s+github)\b/i,
+    penalty: 12,
+    check: ({ input }) => {
+      const gh = input.github;
+      if (!gh || !gh.exists) {
+        return "Copy advertises open-source engineering, yet no public non-fork GitHub repository was found.";
+      }
+      if (gh.isFork && gh.stars < 15 && gh.recentCommitCount <= 3) {
+        return `Copy claims original open-source build, yet ${gh.fullName} is a low-activity fork (${gh.recentCommitCount} commits).`;
+      }
+      return null;
+    },
+  },
+  {
+    claimLabel: "Live AI / working app claim",
+    pattern:
+      /\b(live\s+(?:ai|agent|app|terminal|api|swap|dex)|autonomous\s+ai|ai[- ]?powered\s+(?:infra|engine|agent)|realtime\s+api)\b/i,
+    penalty: 12,
+    check: ({ input, matchingStop }) => {
+      if (matchingStop?.hasPlaceholderCopy) {
+        return "Copy promotes a live AI/product experience while rendered site contains placeholder/Coming Soon copy.";
+      }
+      if (
+        matchingStop &&
+        matchingStop.xhrCount === 0 &&
+        !input.github?.exists &&
+        input.domain?.domainAgeDays !== null &&
+        input.domain !== null &&
+        input.domain.domainAgeDays <= 14
+      ) {
+        return `Copy pitches live AI/API utility, yet ${input.domain.registrableDomain} (${input.domain.domainAgeDays}d old) logged 0 live XHR calls with no repo.`;
+      }
+      return null;
+    },
+  },
+  {
+    claimLabel: "Security audit claim",
+    pattern:
+      /\b(audited\s+by|certik|hacken|ottersec|neodyme|zellic|security\s+audited)\b/i,
+    penalty: 12,
+    check: ({ input }) => {
+      const tok = input.chain?.tokenReport;
+      const holders = input.chain?.deep?.holders;
+      if (
+        tok &&
+        (tok.mintAuthority !== null ||
+          tok.freezeAuthority !== null ||
+          tok.riskScore >= 55)
+      ) {
+        return `Copy highlights a third-party audit while Solana mint/freeze authorities or risk (${tok.riskScore}/100) remain flagged.`;
+      }
+      if (holders && holders.score < 45) {
+        return `Copy claims audited safety, yet on-chain holder hygiene scored ${holders.score}/100.`;
+      }
+      return null;
+    },
+  },
+  {
+    claimLabel: "Fair launch / decentralization claim",
+    pattern:
+      /\b(fair\s*launch|no\s+team\s+tokens|0%\s*dev|100%\s*community|anti[- ]?whale)\b/i,
+    penalty: 12,
+    check: ({ input }) => {
+      const deep = input.chain?.deep;
+      if (!deep) return null;
+      const { devHistory, holders } = deep;
+      if (
+        devHistory.tokenHoldingPct >= 5 ||
+        holders.distribution.insidersPct >= 20 ||
+        holders.distribution.snipersPct >= 20 ||
+        holders.clusters.length >= 2
+      ) {
+        return `Copy pitches fair/0%-dev distribution while on-chain trace shows Dev ${devHistory.tokenHoldingPct.toFixed(1)}%, Insiders ${holders.distribution.insidersPct.toFixed(1)}%, and Snipers ${holders.distribution.snipersPct.toFixed(1)}%.`;
+      }
+      return null;
+    },
+  },
+  {
+    claimLabel: "Revoked token authorities claim",
+    pattern:
+      /\b(mint\s+(?:is\s+)?revoked|freeze\s+(?:is\s+)?revoked|renounced\s+authorities)\b/i,
+    penalty: 15,
+    check: ({ input }) => {
+      const tok = input.chain?.tokenReport;
+      if (!tok) return null;
+      if (tok.mintAuthority !== null || tok.freezeAuthority !== null) {
+        return `Marketing claims revoked authorities while on-chain MintAuth=${tok.mintAuthority ? "ACTIVE" : "Null"} / FreezeAuth=${tok.freezeAuthority ? "ACTIVE" : "Null"}.`;
+      }
+      return null;
+    },
+  },
+];
+
+function evaluateMarketingContradictions(
+  input: VeniceBuildCheckInput,
+  combinedCopy: string,
+  matchingStop: VeniceBuildCheckInput["browser"]["stops"][number] | undefined
+): {
+  rows: ClaimVsProofRow[];
+  redFlags: string[];
+  penalty: number;
+} {
+  if (!combinedCopy.trim()) {
+    return { rows: [], redFlags: [], penalty: 0 };
+  }
+  const hasCopySource =
+    input.browser.stops.length > 0 || input.xPost !== null;
+  if (!hasCopySource) {
+    return { rows: [], redFlags: [], penalty: 0 };
+  }
+
+  const rows: ClaimVsProofRow[] = [];
+  const redFlags: string[] = [];
+  let penalty = 0;
+
+  for (const rule of MARKETING_CONTRADICTION_RULES) {
+    if (!rule.pattern.test(combinedCopy)) continue;
+    const mismatch = rule.check({ input, matchingStop });
+    if (!mismatch) continue;
+    rows.push({
+      claim: rule.claimLabel,
+      status: "CONTRADICTED",
+      evidence: mismatch,
+    });
+    redFlags.push(`Contradiction: ${mismatch}`);
+    penalty += rule.penalty;
+  }
+
+  return { rows, redFlags, penalty: Math.min(20, penalty) };
+}
+
+function deriveContradictionCalloutFromRows(
+  rows: ClaimVsProofRow[],
+  fallbackFlags: string[] = []
+): string | null {
+  const topContradicted = rows.find((r) => r.status === "CONTRADICTED");
+  if (topContradicted) {
+    return topContradicted.evidence;
+  }
+  const apiFlag = fallbackFlags.find((f) =>
+    f.startsWith("API contradiction:") || f.startsWith("Contradiction:")
+  );
+  return apiFlag || null;
+}
+
 /**
  * Computes transparent deterministic scores & claims-vs-proof rows directly
  * from collected GitHub, On-Chain, Domain, and Browser evidence.
@@ -289,6 +448,24 @@ export function buildDeterministicBuildCheck(
   }
   apiPenalty = Math.min(22, apiPenalty);
 
+  // Cross-check surface marketing claims (web DOM + X post) against hard code, browser & chain telemetry
+  const primaryStopForClaims =
+    (input.domain
+      ? input.browser.stops.find((st) =>
+          st.url.includes(input.domain?.hostname || "")
+        )
+      : undefined) || input.browser.stops[0];
+  const claimAudit = evaluateMarketingContradictions(
+    input,
+    combinedCopy,
+    primaryStopForClaims
+  );
+  if (claimAudit.rows.length > 0) {
+    // Surface direct contradictions first so they are preserved within the 6-row dispatch budget
+    claimsVsProof.unshift(...claimAudit.rows);
+    keyRedFlags.unshift(...claimAudit.redFlags);
+  }
+
   if (input.xPost) {
     claimsVsProof.push({
       claim: `X claim source (${input.xPost.handle ? `@${input.xPost.handle}` : input.xPost.url})`,
@@ -308,7 +485,7 @@ export function buildDeterministicBuildCheck(
       ? activeScores.reduce((acc, cur) => acc + cur, 0) / activeScores.length
       : 45;
 
-  baseScore -= apiPenalty;
+  baseScore -= apiPenalty + claimAudit.penalty;
 
   // Guardrail 1: Zero verifiable code AND zero verifiable chain proof cannot hit VERIFIED_BUILD
   if (codeProof === null && chainProof === null) {
@@ -341,6 +518,13 @@ export function buildDeterministicBuildCheck(
     claimAlignment: authenticityScore,
   };
 
+  const trimmedClaims = claimsVsProof.slice(0, 6);
+  const trimmedRedFlags = Array.from(new Set(keyRedFlags)).slice(0, 6);
+  const contradictionCallout = deriveContradictionCalloutFromRows(
+    trimmedClaims,
+    trimmedRedFlags
+  );
+
   return {
     id: input.id,
     createdAt: input.createdAt,
@@ -349,13 +533,14 @@ export function buildDeterministicBuildCheck(
     authenticityScore,
     verdict,
     headline,
+    contradictionCallout,
     executiveSummary: `${headline} Analyzed via ${input.browser.mode} (${input.browser.stops.length} live capture stop(s)).`,
     privacyAttestation:
       "Audited under Zero Data Retention · No wallet keys or visitor identity logged.",
     componentScores,
-    claimsVsProof: claimsVsProof.slice(0, 6),
+    claimsVsProof: trimmedClaims,
     verifiedSignals: Array.from(new Set(verifiedSignals)).slice(0, 6),
-    keyRedFlags: Array.from(new Set(keyRedFlags)).slice(0, 6),
+    keyRedFlags: trimmedRedFlags,
     browser: input.browser,
     github: input.github,
     chain: input.chain,
@@ -548,15 +733,17 @@ export async function synthesizeWithVeniceBuildCheck(
         messages: [
           {
             role: "system",
-            content: `You are SolShield BuildCheck, a calibrated factual Web3 proof-of-build forensic auditor running on Zero-Retention Venice AI.
-Compare claimed capabilities against ONLY the concrete evidence provided (GitHub metrics & topLevelFiles/description, Solana on-chain authorities/liquidity/holders, domain age, live browser DOM/XHR telemetry, deterministicComponentScores, and Vision notes). Never invent claims or demand proof on the homepage hero when the verified open-source repository and live API XHR telemetry already prove real engineering.
-Calibration rules:
-- Anchor near deterministicBaselineScore unless concrete contradictions (fake/forked/single-burst repo, Coming Soon/placeholder DOM, active mint/freeze authority, API cluster contradiction, or severe cabal risk) justify deviating.
+            content: `You are SolShield BuildCheck, a calibrated, unfiltered Web3 proof-of-build forensic auditor running on Zero-Retention Venice AI.
+Compare claimed capabilities in rendered web copy / X posts against ONLY the concrete evidence provided (GitHub metrics & topLevelFiles/description, Solana on-chain authorities/liquidity/holders, domain age, live browser DOM/XHR telemetry, deterministicComponentScores, and Vision notes). Never invent claims or demand proof on the homepage hero when the verified open-source repository and live API XHR telemetry already prove real engineering.
+Calibration & Unfiltered Contradiction rules:
+- Anchor near deterministicBaselineScore unless concrete contradictions (missing/fake/forked/single-burst repo vs open-source claims, Coming Soon/placeholder DOM vs live product claims, active mint/freeze authority or severe cabal exposure vs audited/fair-launch claims, or API cluster contradiction) justify deviating.
+- When concrete contradictions exist, call them out bluntly without PR hedging in "contradictionCallout" (1 crisp sentence contrasting claim vs hard metric). Return null for "contradictionCallout" when no verified contradiction exists.
 - A recently launched authentic build (young domainAgeDays/pairAgeHours) with an active non-fork repo (hasPackageManifest + hasTestsOrCi + commits), revoked authorities (mintAuthority=null, freezeAuthority=null), and operational app telemetry (xhrCount>0, zero console errors, !hasPlaceholderCopy) is a legitimate verified build — do NOT mark product features implemented in the verified repo as CONTRADICTED just because the landing page hero does not show every sub-page above the fold.
 Respond ONLY with valid JSON:
 {
   "authenticityScore": <integer 0-100 where 100 is completely proven authentic build and 0 is fabricated/fake>,
   "headline": "<sharp 1-sentence conclusion>",
+  "contradictionCallout": <string 1 blunt claim-vs-proof contradiction sentence OR null>,
   "executiveSummary": "<2-3 factual plain-English sentences summarizing findings>",
   "claimsVsProof": [
     { "claim": "<short claim>", "status": "VERIFIED" | "MIXED" | "CONTRADICTED" | "UNVERIFIED", "evidence": "<exact metric or observation>" }
@@ -593,6 +780,7 @@ Respond ONLY with valid JSON:
     const parsed = JSON.parse(jsonMatch[0]) as {
       authenticityScore?: number;
       headline?: string;
+      contradictionCallout?: string | null;
       executiveSummary?: string;
       claimsVsProof?: ClaimVsProofRow[];
       verifiedSignals?: string[];
@@ -625,7 +813,9 @@ Respond ONLY with valid JSON:
       Boolean(
         input.chain?.tokenReport?.flags.some((f) => f.severity === "CRITICAL")
       ) ||
-      baseline.keyRedFlags.some((f) => f.startsWith("API contradiction:"));
+      baseline.keyRedFlags.some(
+        (f) => f.startsWith("API contradiction:") || f.startsWith("Contradiction:")
+      );
 
     const finalScore =
       baseline.authenticityScore < 40
@@ -637,24 +827,44 @@ Respond ONLY with valid JSON:
           ? Math.max(rawAiScore, Math.max(70, baseline.authenticityScore - 6))
           : rawAiScore;
 
+    const finalClaims =
+      Array.isArray(parsed.claimsVsProof) && parsed.claimsVsProof.length > 0
+        ? parsed.claimsVsProof.slice(0, 6)
+        : baseline.claimsVsProof;
+    const finalRedFlags =
+      Array.isArray(parsed.keyRedFlags) && parsed.keyRedFlags.length > 0
+        ? parsed.keyRedFlags.slice(0, 6)
+        : baseline.keyRedFlags;
+    const hasVerifiedCleanShield =
+      finalScore >= 70 &&
+      hasVerifiedCodeBuild &&
+      hasCleanLiveWeb &&
+      !hasCriticalRugOrContradiction &&
+      !finalClaims.some((r) => r.status === "CONTRADICTED");
+    const aiCallout =
+      typeof parsed.contradictionCallout === "string" &&
+      parsed.contradictionCallout.trim().length > 0
+        ? parsed.contradictionCallout.trim()
+        : null;
+    const finalCallout = hasVerifiedCleanShield
+      ? null
+      : aiCallout ||
+        baseline.contradictionCallout ||
+        deriveContradictionCalloutFromRows(finalClaims, finalRedFlags);
+
     return {
       ...baseline,
       authenticityScore: finalScore,
       verdict: deriveVerdict(finalScore),
       headline: parsed.headline?.trim() || baseline.headline,
+      contradictionCallout: finalCallout,
       executiveSummary: parsed.executiveSummary?.trim() || baseline.executiveSummary,
-      claimsVsProof:
-        Array.isArray(parsed.claimsVsProof) && parsed.claimsVsProof.length > 0
-          ? parsed.claimsVsProof.slice(0, 6)
-          : baseline.claimsVsProof,
+      claimsVsProof: finalClaims,
       verifiedSignals:
         Array.isArray(parsed.verifiedSignals) && parsed.verifiedSignals.length > 0
           ? parsed.verifiedSignals.slice(0, 6)
           : baseline.verifiedSignals,
-      keyRedFlags:
-        Array.isArray(parsed.keyRedFlags) && parsed.keyRedFlags.length > 0
-          ? parsed.keyRedFlags.slice(0, 6)
-          : baseline.keyRedFlags,
+      keyRedFlags: finalRedFlags,
       inferenceMode: "venice-live-api",
       modelsUsed,
       visionSummary,

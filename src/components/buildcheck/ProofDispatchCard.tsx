@@ -8,6 +8,7 @@ import {
   Copy,
   FileText,
   Radio,
+  Zap,
 } from "lucide-react";
 import {
   buildProofDispatch,
@@ -179,6 +180,23 @@ export function ProofDispatchCard({ report }: ProofDispatchCardProps) {
                 </p>
               )}
             </div>
+
+            {dispatch.contradictionCallout && (
+              <div
+                data-testid="proof-dispatch-callout"
+                className="rounded-lg border border-rose-500/35 bg-rose-500/[0.08] px-3.5 py-2.5 flex items-start gap-2.5"
+              >
+                <Zap className="w-3.5 h-3.5 text-rose-300 mt-0.5 shrink-0" />
+                <div className="space-y-0.5 min-w-0">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-rose-300 font-semibold">
+                    Claim vs Proof Call-Out · Unfiltered
+                  </div>
+                  <p className="text-xs text-rose-100 leading-relaxed">
+                    {dispatch.contradictionCallout}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Balanced Two-Column Evidence Sheet */}

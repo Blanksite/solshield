@@ -1420,6 +1420,12 @@ export default function BuildCheckWorkbench({
                   BuildCheck
                 </span>
               </div>
+              <Link
+                href="/wallet-detox"
+                className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-md text-xs text-emerald-300/90 hover:text-white border border-emerald-500/25 hover:border-emerald-400/50 bg-emerald-500/[0.06] transition-colors"
+              >
+                Wallet Detox
+              </Link>
             </div>
 
             {/* Inline Header Search Bar (visible after scan so cockpit stays at top) */}

@@ -287,6 +287,7 @@ export interface BuildCheckReport {
   authenticityScore: number;
   verdict: BuildCheckVerdict;
   headline: string;
+  contradictionCallout?: string | null;
   executiveSummary: string;
   inferenceMode: "venice-live-api" | "deterministic-fallback";
   modelsUsed: string[];
