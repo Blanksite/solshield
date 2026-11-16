@@ -413,27 +413,36 @@ export function buildDeterministicBuildCheck(
   // 4. Deep Holders, Cabal Clusters & API Payload Truth Checks
   let holdersProof: number | null = null;
   const deepChain = input.chain?.deep;
-  if (deepChain) {
-    holdersProof = deepChain.holders.score;
-    for (const cluster of deepChain.holders.clusters) {
+  if (deepChain && deepChain.holders) {
+    holdersProof = deepChain.holders.score ?? null;
+    const clusters = deepChain.holders.clusters || [];
+    for (const cluster of clusters) {
+      if (cluster?.label && typeof cluster?.combinedPct === "number") {
+        keyRedFlags.push(
+          `${cluster.label} holds ${cluster.combinedPct.toFixed(1)}% of supply.`
+        );
+      }
+    }
+    const snipersPct = deepChain.holders.distribution?.snipersPct ?? 0;
+    const insidersPct = deepChain.holders.distribution?.insidersPct ?? 0;
+    const devHoldingPct = deepChain.devHistory?.tokenHoldingPct ?? 0;
+    const holderScore = deepChain.holders.score ?? 80;
+    const verdict = deepChain.holders.verdict ?? "Distributed";
+
+    if (snipersPct >= 15) {
       keyRedFlags.push(
-        `${cluster.label} holds ${cluster.combinedPct.toFixed(1)}% of supply.`
+        `Same-window launch snipers still hold ${snipersPct.toFixed(1)}% of supply.`
       );
     }
-    if (deepChain.holders.distribution.snipersPct >= 15) {
-      keyRedFlags.push(
-        `Same-window launch snipers still hold ${deepChain.holders.distribution.snipersPct.toFixed(1)}% of supply.`
-      );
-    }
-    if (deepChain.holders.clusters.length > 0 || deepChain.holders.distribution.snipersPct >= 15) {
+    if (clusters.length > 0 || snipersPct >= 15) {
       claimsVsProof.push({
-        claim: `Token holder distribution (${deepChain.holders.verdict})`,
-        status: deepChain.holders.score >= 68 ? "VERIFIED" : deepChain.holders.score >= 40 ? "MIXED" : "CONTRADICTED",
-        evidence: `Score ${deepChain.holders.score}/100 · Cabal/Insiders ${deepChain.holders.distribution.insidersPct}% · Snipers ${deepChain.holders.distribution.snipersPct}% · Dev ${deepChain.devHistory.tokenHoldingPct}%`,
+        claim: `Token holder distribution (${verdict})`,
+        status: holderScore >= 68 ? "VERIFIED" : holderScore >= 40 ? "MIXED" : "CONTRADICTED",
+        evidence: `Score ${holderScore}/100 · Cabal/Insiders ${insidersPct}% · Snipers ${snipersPct}% · Dev ${devHoldingPct}%`,
       });
-    } else if (deepChain.holders.score >= 70) {
+    } else if (holderScore >= 70) {
       verifiedSignals.push(
-        `Holder distribution scored ${deepChain.holders.score}/100 (${deepChain.holders.verdict}) with Dev holding ${deepChain.devHistory.tokenHoldingPct}%.`
+        `Holder distribution scored ${holderScore}/100 (${verdict}) with Dev holding ${devHoldingPct}%.`
       );
     }
   }

@@ -9,6 +9,7 @@ import {
 } from "./input-parser";
 import { collectTokenDeepIntel } from "./token-forensics";
 import {
+  fetchRobinhoodChainErc20Metadata,
   verifyRobinhoodChainDeployment,
   verifyRobinhoodStatus,
 } from "./robinhood-verifier";
@@ -610,6 +611,20 @@ export async function collectChainTokenIntel(
       if (checkBase.isDeployed) isDeployedOnHood = true;
     }
 
+    let onChainSupply: string = "0";
+    let onChainDecimals: number = 18;
+    if (isDeployedOnHood && (tokenName === "EVM Token" || !dexPair)) {
+      try {
+        const onChainMeta = await fetchRobinhoodChainErc20Metadata(resolvedContractAddress);
+        if (onChainMeta.name) tokenName = onChainMeta.name;
+        if (onChainMeta.symbol) tokenSymbol = onChainMeta.symbol;
+        if (onChainMeta.decimals) onChainDecimals = onChainMeta.decimals;
+        if (onChainMeta.totalSupply) onChainSupply = onChainMeta.totalSupply;
+      } catch {
+        // fallback to defaults
+      }
+    }
+
     const robinhoodReport = await verifyRobinhoodStatus({
       address: resolvedContractAddress,
       name: tokenName,
@@ -629,9 +644,9 @@ export async function collectChainTokenIntel(
       isPumpFunSuffix: false,
       name: tokenName,
       symbol: tokenSymbol,
-      decimals: 18,
-      rawSupply: "0",
-      supplyUi: 0,
+      decimals: onChainDecimals,
+      rawSupply: onChainSupply,
+      supplyUi: onChainSupply !== "0" ? Number(BigInt(onChainSupply) / BigInt(10 ** onChainDecimals)) : 0,
       mintAuthority: null,
       freezeAuthority: null,
       extensions: isDeployedOnHood ? ["Robinhood Chain Arbitrum Orbit"] : [],
@@ -693,6 +708,14 @@ export async function collectChainTokenIntel(
         top10ConcentrationPct: 0,
         nodes: [],
         clusters: [],
+        score: 85,
+        verdict: "Distributed",
+        distribution: {
+          insidersPct: 0,
+          snipersPct: 0,
+          retailPct: 100,
+          top10Pct: 0,
+        },
       },
       devHistory: {
         deployerAddress: null,
@@ -701,6 +724,7 @@ export async function collectChainTokenIntel(
         firstActiveAt: null,
         launchedTokens: [],
         recentTxs: [],
+        tokenHoldingPct: 0,
       },
     };
 

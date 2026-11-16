@@ -232,6 +232,96 @@ export async function verifyRobinhoodChainDeployment(
   }
 }
 
+function decodeAbiString(hex?: string | null): string | null {
+  if (!hex || hex === "0x") return null;
+  try {
+    const raw = hex.replace(/^0x/, "");
+    if (raw.length >= 128) {
+      const lenHex = raw.substring(64, 128);
+      const len = parseInt(lenHex, 16);
+      if (len > 0 && len < 256) {
+        const strHex = raw.substring(128, 128 + len * 2);
+        const buf = Buffer.from(strHex, "hex");
+        const str = buf.toString("utf8").replace(/\0/g, "").trim();
+        if (str) return str;
+      }
+    }
+    // Fallback for bytes32 representation
+    const buf = Buffer.from(raw, "hex");
+    const str = buf.toString("utf8").replace(/\0/g, "").trim();
+    return str || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Queries ERC-20 name(), symbol(), decimals(), and totalSupply() from Robinhood Chain RPC.
+ */
+export async function fetchRobinhoodChainErc20Metadata(
+  address: string,
+  fetchTimeoutMs = 3500
+): Promise<{
+  name: string | null;
+  symbol: string | null;
+  decimals: number;
+  totalSupply: string | null;
+}> {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address.trim())) {
+    return { name: null, symbol: null, decimals: 18, totalSupply: null };
+  }
+
+  const cleanAddr = address.trim();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), fetchTimeoutMs);
+
+  const rpcCall = async (data: string) => {
+    try {
+      const res = await fetch(ROBINHOOD_CHAIN_CONFIG.rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_call",
+          params: [{ to: cleanAddr, data }, "latest"],
+          id: 1,
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { result?: string };
+      return json.result || null;
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    const [nameHex, symHex, decHex, supHex] = await Promise.all([
+      rpcCall("0x06fdde03"), // name()
+      rpcCall("0x95d89b41"), // symbol()
+      rpcCall("0x313ce567"), // decimals()
+      rpcCall("0x18160ddd"), // totalSupply()
+    ]);
+
+    const name = decodeAbiString(nameHex);
+    const symbol = decodeAbiString(symHex);
+    const decimals = decHex && decHex !== "0x" ? parseInt(decHex, 16) : 18;
+    let totalSupply: string | null = null;
+    if (supHex && supHex !== "0x") {
+      try {
+        totalSupply = BigInt(supHex).toString();
+      } catch {
+        // ignore
+      }
+    }
+
+    return { name, symbol, decimals, totalSupply };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface VerifyRobinhoodOptions {
   address: string;
   name?: string | null;
