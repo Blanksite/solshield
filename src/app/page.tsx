@@ -1280,6 +1280,14 @@ export default function SolShieldHexaCorePage() {
                   </Link>
                 </Magnet>
                 <Magnet padding={28} magnetStrength={3.2}>
+                  <Link
+                    href="/dev-lineage"
+                    className="hover:opacity-100 transition-opacity cursor-pointer text-purple-400"
+                  >
+                    Dev Lineage
+                  </Link>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
                   <a
                     href="https://github.com/Blanksite/solshield"
                     target="_blank"
@@ -3941,6 +3949,12 @@ export default function SolShieldHexaCorePage() {
                   className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
                 >
                   Wallet Detox
+                </Link>
+                <Link
+                  href="/dev-lineage"
+                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
+                >
+                  Dev Lineage
                 </Link>
                 <a
                   href="https://github.com/Blanksite/solshield"

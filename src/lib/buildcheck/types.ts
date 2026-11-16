@@ -431,7 +431,7 @@ export type BuildCheckStreamEvent =
       type: "collector";
       elapsedMs: number;
       collector: "github" | "chain" | "domain" | "xpost" | "social";
-      status: "ok" | "warn" | "error";
+      status: "ok" | "warn" | "error" | "idle";
       summary: string;
     }
   | {

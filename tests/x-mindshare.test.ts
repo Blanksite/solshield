@@ -953,4 +953,37 @@ describe("X Mindshare & KOL Discourse Pulse", () => {
     expect(social.source).toBe("unavailable");
     expect(social.errorNote).toContain("credits depleted");
   });
+
+  it("supports on-demand Mindshare enrichment on report with null initial social state", async () => {
+    const baseReport = makeBaseReport(null);
+    expect(baseReport.social).toBeNull();
+
+    const social = await collectSocialMindshare({
+      target: baseReport.target,
+      chain: baseReport.chain,
+    });
+
+    const alignment = computeMindshareBuildAlignment({
+      mindshareScore: social.mindshareScore,
+      organicSignalPct: social.organicSignalPct,
+      skepticalPct: social.sentimentBreakdown.skepticalPct,
+      shillNoisePct: social.sentimentBreakdown.shillNoisePct,
+      totalPostsSampled: social.totalPostsSampled,
+      buildIntegrityScore: 75,
+    });
+
+    const enrichedReport: BuildCheckReport = {
+      ...baseReport,
+      social: {
+        ...social,
+        quadrant: alignment.quadrant,
+        quadrantLabel: alignment.quadrantLabel,
+        quadrantSummary: alignment.quadrantSummary,
+      },
+    };
+
+    expect(enrichedReport.social).not.toBeNull();
+    expect(enrichedReport.social?.quadrant).toBeDefined();
+    expect(enrichedReport.social?.quadrantLabel).toBeDefined();
+  });
 });

@@ -159,9 +159,15 @@ function sourceLabel(source: SocialMindshareReport["source"]): string {
 export function MindsharePulsePanel({
   social,
   symbol,
+  onScanMindshare,
+  isScanningMindshare,
+  scanError,
 }: {
   social: SocialMindshareReport | null | undefined;
   symbol?: string | null;
+  onScanMindshare?: () => void;
+  isScanningMindshare?: boolean;
+  scanError?: string | null;
 }) {
   const [filter, setFilter] = useState<DiscourseFilter>("all");
   const [showAllPosts, setShowAllPosts] = useState(false);
@@ -196,12 +202,53 @@ export function MindsharePulsePanel({
     return (
       <div
         data-testid="mindshare-pulse-panel"
-        className="p-6 text-center space-y-2 text-xs text-slate-400"
+        className="p-8 sm:p-12 text-center space-y-4 max-w-xl mx-auto"
       >
-        <p className="font-mono uppercase tracking-wider text-slate-300">
-          X Mindshare telemetry unavailable on this archived report
-        </p>
-        <p>Run a fresh live BuildCheck scan to pull recent X voices, KOL tiers, and sentiment synthesis.</p>
+        <div className="w-14 h-14 rounded-2xl bg-[#2934FF]/14 border border-[#5D82FF]/30 flex items-center justify-center mx-auto text-[#60A5FA] shadow-[0_0_24px_rgba(41,52,255,0.2)]">
+          <Radio className={`w-7 h-7 ${isScanningMindshare ? "animate-pulse" : ""}`} />
+        </div>
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider bg-blue-500/10 border border-blue-500/25 text-blue-300 mb-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
+            <span>On-Demand Analysis</span>
+          </div>
+          <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
+            X Mindshare &amp; KOL Discourse is On-Demand
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Scanning live X threads, KOL consensus, and sentiment breakdown is kept on-demand so core forensic audits (mint authorities, code, domain, and LP) stay lightning fast.
+          </p>
+        </div>
+
+        {scanError && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs text-left flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <span>{scanError}</span>
+          </div>
+        )}
+
+        {onScanMindshare && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onScanMindshare}
+              disabled={isScanningMindshare}
+              className="px-6 py-2.5 rounded-xl bg-[#2934FF] hover:bg-[#3D49FF] disabled:bg-[#2934FF]/40 text-white font-semibold text-xs sm:text-sm transition-all shadow-[0_4px_20px_rgba(41,52,255,0.36)] hover:shadow-[0_6px_24px_rgba(41,52,255,0.48)] flex items-center gap-2 mx-auto cursor-pointer"
+            >
+              {isScanningMindshare ? (
+                <>
+                  <Sparkles className="w-4 h-4 animate-spin text-[#93C5FD]" />
+                  <span>Scanning Live X Threads &amp; KOLs...</span>
+                </>
+              ) : (
+                <>
+                  <Radio className="w-4 h-4 text-[#93C5FD]" />
+                  <span>⚡ Scan X Mindshare &amp; KOLs Now</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

@@ -7,7 +7,7 @@ import {
 } from "@/lib/guard-token";
 
 export const config = {
-  matcher: ["/", "/buildcheck", "/wallet-detox", "/privacy"],
+  matcher: ["/", "/buildcheck", "/wallet-detox", "/dev-lineage", "/privacy"],
 };
 
 /**

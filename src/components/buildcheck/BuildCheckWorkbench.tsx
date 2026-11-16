@@ -28,6 +28,7 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   Terminal,
   Wallet,
   XCircle,
@@ -189,7 +190,7 @@ function buildCollectorsFromReport(
                 ? `@${report.social.officialProfile.username} · 0 mentions`
                 : "Pre-discovery",
         }
-      : { status: "idle", text: "Not scanned" },
+      : { status: "idle", text: "On-demand · Click to scan" },
   };
 }
 
@@ -269,6 +270,65 @@ export default function BuildCheckWorkbench({
   const [forensicTab, setForensicTab] = useState<
     "proof" | "mindshare" | "holders" | "dev" | "browser" | "telemetry"
   >("proof");
+  const [isScanningMindshare, setIsScanningMindshare] = useState(false);
+  const [mindshareScanError, setMindshareScanError] = useState<string | null>(null);
+
+  const handleScanMindshare = async () => {
+    if (!report || isScanningMindshare) return;
+    setIsScanningMindshare(true);
+    setMindshareScanError(null);
+
+    try {
+      let veniceKey = veniceApiKey.trim();
+      if (!veniceKey) {
+        try {
+          const stored = localStorage.getItem("solshield_venice_key");
+          if (stored) veniceKey = stored.trim();
+        } catch {
+          // Ignore localStorage errors
+        }
+      }
+
+      const res = await fetch("/api/buildcheck/mindshare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          reportId: report.id,
+          target: report.target,
+          chain: report.chain,
+          github: report.github,
+          domain: report.domain,
+          xPost: report.xPost,
+          browserXUrls: report.browser?.discoveredXUrls,
+          veniceApiKey: veniceKey || undefined,
+          report,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.social) {
+        throw new Error(data.error || `Failed to fetch X Mindshare (HTTP ${res.status})`);
+      }
+
+      const updatedReport: BuildCheckReport = {
+        ...report,
+        social: data.social,
+      };
+
+      setReport(updatedReport);
+      setCollectors(buildCollectorsFromReport(updatedReport));
+      void import("@/lib/buildcheck/local-report-cache").then((m) =>
+        m.saveLocalBuildCheckReport(updatedReport)
+      );
+    } catch (err) {
+      setMindshareScanError(
+        err instanceof Error ? err.message : "Failed to scan X Mindshare."
+      );
+    } finally {
+      setIsScanningMindshare(false);
+    }
+  };
 
   const abortRef = useRef<AbortController | null>(null);
   const forensicPanelRef = useRef<HTMLDivElement | null>(null);
@@ -1047,9 +1107,13 @@ export default function BuildCheckWorkbench({
           >
             <Radio className="w-4 h-4 text-[#93C5FD] shrink-0" />
             <span>X Mindshare &amp; KOLs</span>
-            {report.social && (
+            {report.social ? (
               <span className="px-2 py-0.5 rounded-md bg-black/30 border border-white/15 text-[#BFD0FF] font-mono text-[11px] tabular-nums">
                 {report.social.mindshareScore}/100 · {report.social.kolCount} KOLs
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/25 text-[#93C5FD] font-mono text-[10px]">
+                On-Demand
               </span>
             )}
           </button>
@@ -1122,7 +1186,13 @@ export default function BuildCheckWorkbench({
 
         {/* Tab Contents */}
         {forensicTab === "mindshare" && (
-          <MindsharePulsePanel social={report.social} symbol={tokenSymbol} />
+          <MindsharePulsePanel
+            social={report.social}
+            symbol={tokenSymbol}
+            onScanMindshare={handleScanMindshare}
+            isScanningMindshare={isScanningMindshare}
+            scanError={mindshareScanError}
+          />
         )}
 
         {forensicTab === "holders" && report.chain?.deep?.holders && (
@@ -2041,7 +2111,7 @@ export default function BuildCheckWorkbench({
                   </div>
 
                   {/* X Mindshare & KOL Discourse Pulse Quick Strip */}
-                  {report.social && (
+                  {report.social ? (
                     <div
                       data-testid="mindshare-overview-strip"
                       className="px-5 py-4 border-t border-[#5D82FF]/25 bg-gradient-to-r from-[#0B1120] via-[#090D18] to-[#0B101D] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -2096,6 +2166,55 @@ export default function BuildCheckWorkbench({
                         <Radio className="w-4 h-4 shrink-0" />
                         <span>Open X Mindshare &amp; Treemap →</span>
                       </button>
+                    </div>
+                  ) : (
+                    <div
+                      data-testid="mindshare-overview-strip"
+                      className="px-5 py-3.5 border-t border-[#5D82FF]/20 bg-gradient-to-r from-[#0B1120] via-[#090D18] to-[#0B101D] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-slate-300 min-w-0">
+                        <Radio className="w-4 h-4 text-[#60A5FA] shrink-0" />
+                        <span className="font-semibold text-white">X Mindshare &amp; KOL Discourse:</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/12 border border-blue-500/30 text-blue-300">
+                          On-Demand
+                        </span>
+                        <span className="text-slate-400 text-[11px] hidden md:inline">
+                          — Scan finished fast without social lag. Click to analyze live X threads &amp; KOLs.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setForensicTab("mindshare");
+                            forensicPanelRef.current?.scrollIntoView({
+                              behavior: "smooth",
+                              block: "start",
+                            });
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/10 text-xs font-medium transition-colors cursor-pointer"
+                        >
+                          View Tab
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleScanMindshare}
+                          disabled={isScanningMindshare}
+                          className="px-3.5 py-1.5 rounded-lg bg-[#2934FF] hover:bg-[#3D49FF] disabled:bg-[#2934FF]/40 text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_2px_12px_rgba(41,52,255,0.3)] cursor-pointer"
+                        >
+                          {isScanningMindshare ? (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5 animate-spin text-[#93C5FD]" />
+                              <span>Scanning X...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Radio className="w-3.5 h-3.5 text-[#93C5FD]" />
+                              <span>⚡ Scan Mindshare Now</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

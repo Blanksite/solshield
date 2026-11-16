@@ -14,6 +14,7 @@ import type {
   ChainTokenIntelReport,
   DomainIntelReport,
   GitHubForensicReport,
+  SocialMindshareReport,
   XPostIntelReport,
 } from "./types";
 import { assertSafePublicHttpUrl } from "./url-safety";
@@ -40,6 +41,7 @@ import type { ParsedTargetInput } from "./types";
 
 export interface RunBuildCheckOptions extends VeniceBuildCheckOptions {
   enableBrowser?: boolean;
+  enableSocial?: boolean;
   forceRefresh?: boolean;
   bypassCache?: boolean;
   onEvent?: (event: BuildCheckStreamEvent) => void;
@@ -682,46 +684,57 @@ async function executeFreshBuildCheckInvestigation(
     }
   }
 
-  emit({
-    type: "step",
-    stepId: "social",
-    elapsedMs: elapsed(),
-    phase: "collectors",
-    title: "Scanning X Mindshare & KOL discourse",
-    detail: "Measuring real X threads, follower tiers, sentiment & hype alignment",
-  });
+  let socialReport: SocialMindshareReport | null = null;
+  if (options.enableSocial) {
+    emit({
+      type: "step",
+      stepId: "social",
+      elapsedMs: elapsed(),
+      phase: "collectors",
+      title: "Scanning X Mindshare & KOL discourse",
+      detail: "Measuring real X threads, follower tiers, sentiment & hype alignment",
+    });
 
-  const socialReport = await collectSocialMindshare({
-    target,
-    chain: chainReport,
-    github: githubReport,
-    domain: domainReport,
-    xPost: xPostReport,
-    browserXUrls: browserSummary.discoveredXUrls,
-    veniceApiKey: options.apiKey,
-    veniceModel: options.model,
-  });
+    socialReport = await collectSocialMindshare({
+      target,
+      chain: chainReport,
+      github: githubReport,
+      domain: domainReport,
+      xPost: xPostReport,
+      browserXUrls: browserSummary.discoveredXUrls,
+      veniceApiKey: options.apiKey,
+      veniceModel: options.model,
+    });
 
-  emit({
-    type: "collector",
-    elapsedMs: elapsed(),
-    collector: "social",
-    status:
-      socialReport.totalPostsSampled > 0 || socialReport.officialProfile
-        ? socialReport.sentimentBreakdown.shillNoisePct >= 50 ||
-          socialReport.quadrant === "NARRATIVE_OVERHEAT"
-          ? "warn"
-          : "ok"
-        : socialReport.source === "unavailable"
-          ? "warn"
-          : "ok",
-    summary:
-      socialReport.totalPostsSampled > 0
-        ? `Mindshare ${socialReport.mindshareScore}/100 · ${socialReport.kolCount} KOLs · ${socialReport.totalPostsSampled} posts`
-        : socialReport.officialProfile
-          ? `@${socialReport.officialProfile.username} (${socialReport.officialProfile.followersCount.toLocaleString("en-US")} followers) · 0 recent mentions`
-          : "Pre-discovery / 0 X mentions",
-  });
+    emit({
+      type: "collector",
+      elapsedMs: elapsed(),
+      collector: "social",
+      status:
+        socialReport.totalPostsSampled > 0 || socialReport.officialProfile
+          ? socialReport.sentimentBreakdown.shillNoisePct >= 50 ||
+            socialReport.quadrant === "NARRATIVE_OVERHEAT"
+            ? "warn"
+            : "ok"
+          : socialReport.source === "unavailable"
+            ? "warn"
+            : "ok",
+      summary:
+        socialReport.totalPostsSampled > 0
+          ? `Mindshare ${socialReport.mindshareScore}/100 · ${socialReport.kolCount} KOLs · ${socialReport.totalPostsSampled} posts`
+          : socialReport.officialProfile
+            ? `@${socialReport.officialProfile.username} (${socialReport.officialProfile.followersCount.toLocaleString("en-US")} followers) · 0 recent mentions`
+            : "Pre-discovery / 0 X mentions",
+    });
+  } else {
+    emit({
+      type: "collector",
+      elapsedMs: elapsed(),
+      collector: "social",
+      status: "idle",
+      summary: "On-demand · Click to scan X Mindshare",
+    });
+  }
 
   emit({
     type: "step",
@@ -754,21 +767,25 @@ async function executeFreshBuildCheckInvestigation(
     }
   );
 
-  const dualAxis = computeDualAxisSummary(finalReport);
-  const refinedAlignment = computeMindshareBuildAlignment({
-    mindshareScore: socialReport.mindshareScore,
-    organicSignalPct: socialReport.organicSignalPct,
-    skepticalPct: socialReport.sentimentBreakdown.skepticalPct,
-    shillNoisePct: socialReport.sentimentBreakdown.shillNoisePct,
-    totalPostsSampled: socialReport.totalPostsSampled,
-    buildIntegrityScore: dualAxis.buildIntegrity.score,
-  });
-  finalReport.social = {
-    ...socialReport,
-    quadrant: refinedAlignment.quadrant,
-    quadrantLabel: refinedAlignment.quadrantLabel,
-    quadrantSummary: refinedAlignment.quadrantSummary,
-  };
+  if (socialReport) {
+    const dualAxis = computeDualAxisSummary(finalReport);
+    const refinedAlignment = computeMindshareBuildAlignment({
+      mindshareScore: socialReport.mindshareScore,
+      organicSignalPct: socialReport.organicSignalPct,
+      skepticalPct: socialReport.sentimentBreakdown.skepticalPct,
+      shillNoisePct: socialReport.sentimentBreakdown.shillNoisePct,
+      totalPostsSampled: socialReport.totalPostsSampled,
+      buildIntegrityScore: dualAxis.buildIntegrity.score,
+    });
+    finalReport.social = {
+      ...socialReport,
+      quadrant: refinedAlignment.quadrant,
+      quadrantLabel: refinedAlignment.quadrantLabel,
+      quadrantSummary: refinedAlignment.quadrantSummary,
+    };
+  } else {
+    finalReport.social = null;
+  }
 
   finalReport.elapsedMs = elapsed();
 
