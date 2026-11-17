@@ -20,10 +20,25 @@ const SOLANA_MAINNET_RPC =
   process.env.SOLANA_RPC_URL?.trim() || "https://api.mainnet-beta.solana.com";
 const FALLBACK_SOLANA_RPC = "https://solana-rpc.publicnode.com";
 
-/** Max ancestor hops to trace (prevents infinite loops on circular funding) */
-const MAX_LINEAGE_DEPTH = 5;
-/** Max transactions to scan per wallet when looking for funding sources */
-const MAX_TXS_PER_WALLET = 50;
+/** Max ancestor hops to trace (prevents exponential branching on circular/deep chains) */
+const MAX_LINEAGE_DEPTH = 3;
+/** Hard cap on visited wallets & recursive time budget to stay fast on serverless RPCs */
+const MAX_WALLETS_TO_TRACE = 10;
+const MAX_PARENTS_PER_WALLET = 2;
+const LINEAGE_TIME_BUDGET_MS = 20_000;
+/** Max signatures fetched per wallet to reach initial funding & launch transactions */
+const MAX_TXS_PER_WALLET = 100;
+/** Supports legacy, v0, and v1 Solana transactions on modern mainnet RPCs */
+const SUPPORTED_TX_VERSION = 1 as unknown as 0;
+const RAYDIUM_LAUNCHLAB_PROGRAM = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj";
+const JUPITER_V6_PROGRAM = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+const NON_FUNDING_DEX_PROGRAMS = new Set([
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // Pump.fun
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", // Raydium AMM
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", // Raydium CLMM
+  RAYDIUM_LAUNCHLAB_PROGRAM,
+  JUPITER_V6_PROGRAM,
+]);
 /** Max deployed tokens to discover per wallet */
 const MAX_DEPLOYED_TOKENS = 20;
 /** Min SOL amount to consider a transfer as "funding" (not dust) */
@@ -129,6 +144,7 @@ export interface DevLineageReport {
 function getConnection(): Connection {
   return new Connection(SOLANA_MAINNET_RPC, {
     commitment: "confirmed",
+    disableRetryOnRateLimit: true,
     httpHeaders: { "User-Agent": "SolShield-DevLineage/1.0" },
   });
 }
@@ -136,6 +152,7 @@ function getConnection(): Connection {
 function getFallbackConnection(): Connection {
   return new Connection(FALLBACK_SOLANA_RPC, {
     commitment: "confirmed",
+    disableRetryOnRateLimit: true,
     httpHeaders: { "User-Agent": "SolShield-DevLineage/1.0" },
   });
 }
@@ -208,34 +225,55 @@ async function fetchParsedTransactionsBatch(
   const result = new Map<string, ParsedTransactionWithMeta>();
   if (signatures.length === 0) return result;
 
-  const CHUNK_SIZE = 16;
-  const chunks: string[][] = [];
+  // Prefer fast JSON-RPC batching with v1 support; automatically fall back to fallbackConn
+  // and bounded single-tx waves if a public RPC endpoint rejects batch arrays.
+  const CHUNK_SIZE = 25;
   for (let i = 0; i < signatures.length; i += CHUNK_SIZE) {
-    chunks.push(signatures.slice(i, i + CHUNK_SIZE));
-  }
-
-  // Run up to 2 batch chunks in parallel with fallback RPC resilience
-  const CONCURRENCY = 2;
-  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-    const batchSlice = chunks.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      batchSlice.map(async (chunk) => {
-        const txs = await withFallbackRpc<(ParsedTransactionWithMeta | null)[]>(
-          primary,
-          fallback,
-          (c) =>
-            c.getParsedTransactions(chunk, {
-              maxSupportedTransactionVersion: 0,
-            }),
-          chunk.map(() => null),
-          tracker
-        );
+    const chunk = signatures.slice(i, i + CHUNK_SIZE);
+    let batchOk = false;
+    for (const conn of [primary, fallback]) {
+      try {
+        const txs = await conn.getParsedTransactions(chunk, {
+          maxSupportedTransactionVersion: SUPPORTED_TX_VERSION,
+        });
         chunk.forEach((sig, idx) => {
           const parsed = txs[idx];
           if (parsed) result.set(sig, parsed);
         });
-      })
-    );
+        batchOk = true;
+        break;
+      } catch {
+        // Try next RPC or single-tx wave fallback below
+      }
+    }
+    if (batchOk) continue;
+
+    const SINGLE_CONCURRENCY = 2;
+    for (let j = 0; j < chunk.length; j += SINGLE_CONCURRENCY) {
+      const wave = chunk.slice(j, j + SINGLE_CONCURRENCY);
+      await Promise.all(
+        wave.map(async (sig) => {
+          try {
+            const tx = await primary.getParsedTransaction(sig, {
+              maxSupportedTransactionVersion: SUPPORTED_TX_VERSION,
+            });
+            if (tx) result.set(sig, tx);
+          } catch {
+            try {
+              const tx = await fallback.getParsedTransaction(sig, {
+                maxSupportedTransactionVersion: SUPPORTED_TX_VERSION,
+              });
+              if (tx) result.set(sig, tx);
+            } catch {
+              if (tracker) tracker.degraded = true;
+            }
+          }
+        })
+      );
+      if (j + SINGLE_CONCURRENCY < chunk.length) {
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
   }
 
   return result;
@@ -252,39 +290,106 @@ function extractFundingEdgesFromTxs(
   const seenSenders = new Set<string>();
 
   for (const sigInfo of oldestSigs) {
+    if (edges.length >= MAX_PARENTS_PER_WALLET) break;
+
     const tx = txMap.get(sigInfo.signature);
     if (!tx?.meta || tx.meta.err) continue;
 
-    const preBalances = tx.meta.preBalances;
-    const postBalances = tx.meta.postBalances;
     const accounts = tx.transaction.message.accountKeys;
+    const feePayer = accounts[0]?.pubkey?.toBase58?.() || "";
+    const topInstructions = tx.transaction.message.instructions;
+    const innerInstructions = (tx.meta.innerInstructions || []).flatMap(
+      (g) => g.instructions
+    );
+    const allInstructions = [...topInstructions, ...innerInstructions];
 
-    for (let i = 0; i < accounts.length; i++) {
-      const acctPubkey = accounts[i].pubkey.toBase58();
-      if (acctPubkey === wallet) {
-        const received = postBalances[i] - preBalances[i];
-        if (received >= MIN_FUNDING_SOL * 1e9) {
-          for (let j = 0; j < accounts.length; j++) {
-            if (j === i) continue;
-            const senderPubkey = accounts[j].pubkey.toBase58();
-            const sent = preBalances[j] - postBalances[j];
-            if (sent > 0 && !seenSenders.has(senderPubkey)) {
-              seenSenders.add(senderPubkey);
-              const isCex = senderPubkey in KNOWN_CEX_WALLETS;
-              edges.push({
-                from: senderPubkey,
-                to: wallet,
-                amountSol: received / 1e9,
-                amountLamports: received,
-                txSignature: sigInfo.signature,
-                slot: sigInfo.slot,
-                blockTime: sigInfo.blockTime,
-                isCex,
-                cexLabel: isCex ? KNOWN_CEX_WALLETS[senderPubkey] : null,
-              });
-              break;
-            }
-          }
+    // Ignore DEX swaps / token trades (wallet receives SOL from selling tokens or closing pools)
+    const touchesDexOrTokenSwap = allInstructions.some((ix) => {
+      if ("programId" in ix) {
+        const pid = (ix as { programId?: { toBase58?: () => string } }).programId?.toBase58?.() || "";
+        if (NON_FUNDING_DEX_PROGRAMS.has(pid)) return true;
+      }
+      if ("parsed" in ix) {
+        const prog = (ix as { program?: string }).program;
+        if (prog === "spl-token" || prog === "spl-token-2022") return true;
+      }
+      return false;
+    });
+    if (touchesDexOrTokenSwap) continue;
+
+    // Prefer explicit SystemProgram transfer/createAccount instructions funding `wallet`
+    let matchedTransfer = false;
+    for (const ix of allInstructions) {
+      if (!("parsed" in ix)) continue;
+      const parsedIx = ix as {
+        program?: string;
+        parsed?: {
+          type?: string;
+          info?: {
+            source?: string;
+            destination?: string;
+            newAccount?: string;
+            lamports?: number;
+          };
+        };
+      };
+      if (parsedIx.program !== "system") continue;
+      const tType = parsedIx.parsed?.type;
+      if (tType !== "transfer" && tType !== "transferWithSeed" && tType !== "createAccount") {
+        continue;
+      }
+      const dest = parsedIx.parsed?.info?.destination || parsedIx.parsed?.info?.newAccount;
+      const source = parsedIx.parsed?.info?.source;
+      const lamports = Number(parsedIx.parsed?.info?.lamports ?? 0);
+      if (
+        dest === wallet &&
+        source &&
+        source !== wallet &&
+        lamports >= MIN_FUNDING_SOL * 1e9 &&
+        !seenSenders.has(source)
+      ) {
+        seenSenders.add(source);
+        const isCex = source in KNOWN_CEX_WALLETS;
+        edges.push({
+          from: source,
+          to: wallet,
+          amountSol: lamports / 1e9,
+          amountLamports: lamports,
+          txSignature: sigInfo.signature,
+          slot: sigInfo.slot,
+          blockTime: sigInfo.blockTime,
+          isCex,
+          cexLabel: isCex ? KNOWN_CEX_WALLETS[source] : null,
+        });
+        matchedTransfer = true;
+        break;
+      }
+    }
+    if (matchedTransfer) continue;
+
+    // Fallback when funding used an external relay/bridge and sender paid the tx fee
+    if (feePayer && feePayer !== wallet && !seenSenders.has(feePayer)) {
+      const preBalances = tx.meta.preBalances;
+      const postBalances = tx.meta.postBalances;
+      const walletIdx = accounts.findIndex((a) => a.pubkey.toBase58() === wallet);
+      const payerIdx = 0;
+      if (walletIdx > 0) {
+        const received = postBalances[walletIdx] - preBalances[walletIdx];
+        const sent = preBalances[payerIdx] - postBalances[payerIdx];
+        if (received >= MIN_FUNDING_SOL * 1e9 && sent > 0) {
+          seenSenders.add(feePayer);
+          const isCex = feePayer in KNOWN_CEX_WALLETS;
+          edges.push({
+            from: feePayer,
+            to: wallet,
+            amountSol: received / 1e9,
+            amountLamports: received,
+            txSignature: sigInfo.signature,
+            slot: sigInfo.slot,
+            blockTime: sigInfo.blockTime,
+            isCex,
+            cexLabel: isCex ? KNOWN_CEX_WALLETS[feePayer] : null,
+          });
         }
       }
     }
@@ -333,9 +438,35 @@ function extractDeployedTokensFromTxs(
     const tx = txMap.get(sigInfo.signature);
     if (!tx?.meta || tx.meta.err) continue;
 
-    const instructions = tx.transaction.message.instructions;
+    const topInstructions = tx.transaction.message.instructions;
+    const innerInstructions = (tx.meta.innerInstructions || []).flatMap(
+      (group) => group.instructions
+    );
+    const allInstructions = [...topInstructions, ...innerInstructions];
+    const feePayer = tx.transaction.message.accountKeys[0]?.pubkey?.toBase58?.() || "";
+    const usesLaunchpad = allInstructions.some((ix) => {
+      const progId =
+        "programId" in ix
+          ? (ix as { programId?: { toBase58?: () => string } }).programId?.toBase58?.() || ""
+          : "";
+      return progId === PUMP_FUN_PROGRAM || progId === RAYDIUM_LAUNCHLAB_PROGRAM;
+    });
+    const isRaydiumLaunch = allInstructions.some((ix) => {
+      const progId =
+        "programId" in ix
+          ? (ix as { programId?: { toBase58?: () => string } }).programId?.toBase58?.() || ""
+          : "";
+      return progId === RAYDIUM_LAUNCHLAB_PROGRAM;
+    });
+    const isPumpLaunch = allInstructions.some((ix) => {
+      const progId =
+        "programId" in ix
+          ? (ix as { programId?: { toBase58?: () => string } }).programId?.toBase58?.() || ""
+          : "";
+      return progId === PUMP_FUN_PROGRAM;
+    });
 
-    for (const ix of instructions) {
+    for (const ix of allInstructions) {
       if (!("parsed" in ix)) continue;
       const parsed = ix as {
         program?: string;
@@ -345,14 +476,14 @@ function extractDeployedTokensFromTxs(
         };
       };
 
-      // Detect SPL Token InitializeMint / InitializeMint2
+      // Detect direct or CPI SPL Token InitializeMint / InitializeMint2 initiated by this deployer
       if (
         (parsed.program === "spl-token" || parsed.program === "spl-token-2022") &&
         (parsed.parsed?.type === "initializeMint" ||
           parsed.parsed?.type === "initializeMint2")
       ) {
         const mintAuthority = parsed.parsed?.info?.mintAuthority;
-        if (mintAuthority === wallet) {
+        if (mintAuthority === wallet || (feePayer === wallet && usesLaunchpad)) {
           const mint = parsed.parsed?.info?.mint;
           if (mint && !tokens.find((t) => t.mint === mint)) {
             tokens.push({
@@ -363,23 +494,28 @@ function extractDeployedTokensFromTxs(
               deployTxSignature: sigInfo.signature,
               deployBlockTime: sigInfo.blockTime,
               liquidityEventDetected: false,
-              deployPlatform:
-                parsed.program === "spl-token-2022" ? "Token-2022" : "SPL",
+              deployPlatform: isPumpLaunch
+                ? "Pump.fun"
+                : isRaydiumLaunch
+                  ? "Raydium"
+                  : parsed.program === "spl-token-2022"
+                    ? "Token-2022"
+                    : "SPL",
             });
           }
         }
       }
     }
 
-    // Check for Pump.fun or Raydium program interactions
-    for (const ix of instructions) {
+    // Legacy fallback: direct top-level Pump.fun interaction when CPI mint wasn't parsed
+    for (const ix of topInstructions) {
       if ("programId" in ix) {
         const ixObj = ix as {
           programId?: { toBase58?: () => string };
           accounts?: Array<{ toBase58?: () => string }>;
         };
         const progId = ixObj.programId?.toBase58?.() || "";
-        if (progId === PUMP_FUN_PROGRAM) {
+        if (progId === PUMP_FUN_PROGRAM && feePayer === wallet) {
           const accounts = ixObj.accounts || [];
           if (accounts.length > 0) {
             const potentialMint = accounts[0]?.toBase58?.() || "";
@@ -444,6 +580,7 @@ export async function buildLineageTree(
   edges: FundingEdge[];
   rpcDegraded: boolean;
 }> {
+  const treeStartMs = Date.now();
   const conn = getConnection();
   const fallbackConn = getFallbackConnection();
   const tracker = { degraded: false };
@@ -453,7 +590,14 @@ export async function buildLineageTree(
   const seenEdgeKeys = new Set<string>();
 
   async function traceWallet(wallet: string, depth: number): Promise<void> {
-    if (depth > maxDepth || visited.has(wallet)) return;
+    if (
+      depth > maxDepth ||
+      visited.has(wallet) ||
+      visited.size >= MAX_WALLETS_TO_TRACE ||
+      Date.now() - treeStartMs > LINEAGE_TIME_BUDGET_MS
+    ) {
+      return;
+    }
     visited.add(wallet);
 
     const pubkey = new PublicKey(wallet);
@@ -494,8 +638,8 @@ export async function buildLineageTree(
       safeGetSignatures(conn, pubkey, MAX_TXS_PER_WALLET, fallbackConn, tracker),
     ]);
 
-    const oldestSigs = [...sigs].reverse().slice(0, 15);
-    const recentDeploySigs = sigs.slice(0, depth === 0 ? 30 : 20);
+    const oldestSigs = [...sigs].reverse().slice(0, 12);
+    const recentDeploySigs = sigs.slice(0, depth === 0 ? 13 : 10);
     const uniqueSigList = Array.from(
       new Set([
         ...oldestSigs.map((s) => s.signature),
@@ -510,8 +654,9 @@ export async function buildLineageTree(
       tracker
     );
 
+    const scannedSigs = sigs.filter((s) => txMap.has(s.signature));
     const fundingEdges = extractFundingEdgesFromTxs(wallet, oldestSigs, txMap);
-    const allTokens = extractDeployedTokensFromTxs(wallet, recentDeploySigs, txMap);
+    const allTokens = extractDeployedTokensFromTxs(wallet, scannedSigs, txMap);
     const isSerialDeployer = allTokens.length >= 3;
 
     const node: LineageNode = {
