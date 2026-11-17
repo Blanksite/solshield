@@ -70,6 +70,8 @@ export interface PolicyVaultStatus {
   policyState: DecodedSecurityPolicy | null;
   latestBlockhash: string | null;
   latestDevnetBlockhash: string | null;
+  mainnetSlot?: number | null;
+  rpcLatencyMs?: number | null;
   checkedAt: string;
   error?: string;
 }
@@ -513,6 +515,7 @@ async function probeClusterPolicyVault(params: {
     params.ownerAddress
   );
 
+  const startedAt = Date.now();
   const keysToQuery = [programId, policyPda];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4500);
@@ -547,6 +550,7 @@ async function probeClusterPolicyVault(params: {
 
     const accountsJson = (await accountsRes.json().catch(() => null)) as {
       result?: {
+        context?: { slot?: number };
         value?: Array<{
           executable?: boolean;
           data?: [string, string] | string;
@@ -554,8 +558,16 @@ async function probeClusterPolicyVault(params: {
       };
     } | null;
     const bhJson = (await bhRes.json().catch(() => null)) as {
-      result?: { value?: { blockhash?: string } };
+      result?: { context?: { slot?: number }; value?: { blockhash?: string } };
     } | null;
+
+    const contextSlot =
+      typeof bhJson?.result?.context?.slot === "number"
+        ? bhJson.result.context.slot
+        : typeof accountsJson?.result?.context?.slot === "number"
+          ? accountsJson.result.context.slot
+          : null;
+    const rpcLatencyMs = Date.now() - startedAt;
 
     const values = accountsJson?.result?.value ?? [];
     const programInfo = values[0] ?? null;
@@ -591,6 +603,8 @@ async function probeClusterPolicyVault(params: {
       policyState,
       latestBlockhash,
       latestDevnetBlockhash: cluster === "devnet" ? latestBlockhash : null,
+      mainnetSlot: cluster === "mainnet" ? contextSlot : null,
+      rpcLatencyMs,
       checkedAt: new Date().toISOString(),
     };
   } catch (err: unknown) {
@@ -670,12 +684,17 @@ export async function fetchPolicyVaultStatus(params?: {
     return mainnetStatus;
   }
 
-  return probeClusterPolicyVault({
+  const devnetStatus = await probeClusterPolicyVault({
     cluster: "devnet",
     rpcUrl: devnetRpc,
     ownerAddress: params?.ownerAddress,
     fetchImpl,
   });
+  return {
+    ...devnetStatus,
+    mainnetSlot: mainnetStatus.mainnetSlot ?? null,
+    rpcLatencyMs: mainnetStatus.rpcLatencyMs ?? devnetStatus.rpcLatencyMs ?? null,
+  };
 }
 
 /**

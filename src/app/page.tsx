@@ -417,10 +417,18 @@ export default function SolShieldHexaCorePage() {
   const refreshVaultStatus = async (owner?: string) => {
     try {
       const qs = owner ? `?owner=${encodeURIComponent(owner)}` : "";
-      const res = await fetch(`/api/policy-status${qs}`);
+      const res = await fetch(`/api/policy-status${qs}`, {
+        credentials: "same-origin",
+      });
       const data = await res.json();
       if (data.ok) {
         setVaultStatus(data);
+        if (typeof data.mainnetSlot === "number" && data.mainnetSlot > 0) {
+          setLiveSlot((prev) => prev ?? data.mainnetSlot);
+        }
+        if (typeof data.rpcLatencyMs === "number" && data.rpcLatencyMs > 0) {
+          setRpcLatencyMs((prev) => prev ?? data.rpcLatencyMs);
+        }
       }
     } catch {
       // Non-fatal RPC probe error
