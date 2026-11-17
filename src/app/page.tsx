@@ -979,7 +979,7 @@ export default function SolShieldHexaCorePage() {
 
   return (
     <ClickSpark sparkColor="#2934FF" sparkRadius={26} sparkCount={8} className="min-h-screen">
-      <div className="hexacore-canvas min-h-screen font-sans">
+      <div id="top" className="hexacore-canvas min-h-screen font-sans">
         {/* ====================================================================
             PROTOCOL LAUNCH STRIP — Official CA & Verified Ecosystem Links
             ==================================================================== */}
@@ -1133,7 +1133,11 @@ export default function SolShieldHexaCorePage() {
             {/* Top Brand Header */}
             <div className="flex items-center justify-between gap-3">
               <a
-                href="#"
+                href="#top"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
                 className="inline-flex items-center gap-2.5 group focus:outline-none"
               >
                 <HexaCoreLogoMark />
@@ -1153,12 +1157,14 @@ export default function SolShieldHexaCorePage() {
                 <span className="block">
                   <BlurText text="Adaptive" delay={60} />
                 </span>
+                <span className="sr-only"> </span>
                 <span className="flex items-center gap-4 my-1">
                   <BlurText text="AI" delay={140} />
                   <Magnet padding={50} magnetStrength={2.2}>
                     <CobaltSphere3D className="w-12 h-12 sm:w-14 sm:h-14 cursor-pointer" />
                   </Magnet>
                 </span>
+                <span className="sr-only"> </span>
                 <span className="block">
                   <BlurText text="Guard" delay={220} />
                 </span>
@@ -3877,7 +3883,11 @@ export default function SolShieldHexaCorePage() {
               {/* Left: Brand Identity + Venice Pill */}
               <div className="flex flex-wrap items-center gap-3.5">
                 <a
-                  href="#"
+                  href="#top"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
                   className="inline-flex items-center gap-2.5 group focus:outline-none"
                 >
                   <HexaCoreLogoMark />

@@ -20,7 +20,7 @@ export async function OPTIONS(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   const guarded = await guardApiRoute(req, {
-    profile: "web-tool",
+    profile: "web-ai",
     kind: "read",
   });
   if (!guarded.ok) {

@@ -120,6 +120,8 @@ export interface DevLineageReport {
   privacyAttestation: string;
   latencyMs: number;
   slot: number;
+  rpcDegraded?: boolean;
+  rpcWarning?: string | null;
 }
 
 /* ── Helpers ───────────────────────────────────────────────── */
@@ -138,67 +140,119 @@ function getFallbackConnection(): Connection {
   });
 }
 
-async function safeGetBalance(conn: Connection, pubkey: PublicKey): Promise<number> {
+type SigInfo = { signature: string; slot: number; blockTime: number | null };
+
+async function withFallbackRpc<T>(
+  primary: Connection,
+  fallback: Connection,
+  fn: (conn: Connection) => Promise<T>,
+  defaultValue: T,
+  tracker?: { degraded: boolean }
+): Promise<T> {
   try {
-    return await conn.getBalance(pubkey);
+    return await fn(primary);
   } catch {
-    return 0;
+    try {
+      return await fn(fallback);
+    } catch {
+      if (tracker) tracker.degraded = true;
+      return defaultValue;
+    }
   }
+}
+
+async function safeGetBalance(
+  conn: Connection,
+  pubkey: PublicKey,
+  fallbackConn?: Connection,
+  tracker?: { degraded: boolean }
+): Promise<number> {
+  return withFallbackRpc(
+    conn,
+    fallbackConn || getFallbackConnection(),
+    (c) => c.getBalance(pubkey),
+    0,
+    tracker
+  );
 }
 
 async function safeGetSignatures(
   conn: Connection,
   pubkey: PublicKey,
-  limit: number
-): Promise<{ signature: string; slot: number; blockTime: number | null }[]> {
-  try {
-    const sigs = await conn.getSignaturesForAddress(pubkey, { limit });
-    return sigs.map((s) => ({
-      signature: s.signature,
-      slot: s.slot,
-      blockTime: s.blockTime ?? null,
-    }));
-  } catch {
-    return [];
-  }
+  limit: number,
+  fallbackConn?: Connection,
+  tracker?: { degraded: boolean }
+): Promise<SigInfo[]> {
+  return withFallbackRpc(
+    conn,
+    fallbackConn || getFallbackConnection(),
+    async (c) => {
+      const sigs = await c.getSignaturesForAddress(pubkey, { limit });
+      return sigs.map((s) => ({
+        signature: s.signature,
+        slot: s.slot,
+        blockTime: s.blockTime ?? null,
+      }));
+    },
+    [],
+    tracker
+  );
 }
 
-async function safeGetParsedTransaction(
-  conn: Connection,
-  sig: string
-): Promise<ParsedTransactionWithMeta | null> {
-  try {
-    return await conn.getParsedTransaction(sig, {
-      maxSupportedTransactionVersion: 0,
-    });
-  } catch {
-    return null;
+async function fetchParsedTransactionsBatch(
+  primary: Connection,
+  fallback: Connection,
+  signatures: string[],
+  tracker?: { degraded: boolean }
+): Promise<Map<string, ParsedTransactionWithMeta>> {
+  const result = new Map<string, ParsedTransactionWithMeta>();
+  if (signatures.length === 0) return result;
+
+  const CHUNK_SIZE = 16;
+  const chunks: string[][] = [];
+  for (let i = 0; i < signatures.length; i += CHUNK_SIZE) {
+    chunks.push(signatures.slice(i, i + CHUNK_SIZE));
   }
+
+  // Run up to 2 batch chunks in parallel with fallback RPC resilience
+  const CONCURRENCY = 2;
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const batchSlice = chunks.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batchSlice.map(async (chunk) => {
+        const txs = await withFallbackRpc<(ParsedTransactionWithMeta | null)[]>(
+          primary,
+          fallback,
+          (c) =>
+            c.getParsedTransactions(chunk, {
+              maxSupportedTransactionVersion: 0,
+            }),
+          chunk.map(() => null),
+          tracker
+        );
+        chunk.forEach((sig, idx) => {
+          const parsed = txs[idx];
+          if (parsed) result.set(sig, parsed);
+        });
+      })
+    );
+  }
+
+  return result;
 }
 
 /* ── Core: Funding Source Tracer ────────────────────────────── */
 
-/**
- * Discovers who funded a wallet by scanning its earliest transactions
- * for incoming SOL transfers above the dust threshold.
- */
-export async function traceFundingSources(
-  conn: Connection,
-  wallet: string
-): Promise<FundingEdge[]> {
-  const pubkey = new PublicKey(wallet);
-  const sigs = await safeGetSignatures(conn, pubkey, MAX_TXS_PER_WALLET);
-
-  if (sigs.length === 0) return [];
-
-  // Sort oldest-first to find initial funding
-  const oldestSigs = [...sigs].reverse().slice(0, 15);
-
+function extractFundingEdgesFromTxs(
+  wallet: string,
+  oldestSigs: SigInfo[],
+  txMap: Map<string, ParsedTransactionWithMeta>
+): FundingEdge[] {
   const edges: FundingEdge[] = [];
   const seenSenders = new Set<string>();
 
   for (const sigInfo of oldestSigs) {
-    const tx = await safeGetParsedTransaction(conn, sigInfo.signature);
+    const tx = txMap.get(sigInfo.signature);
     if (!tx?.meta || tx.meta.err) continue;
 
     const preBalances = tx.meta.preBalances;
@@ -208,10 +262,8 @@ export async function traceFundingSources(
     for (let i = 0; i < accounts.length; i++) {
       const acctPubkey = accounts[i].pubkey.toBase58();
       if (acctPubkey === wallet) {
-        // Check if this wallet received SOL
-        const received = (postBalances[i] - preBalances[i]);
+        const received = postBalances[i] - preBalances[i];
         if (received >= MIN_FUNDING_SOL * 1e9) {
-          // Find who sent it (balance decreased)
           for (let j = 0; j < accounts.length; j++) {
             if (j === i) continue;
             const senderPubkey = accounts[j].pubkey.toBase58();
@@ -230,7 +282,7 @@ export async function traceFundingSources(
                 isCex,
                 cexLabel: isCex ? KNOWN_CEX_WALLETS[senderPubkey] : null,
               });
-              break; // one sender per tx for clarity
+              break;
             }
           }
         }
@@ -241,32 +293,57 @@ export async function traceFundingSources(
   return edges;
 }
 
+/**
+ * Discovers who funded a wallet by scanning its earliest transactions
+ * for incoming SOL transfers above the dust threshold.
+ */
+export async function traceFundingSources(
+  conn: Connection,
+  wallet: string,
+  fallbackConn?: Connection,
+  tracker?: { degraded: boolean }
+): Promise<FundingEdge[]> {
+  const fb = fallbackConn || getFallbackConnection();
+  const pubkey = new PublicKey(wallet);
+  const sigs = await safeGetSignatures(conn, pubkey, MAX_TXS_PER_WALLET, fb, tracker);
+  if (sigs.length === 0) return [];
+
+  const oldestSigs = [...sigs].reverse().slice(0, 15);
+  const txMap = await fetchParsedTransactionsBatch(
+    conn,
+    fb,
+    oldestSigs.map((s) => s.signature),
+    tracker
+  );
+  return extractFundingEdgesFromTxs(wallet, oldestSigs, txMap);
+}
+
 /* ── Core: Token Deployment Detector ───────────────────────── */
 
-/**
- * Scans a wallet's transaction history for token creation events
- * (InitializeMint, CreateMetadataAccount, Pump.fun launches, etc.)
- */
-export async function discoverDeployedTokens(
-  conn: Connection,
-  wallet: string
-): Promise<DeployedTokenInfo[]> {
-  const pubkey = new PublicKey(wallet);
-  const sigs = await safeGetSignatures(conn, pubkey, MAX_TXS_PER_WALLET);
-
+function extractDeployedTokensFromTxs(
+  wallet: string,
+  sigs: SigInfo[],
+  txMap: Map<string, ParsedTransactionWithMeta>
+): DeployedTokenInfo[] {
   const tokens: DeployedTokenInfo[] = [];
 
   for (const sigInfo of sigs) {
     if (tokens.length >= MAX_DEPLOYED_TOKENS) break;
 
-    const tx = await safeGetParsedTransaction(conn, sigInfo.signature);
+    const tx = txMap.get(sigInfo.signature);
     if (!tx?.meta || tx.meta.err) continue;
 
     const instructions = tx.transaction.message.instructions;
 
     for (const ix of instructions) {
       if (!("parsed" in ix)) continue;
-      const parsed = ix as any;
+      const parsed = ix as {
+        program?: string;
+        parsed?: {
+          type?: string;
+          info?: { mintAuthority?: string; mint?: string };
+        };
+      };
 
       // Detect SPL Token InitializeMint / InitializeMint2
       if (
@@ -297,10 +374,13 @@ export async function discoverDeployedTokens(
     // Check for Pump.fun or Raydium program interactions
     for (const ix of instructions) {
       if ("programId" in ix) {
-        const progId = (ix as any).programId?.toBase58?.() || "";
+        const ixObj = ix as {
+          programId?: { toBase58?: () => string };
+          accounts?: Array<{ toBase58?: () => string }>;
+        };
+        const progId = ixObj.programId?.toBase58?.() || "";
         if (progId === PUMP_FUN_PROGRAM) {
-          // Pump.fun token deployment detected
-          const accounts = (ix as any).accounts || [];
+          const accounts = ixObj.accounts || [];
           if (accounts.length > 0) {
             const potentialMint = accounts[0]?.toBase58?.() || "";
             if (potentialMint && !tokens.find((t) => t.mint === potentialMint)) {
@@ -324,6 +404,31 @@ export async function discoverDeployedTokens(
   return tokens;
 }
 
+/**
+ * Scans a wallet's transaction history for token creation events
+ * (InitializeMint, CreateMetadataAccount, Pump.fun launches, etc.)
+ */
+export async function discoverDeployedTokens(
+  conn: Connection,
+  wallet: string,
+  fallbackConn?: Connection,
+  tracker?: { degraded: boolean }
+): Promise<DeployedTokenInfo[]> {
+  const fb = fallbackConn || getFallbackConnection();
+  const pubkey = new PublicKey(wallet);
+  const sigs = await safeGetSignatures(conn, pubkey, MAX_TXS_PER_WALLET, fb, tracker);
+  if (sigs.length === 0) return [];
+
+  const scanSigs = sigs.slice(0, 30);
+  const txMap = await fetchParsedTransactionsBatch(
+    conn,
+    fb,
+    scanSigs.map((s) => s.signature),
+    tracker
+  );
+  return extractDeployedTokensFromTxs(wallet, scanSigs, txMap);
+}
+
 /* ── Core: Recursive Lineage Builder ───────────────────────── */
 
 /**
@@ -334,11 +439,18 @@ export async function discoverDeployedTokens(
 export async function buildLineageTree(
   targetWallet: string,
   maxDepth: number = MAX_LINEAGE_DEPTH
-): Promise<{ nodes: LineageNode[]; edges: FundingEdge[] }> {
+): Promise<{
+  nodes: LineageNode[];
+  edges: FundingEdge[];
+  rpcDegraded: boolean;
+}> {
   const conn = getConnection();
+  const fallbackConn = getFallbackConnection();
+  const tracker = { degraded: false };
   const visited = new Set<string>();
   const allNodes: LineageNode[] = [];
   const allEdges: FundingEdge[] = [];
+  const seenEdgeKeys = new Set<string>();
 
   async function traceWallet(wallet: string, depth: number): Promise<void> {
     if (depth > maxDepth || visited.has(wallet)) return;
@@ -376,22 +488,30 @@ export async function buildLineageTree(
       return;
     }
 
-    // Fetch balance, funding sources, and deployed tokens in parallel
-    const [balanceLamports, fundingEdges, deployedTokens] = await Promise.all([
-      safeGetBalance(conn, pubkey),
-      traceFundingSources(conn, wallet),
-      depth === 0
-        ? discoverDeployedTokens(conn, wallet)
-        : Promise.resolve([] as DeployedTokenInfo[]),
+    // Fetch balance and signatures once per wallet, then batch-parse needed txs
+    const [balanceLamports, sigs] = await Promise.all([
+      safeGetBalance(conn, pubkey, fallbackConn, tracker),
+      safeGetSignatures(conn, pubkey, MAX_TXS_PER_WALLET, fallbackConn, tracker),
     ]);
 
-    // Also discover deployed tokens for ancestors if they're serial deployers
-    let ancestorTokens: DeployedTokenInfo[] = [];
-    if (depth > 0) {
-      ancestorTokens = await discoverDeployedTokens(conn, wallet);
-    }
+    const oldestSigs = [...sigs].reverse().slice(0, 15);
+    const recentDeploySigs = sigs.slice(0, depth === 0 ? 30 : 20);
+    const uniqueSigList = Array.from(
+      new Set([
+        ...oldestSigs.map((s) => s.signature),
+        ...recentDeploySigs.map((s) => s.signature),
+      ])
+    );
 
-    const allTokens = depth === 0 ? deployedTokens : ancestorTokens;
+    const txMap = await fetchParsedTransactionsBatch(
+      conn,
+      fallbackConn,
+      uniqueSigList,
+      tracker
+    );
+
+    const fundingEdges = extractFundingEdgesFromTxs(wallet, oldestSigs, txMap);
+    const allTokens = extractDeployedTokensFromTxs(wallet, recentDeploySigs, txMap);
     const isSerialDeployer = allTokens.length >= 3;
 
     const node: LineageNode = {
@@ -412,7 +532,13 @@ export async function buildLineageTree(
     };
 
     allNodes.push(node);
-    allEdges.push(...fundingEdges);
+    for (const edge of fundingEdges) {
+      const edgeKey = `${edge.from}->${edge.to}`;
+      if (!seenEdgeKeys.has(edgeKey)) {
+        seenEdgeKeys.add(edgeKey);
+        allEdges.push(edge);
+      }
+    }
 
     // Recursively trace funding sources (but not CEX wallets)
     for (const edge of fundingEdges) {
@@ -424,7 +550,7 @@ export async function buildLineageTree(
 
   await traceWallet(targetWallet, 0);
 
-  return { nodes: allNodes, edges: allEdges };
+  return { nodes: allNodes, edges: allEdges, rpcDegraded: tracker.degraded };
 }
 
 /* ── Risk Scoring ──────────────────────────────────────────── */
@@ -497,16 +623,16 @@ export function computeLineageRisk(
   let verdictLabel: string;
   if (riskScore >= 70) {
     riskLevel = "SERIAL_RUGPULLER";
-    verdictLabel = "🚨 Serial Rugpuller Detected";
+    verdictLabel = "Serial Rugpuller Detected";
   } else if (riskScore >= 40) {
     riskLevel = "HIGH_RISK";
-    verdictLabel = "⚠️ High Risk — Multi-Token Deployer with Suspicious Lineage";
+    verdictLabel = "High Risk — Multi-Token Deployer with Suspicious Lineage";
   } else if (riskScore >= 15) {
     riskLevel = "SUSPICIOUS";
-    verdictLabel = "🔍 Suspicious — Investigate Further";
+    verdictLabel = "Suspicious — Investigate Further";
   } else {
     riskLevel = "CLEAN";
-    verdictLabel = "✅ Clean Lineage — No Red Flags Detected";
+    verdictLabel = "Clean Lineage — No Red Flags Detected";
   }
 
   return {
@@ -583,6 +709,7 @@ export async function synthesizeLineageWithVenice(
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(18_000),
       body: JSON.stringify({
         model,
         messages: [
@@ -594,7 +721,9 @@ export async function synthesizeLineageWithVenice(
         ],
         temperature: 0.3,
         max_tokens: 600,
-        include_venice_system_prompt: false,
+        venice_parameters: {
+          include_venice_system_prompt: false,
+        },
       }),
       cache: "no-store",
     });
@@ -605,6 +734,9 @@ export async function synthesizeLineageWithVenice(
 
     const data = await res.json();
     const text = data.choices?.[0]?.message?.content?.trim() || "";
+    if (!text) {
+      throw new Error("Empty Venice response");
+    }
 
     // Parse recommendations from Venice response
     const lines = text.split("\n").filter((l: string) => l.trim());
@@ -717,10 +849,16 @@ export async function analyzeDevLineage(
 ): Promise<DevLineageReport> {
   const startMs = Date.now();
   const conn = getConnection();
-  const slot = await conn.getSlot().catch(() => 0);
+  const fallbackConn = getFallbackConnection();
+  const slot = await withFallbackRpc(
+    conn,
+    fallbackConn,
+    (c) => c.getSlot(),
+    0
+  );
 
   // Build full lineage tree
-  const { nodes, edges } = await buildLineageTree(targetWallet);
+  const { nodes, edges, rpcDegraded } = await buildLineageTree(targetWallet);
 
   // Compute risk
   const risk = computeLineageRisk(nodes, edges);
@@ -761,5 +899,9 @@ export async function analyzeDevLineage(
       "SolShield Dev Lineage uses Venice AI zero-retention inference. No wallet addresses are stored or logged. Addresses are anonymized before AI synthesis.",
     latencyMs: Date.now() - startMs,
     slot,
+    rpcDegraded,
+    rpcWarning: rpcDegraded
+      ? "One or more Solana RPC calls hit rate limits; results may be partial."
+      : null,
   };
 }

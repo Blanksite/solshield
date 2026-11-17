@@ -154,6 +154,7 @@ export async function authorizeApiCaller(
   req: Request,
   options: {
     profile: ApiGuardProfile;
+    kind?: "read" | "fresh";
     byokKey?: string | null;
   }
 ): Promise<GuardAuthSuccess | GuardCheckFailure> {
@@ -279,11 +280,14 @@ export async function authorizeApiCaller(
     };
   }
 
-  // 7. Same-origin browser callers on web-tool utility routes (read-only wallet detox)
+  // 7. Same-origin browser callers on lightweight web-tool routes
+  // Do NOT trust bare forgeable Referer headers on fresh/mutating POST calls;
+  // allow origin-verified browser calls or same-origin read-only GET utilities.
   if (options.profile === "web-tool") {
+    const isReadOnlyGet = req.method === "GET" && (options.kind ?? "read") === "read";
     if (
       (origin && isAllowedWebOrigin(origin, req)) ||
-      (refererOrigin && isAllowedWebOrigin(refererOrigin, req))
+      (isReadOnlyGet && refererOrigin && isAllowedWebOrigin(refererOrigin, req))
     ) {
       return {
         ok: true,
@@ -646,6 +650,7 @@ export async function guardApiRoute(
 > {
   const auth = await authorizeApiCaller(req, {
     profile: options.profile,
+    kind: options.kind,
     byokKey: options.byokKey,
   });
   if (!auth.ok) return auth;
@@ -737,6 +742,7 @@ export async function runGuardedCachedOperation<T>(
 > {
   const auth = await authorizeApiCaller(req, {
     profile: options.profile,
+    kind: req.method === "GET" ? "read" : "fresh",
     byokKey: options.byokKey,
   });
   if (!auth.ok) return auth;

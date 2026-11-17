@@ -151,32 +151,63 @@ async function captureStop(
     }
   };
 
-  const onRequest = (req: import("puppeteer-core").HTTPRequest) => {
+  const dnsSafeHosts = new Map<string, Promise<boolean>>();
+  const checkPublicUrlCached = (rawReqUrl: string): Promise<boolean> => {
+    try {
+      const parsed = new URL(rawReqUrl);
+      const host = parsed.hostname.toLowerCase();
+      if (isBlockedHostname(host)) return Promise.resolve(false);
+      const cached = dnsSafeHosts.get(host);
+      if (cached) return cached;
+      const promise = assertSafePublicHttpUrl(rawReqUrl)
+        .then(() => true)
+        .catch(() => false);
+      dnsSafeHosts.set(host, promise);
+      return promise;
+    } catch {
+      return Promise.resolve(false);
+    }
+  };
+
+  const onRequest = async (req: import("puppeteer-core").HTTPRequest) => {
     const reqUrl = req.url();
     if (reqUrl.startsWith("data:") || reqUrl.startsWith("blob:") || reqUrl === "about:blank") {
-      void req.continue();
+      await req.continue().catch(() => {});
       return;
     }
     try {
       const parsed = new URL(reqUrl);
       if (isBlockedHostname(parsed.hostname)) {
-        void req.abort("blockedbyclient");
+        await req.abort("blockedbyclient").catch(() => {});
         return;
       }
       const rType = req.resourceType();
       if (rType === "media") {
-        void req.abort("blockedbyclient");
+        await req.abort("blockedbyclient").catch(() => {});
         return;
+      }
+      // Enforce full DNS resolution safety for navigations and API fetches (blocks DNS rebinding/redirects)
+      if (
+        req.isNavigationRequest() ||
+        rType === "xhr" ||
+        rType === "fetch" ||
+        rType === "websocket"
+      ) {
+        const isSafe = await checkPublicUrlCached(reqUrl);
+        if (!isSafe) {
+          await req.abort("blockedbyclient").catch(() => {});
+          return;
+        }
       }
       if (rType === "xhr" || rType === "fetch" || rType === "websocket") {
         xhrCount += 1;
         networkHosts.add(parsed.hostname);
       }
     } catch {
-      void req.abort("blockedbyclient");
+      await req.abort("blockedbyclient").catch(() => {});
       return;
     }
-    void req.continue();
+    await req.continue().catch(() => {});
   };
 
   page.on("request", onRequest);

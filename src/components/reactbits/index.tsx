@@ -113,30 +113,32 @@ interface BlurTextProps {
 }
 
 export function BlurText({ text, delay = 65, className = "" }: BlurTextProps) {
-  const [mounted, setMounted] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 40);
+    const t = setTimeout(() => setSettled(true), 20);
     return () => clearTimeout(t);
   }, [text]);
 
   const words = text.split(" ");
 
   return (
-    <span className={`inline-flex flex-wrap gap-x-[0.26em] ${className}`}>
+    <span className={`inline-flex flex-wrap ${className}`}>
       {words.map((word, idx) => (
-        <span
-          key={`${word}-${idx}`}
-          style={{
-            transitionDelay: `${idx * delay}ms`,
-            filter: mounted ? "blur(0px)" : "blur(10px)",
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? "translate3d(0,0,0)" : "translate3d(0,12px,0)",
-          }}
-          className="inline-block transition-all duration-700 ease-out will-change-[transform,filter,opacity]"
-        >
-          {word}
-        </span>
+        <React.Fragment key={`${word}-${idx}`}>
+          <span
+            style={{
+              transitionDelay: `${idx * delay}ms`,
+              filter: settled ? "blur(0px)" : "blur(2px)",
+              opacity: settled ? 1 : 0.92,
+              transform: settled ? "translate3d(0,0,0)" : "translate3d(0,4px,0)",
+            }}
+            className="inline-block transition-all duration-500 ease-out will-change-[transform,filter,opacity]"
+          >
+            {word}
+          </span>
+          {idx < words.length - 1 ? " " : null}
+        </React.Fragment>
       ))}
     </span>
   );

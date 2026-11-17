@@ -1624,6 +1624,12 @@ export default function BuildCheckWorkbench({
               >
                 Wallet Detox
               </Link>
+              <Link
+                href="/dev-lineage"
+                className="hidden md:inline-flex items-center px-2.5 py-1 rounded-md text-xs text-purple-300/90 hover:text-white border border-purple-500/25 hover:border-purple-400/50 bg-purple-500/[0.06] transition-colors"
+              >
+                Dev Lineage
+              </Link>
             </div>
 
             {/* Inline Header Search Bar (visible after scan so cockpit stays at top) */}
@@ -2346,7 +2352,7 @@ export default function BuildCheckWorkbench({
                           ) : (
                             <>
                               <Radio className="w-3.5 h-3.5 text-[#93C5FD]" />
-                              <span>⚡ Scan Mindshare Now</span>
+                              <span>Scan Mindshare Now</span>
                             </>
                           )}
                         </button>
@@ -2493,34 +2499,55 @@ export default function BuildCheckWorkbench({
                         )}
                       </div>
                       <div className="divide-y divide-white/[0.06] text-xs px-4">
-                        <div className="py-2.5 flex items-center justify-between gap-2">
-                          <span className="text-slate-400">Mint Authority</span>
-                          <span
-                            className={`font-mono ${
-                              report.chain.tokenReport?.mintAuthority === null
-                                ? "text-emerald-400"
-                                : "text-rose-400"
-                            }`}
-                          >
-                            {report.chain.tokenReport?.mintAuthority === null
-                              ? "Revoked (Null)"
-                              : "Active"}
-                          </span>
-                        </div>
-                        <div className="py-2.5 flex items-center justify-between gap-2">
-                          <span className="text-slate-400">Freeze Authority</span>
-                          <span
-                            className={`font-mono ${
-                              report.chain.tokenReport?.freezeAuthority === null
-                                ? "text-emerald-400"
-                                : "text-rose-400"
-                            }`}
-                          >
-                            {report.chain.tokenReport?.freezeAuthority === null
-                              ? "Revoked (Null)"
-                              : "Active"}
-                          </span>
-                        </div>
+                        {report.chain.mintAddress.startsWith("0x") ? (
+                          <>
+                            <div className="py-2.5 flex items-center justify-between gap-2">
+                              <span className="text-slate-400">Contract Standard</span>
+                              <span className="font-mono text-sky-300">
+                                {report.chain.tokenReport?.tokenProgram || "ERC-20"}
+                              </span>
+                            </div>
+                            <div className="py-2.5 flex items-center justify-between gap-2">
+                              <span className="text-slate-400">Network / Status</span>
+                              <span className="font-mono text-emerald-400 text-right">
+                                {report.robinhood?.networkName ||
+                                  report.chain.deep?.metadata?.launchpad ||
+                                  "EVM Smart Contract"}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="py-2.5 flex items-center justify-between gap-2">
+                              <span className="text-slate-400">Mint Authority</span>
+                              <span
+                                className={`font-mono ${
+                                  report.chain.tokenReport?.mintAuthority === null
+                                    ? "text-emerald-400"
+                                    : "text-rose-400"
+                                }`}
+                              >
+                                {report.chain.tokenReport?.mintAuthority === null
+                                  ? "Revoked (Null)"
+                                  : "Active"}
+                              </span>
+                            </div>
+                            <div className="py-2.5 flex items-center justify-between gap-2">
+                              <span className="text-slate-400">Freeze Authority</span>
+                              <span
+                                className={`font-mono ${
+                                  report.chain.tokenReport?.freezeAuthority === null
+                                    ? "text-emerald-400"
+                                    : "text-rose-400"
+                                }`}
+                              >
+                                {report.chain.tokenReport?.freezeAuthority === null
+                                  ? "Revoked (Null)"
+                                  : "Active"}
+                              </span>
+                            </div>
+                          </>
+                        )}
                         <div className="py-2.5 flex items-center justify-between gap-2">
                           <span className="text-slate-400">Top-5 Holders</span>
                           <span className="font-mono tabular-nums text-white">

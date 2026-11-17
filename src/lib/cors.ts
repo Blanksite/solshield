@@ -18,6 +18,19 @@ function extractHost(rawUrlOrHost: string | undefined | null): string | null {
   }
 }
 
+function isTrustedDeployHostSuffix(host: string): boolean {
+  const hostname = host.split(":")[0]?.toLowerCase() || "";
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "sol-shield.xyz" ||
+    hostname.endsWith(".sol-shield.xyz") ||
+    hostname.endsWith(".up.railway.app") ||
+    (hostname.endsWith(".vercel.app") &&
+      (hostname.includes("solshield") || hostname.includes("sol-shield")))
+  );
+}
+
 export function getTrustedWebHosts(req?: Request): Set<string> {
   const hosts = new Set<string>(BASE_ALLOWED_WEB_HOSTS);
 
@@ -25,17 +38,24 @@ export function getTrustedWebHosts(req?: Request): Set<string> {
     extractHost(process.env.NEXT_PUBLIC_APP_URL),
     extractHost(process.env.RAILWAY_PUBLIC_DOMAIN),
     extractHost(process.env.VERCEL_URL),
+    ...(process.env.SOLSHIELD_ALLOWED_HOSTS || "")
+      .split(",")
+      .map((item) => extractHost(item)),
   ];
   for (const h of envHosts) {
     if (h) hosts.add(h);
   }
 
   if (req) {
+    // Never trust arbitrary X-Forwarded-Host / Host headers outside verified deploy suffixes
+    // or explicit request-URL canonical hosts configured in trusted environments.
     const reqUrlHost = extractHost(req.url);
-    const forwardedHost = extractHost(req.headers.get("x-forwarded-host"));
+    if (reqUrlHost && (isTrustedDeployHostSuffix(reqUrlHost) || hosts.has(reqUrlHost))) {
+      hosts.add(reqUrlHost);
+    }
     const headerHost = extractHost(req.headers.get("host"));
-    for (const h of [reqUrlHost, forwardedHost, headerHost]) {
-      if (h) hosts.add(h);
+    if (headerHost && (isTrustedDeployHostSuffix(headerHost) || hosts.has(headerHost))) {
+      hosts.add(headerHost);
     }
   }
 

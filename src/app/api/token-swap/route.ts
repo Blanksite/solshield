@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
-import { corsOptionsResponse } from "@/lib/cors";
+import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import {
   DEFAULT_JUPITER_API_BASE,
   type JupiterQuoteResponse,
@@ -67,10 +67,16 @@ export async function GET(req: NextRequest) {
   );
 
   if (!mint) {
-    return NextResponse.json({ ok: false, error: "Valid token mint required." }, { status: 400 });
+    return corsJson(
+      { ok: false, error: "Valid token mint required." },
+      { status: 400, req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
   if (!Number.isFinite(amountUi) || amountUi <= 0 || amountUi > 10_000_000_000) {
-    return NextResponse.json({ ok: false, error: "Positive swap amount required." }, { status: 400 });
+    return corsJson(
+      { ok: false, error: "Positive swap amount required." },
+      { status: 400, req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 
   const inputMint = side === "buy" ? SOL_MINT : mint;
@@ -91,22 +97,25 @@ export async function GET(req: NextRequest) {
       .map((r) => r.swapInfo?.label)
       .filter((x): x is string => Boolean(x));
 
-    return NextResponse.json({
-      ok: true,
-      side,
-      inAmountUi: amountUi,
-      outAmountUi,
-      priceImpactPct: quote.priceImpactPct ?? null,
-      routeLabels,
-      slippageBps,
-    });
+    return corsJson(
+      {
+        ok: true,
+        side,
+        inAmountUi: amountUi,
+        outAmountUi,
+        priceImpactPct: quote.priceImpactPct ?? null,
+        routeLabels,
+        slippageBps,
+      },
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   } catch (err) {
-    return NextResponse.json(
+    return corsJson(
       {
         ok: false,
         error: err instanceof Error ? err.message : "Failed to fetch live Jupiter quote.",
       },
-      { status: 502 }
+      { status: 502, req, policy: "web", headers: guarded.rateHeaders }
     );
   }
 }
@@ -131,7 +140,10 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return corsJson(
+      { ok: false, error: "Invalid JSON body." },
+      { status: 400, req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 
   const mint = parsePublicKey(body.mint);
@@ -142,13 +154,16 @@ export async function POST(req: NextRequest) {
   const slippageBps = Math.max(10, Math.min(2500, Number(body.slippageBps ?? 150)));
 
   if (!mint || !userPublicKey) {
-    return NextResponse.json(
+    return corsJson(
       { ok: false, error: "Valid token mint and connected wallet public key required." },
-      { status: 400 }
+      { status: 400, req, policy: "web", headers: guarded.rateHeaders }
     );
   }
   if (!Number.isFinite(amountUi) || amountUi <= 0 || amountUi > 10_000_000_000) {
-    return NextResponse.json({ ok: false, error: "Valid positive amount required." }, { status: 400 });
+    return corsJson(
+      { ok: false, error: "Valid positive amount required." },
+      { status: 400, req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 
   const inputMint = side === "buy" ? SOL_MINT : mint;
@@ -183,17 +198,17 @@ export async function POST(req: NextRequest) {
 
     if (!swapRes.ok) {
       const errTxt = await swapRes.text().catch(() => "");
-      return NextResponse.json(
+      return corsJson(
         { ok: false, error: `Jupiter swap builder HTTP ${swapRes.status}: ${errTxt.slice(0, 140)}` },
-        { status: 502 }
+        { status: 502, req, policy: "web", headers: guarded.rateHeaders }
       );
     }
 
     const swapJson = (await swapRes.json()) as { swapTransaction?: string };
     if (!swapJson.swapTransaction) {
-      return NextResponse.json(
+      return corsJson(
         { ok: false, error: "Jupiter did not return an unsigned swap transaction." },
-        { status: 502 }
+        { status: 502, req, policy: "web", headers: guarded.rateHeaders }
       );
     }
 
@@ -204,30 +219,33 @@ export async function POST(req: NextRequest) {
       .map((r) => r.swapInfo?.label)
       .filter((x): x is string => Boolean(x));
 
-    return NextResponse.json({
-      ok: true,
-      swapTransaction: swapJson.swapTransaction,
-      outAmountUi,
-      priceImpactPct: quote.priceImpactPct ?? null,
-      routeLabels,
-      firewall: {
-        riskScore: firewallAudit.deterministicRiskScore,
-        classification: firewallAudit.deterministicClassification,
-        recommendedAction:
-          firewallAudit.deterministicClassification === "SAFE"
-            ? "SAFE_TO_SIGN"
-            : firewallAudit.deterministicClassification === "WARNING"
-              ? "REVIEW_WARNINGS"
-              : "BLOCK_TX",
-        feePayer: firewallAudit.feePayer,
-        flags: firewallAudit.threatFlags,
-        programsCount: firewallAudit.instructions.length,
+    return corsJson(
+      {
+        ok: true,
+        swapTransaction: swapJson.swapTransaction,
+        outAmountUi,
+        priceImpactPct: quote.priceImpactPct ?? null,
+        routeLabels,
+        firewall: {
+          riskScore: firewallAudit.deterministicRiskScore,
+          classification: firewallAudit.deterministicClassification,
+          recommendedAction:
+            firewallAudit.deterministicClassification === "SAFE"
+              ? "SAFE_TO_SIGN"
+              : firewallAudit.deterministicClassification === "WARNING"
+                ? "REVIEW_WARNINGS"
+                : "BLOCK_TX",
+          feePayer: firewallAudit.feePayer,
+          flags: firewallAudit.threatFlags,
+          programsCount: firewallAudit.instructions.length,
+        },
       },
-    });
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   } catch (err) {
-    return NextResponse.json(
+    return corsJson(
       { ok: false, error: err instanceof Error ? err.message : "Failed to build shielded swap." },
-      { status: 502 }
+      { status: 502, req, policy: "web", headers: guarded.rateHeaders }
     );
   }
 }

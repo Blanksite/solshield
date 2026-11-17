@@ -24,15 +24,6 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await guardApiRoute(req, {
-    profile: "web-tool",
-    kind: "fresh",
-    consumeDailyBudget: false,
-  });
-  if (!guard.ok) {
-    return buildGuardErrorResponse(guard);
-  }
-
   let body: {
     target?: ParsedTargetInput;
     chain?: ChainTokenIntelReport | null;
@@ -51,8 +42,17 @@ export async function POST(req: NextRequest) {
   } catch {
     return corsJson(
       { ok: false, error: "Invalid JSON request body." },
-      { status: 400, req, policy: "web", headers: guard.rateHeaders }
+      { status: 400, req, policy: "web" }
     );
+  }
+
+  const guard = await guardApiRoute(req, {
+    profile: "web-ai",
+    kind: "fresh",
+    byokKey: typeof body.veniceApiKey === "string" ? body.veniceApiKey : undefined,
+  });
+  if (!guard.ok) {
+    return buildGuardErrorResponse(guard);
   }
 
   const target = body.target || body.report?.target;

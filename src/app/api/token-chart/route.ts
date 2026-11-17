@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
-import { corsOptionsResponse } from "@/lib/cors";
+import { corsJson, corsOptionsResponse } from "@/lib/cors";
 
 export interface OhlcvCandleBar {
   time: number;
@@ -80,9 +80,9 @@ export async function GET(req: NextRequest) {
   const tf = TIMEFRAME_MAP[tfRaw] ? tfRaw : "5m";
 
   if (!parsedMint && !parsedPool) {
-    return NextResponse.json(
+    return corsJson(
       { ok: false, error: "Valid token contract or pool address required." },
-      { status: 400 }
+      { status: 400, req, policy: "web", headers: guarded.rateHeaders }
     );
   }
 
@@ -166,37 +166,46 @@ export async function GET(req: NextRequest) {
   }
 
   if (!poolAddress) {
-    return NextResponse.json({
-      ok: true,
-      poolAddress: null,
-      tf,
-      bars: [],
-      note: "No indexed liquidity pool OHLCV found for this contract yet.",
-    });
+    return corsJson(
+      {
+        ok: true,
+        poolAddress: null,
+        tf,
+        bars: [],
+        note: "No indexed liquidity pool OHLCV found for this contract yet.",
+      },
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 
   if (targetNetwork === "robinhood") {
-    return NextResponse.json({
-      ok: true,
-      poolAddress,
-      network: "robinhood",
-      tf,
-      bars: [],
-      note: "Robinhood Chain L2 DEX pairs are monitored directly via DexScreener & RPC.",
-    });
+    return corsJson(
+      {
+        ok: true,
+        poolAddress,
+        network: "robinhood",
+        tf,
+        bars: [],
+        note: "Robinhood Chain L2 DEX pairs are monitored directly via DexScreener & RPC.",
+      },
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 
   const cacheKey = `${targetNetwork}:${poolAddress}:${tf}`;
   const cached = CHART_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
-    return NextResponse.json({
-      ok: true,
-      poolAddress: cached.payload.poolAddress,
-      network: targetNetwork,
-      tf,
-      cached: true,
-      bars: cached.payload.bars,
-    });
+    return corsJson(
+      {
+        ok: true,
+        poolAddress: cached.payload.poolAddress,
+        network: targetNetwork,
+        tf,
+        cached: true,
+        bars: cached.payload.bars,
+      },
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 
   const spec = TIMEFRAME_MAP[tf];
@@ -213,14 +222,17 @@ export async function GET(req: NextRequest) {
     );
 
     if (!ohlcvRes.ok) {
-      return NextResponse.json({
-        ok: true,
-        poolAddress,
-        network: targetNetwork,
-        tf,
-        bars: [],
-        note: `OHLCV feed not yet indexed for ${targetNetwork} pool (${ohlcvRes.status}).`,
-      });
+      return corsJson(
+        {
+          ok: true,
+          poolAddress,
+          network: targetNetwork,
+          tf,
+          bars: [],
+          note: `OHLCV feed not yet indexed for ${targetNetwork} pool (${ohlcvRes.status}).`,
+        },
+        { req, policy: "web", headers: guarded.rateHeaders }
+      );
     }
 
     const ohlcvJson = (await ohlcvRes.json()) as {
@@ -264,22 +276,28 @@ export async function GET(req: NextRequest) {
       payload: { poolAddress, bars },
     });
 
-    return NextResponse.json({
-      ok: true,
-      poolAddress,
-      network: targetNetwork,
-      tf,
-      cached: false,
-      bars,
-    });
+    return corsJson(
+      {
+        ok: true,
+        poolAddress,
+        network: targetNetwork,
+        tf,
+        cached: false,
+        bars,
+      },
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   } catch (err) {
-    return NextResponse.json({
-      ok: true,
-      poolAddress,
-      network: targetNetwork,
-      tf,
-      bars: [],
-      note: err instanceof Error ? err.message : "Failed to load OHLCV candles.",
-    });
+    return corsJson(
+      {
+        ok: true,
+        poolAddress,
+        network: targetNetwork,
+        tf,
+        bars: [],
+        note: err instanceof Error ? err.message : "Failed to load OHLCV candles.",
+      },
+      { req, policy: "web", headers: guarded.rateHeaders }
+    );
   }
 }

@@ -333,6 +333,12 @@ export default function WalletDetoxPanel({
               >
                 BuildCheck AI
               </Link>
+              <Link
+                href="/dev-lineage"
+                className="hidden lg:inline-flex items-center px-2.5 py-1 rounded-md text-xs text-purple-300/90 hover:text-white border border-purple-500/25 hover:border-purple-400/50 bg-purple-500/[0.06] transition-colors"
+              >
+                Dev Lineage
+              </Link>
             </div>
 
             <div className="flex items-center gap-2">

@@ -128,9 +128,45 @@ describe("SolShield API Guard & Anti-Abuse Protections", () => {
       expect(foreignRes.headers["Access-Control-Allow-Origin"]).toBeUndefined();
     }
 
-    // Never leaks wildcard CORS on web or extension policies
+      // Never leaks wildcard CORS on web or extension policies
     expect(buildCorsHeaders(foreignReq, "web")["Access-Control-Allow-Origin"]).toBeUndefined();
     expect(buildCorsHeaders(foreignReq, "extension")["Access-Control-Allow-Origin"]).toBeUndefined();
+
+    // Rejects X-Forwarded-Host / Host header CORS bypass attempts on untrusted origins
+    const xfhSpoofReq = new Request("https://sol-shield.xyz/api/buildcheck", {
+      method: "POST",
+      headers: {
+        Host: "evil-phish-clone.xyz",
+        "X-Forwarded-Host": "evil-phish-clone.xyz",
+        Origin: "https://evil-phish-clone.xyz",
+      },
+    });
+    const xfhRes = await authorizeApiCaller(xfhSpoofReq, { profile: "buildcheck" });
+    expect(xfhRes.ok).toBe(false);
+    if (!xfhRes.ok) expect(xfhRes.status).toBe(403);
+
+    // Rejects bare forged Referer without session cookie on paid web-ai and fresh POST web-tool calls
+    const refererSpoofAi = new Request("https://sol-shield.xyz/api/buildcheck/mindshare", {
+      method: "POST",
+      headers: { Referer: "https://sol-shield.xyz/buildcheck" },
+    });
+    const refererResAi = await authorizeApiCaller(refererSpoofAi, {
+      profile: "web-ai",
+      kind: "fresh",
+    });
+    expect(refererResAi.ok).toBe(false);
+    if (!refererResAi.ok) expect(refererResAi.status).toBe(401);
+
+    const refererSpoofPostTool = new Request("https://sol-shield.xyz/api/wallet-detox", {
+      method: "POST",
+      headers: { Referer: "https://sol-shield.xyz/wallet-detox" },
+    });
+    const refererResPostTool = await authorizeApiCaller(refererSpoofPostTool, {
+      profile: "web-tool",
+      kind: "fresh",
+    });
+    expect(refererResPostTool.ok).toBe(false);
+    if (!refererResPostTool.ok) expect(refererResPostTool.status).toBe(401);
   });
 
   it("allows valid web-session cookie, API secret, BYOK key, and Chrome Extension on extension routes", async () => {

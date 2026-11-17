@@ -1180,4 +1180,72 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("does not penalize transparent Policy Vault (Devnet Beta) disclosures alongside Mainnet RPC firewall", () => {
+    const result = buildDeterministicBuildCheck({
+      id: "bc_shield_devnet_beta",
+      createdAt: new Date().toISOString(),
+      elapsedMs: 1200,
+      target: {
+        rawInput: "https://sol-shield.xyz",
+        kind: "website",
+        normalizedUrl: "https://sol-shield.xyz",
+        hostname: "sol-shield.xyz",
+      },
+      browser: {
+        mode: "local-chromium",
+        executableLabel: "Chromium",
+        stops: [
+          {
+            url: "https://sol-shield.xyz",
+            title: "SolShield",
+            stepLabel: "Live Site",
+            screenshotBase64: "",
+            textExcerpt:
+              "Mainnet Firewall live on Solana Mainnet RPC. 03 // POLICY VAULT (DEVNET BETA) Optional Devnet Beta Anchor module paired with our Mainnet Tx Firewall.",
+            outboundGithub: ["Blanksite/solshield"],
+            outboundX: [],
+            outboundSolanaAddresses: [],
+            networkHosts: ["sol-shield.xyz"],
+            xhrCount: 2,
+            loadTimeMs: 350,
+            hasPlaceholderCopy: false,
+            consoleErrors: [],
+            apiPayloads: [
+              {
+                url: "https://sol-shield.xyz/api/policy-status",
+                status: 200,
+                jsonExcerpt: '{"ok":true,"cluster":"devnet","programDeployedOnDevnet":true}',
+              },
+            ],
+          },
+        ],
+        discoveredGithubRepos: ["Blanksite/solshield"],
+        discoveredXUrls: [],
+        discoveredSolanaAddresses: [],
+        discoveredWebsiteUrls: ["https://sol-shield.xyz"],
+        totalXhrObserved: 2,
+        pageErrorsCount: 0,
+        inspectedApiPayloads: [
+          {
+            url: "https://sol-shield.xyz/api/policy-status",
+            status: 200,
+            jsonExcerpt: '{"ok":true,"cluster":"devnet","programDeployedOnDevnet":true}',
+          },
+        ],
+        notes: [],
+      },
+      github: null,
+      chain: null,
+      domain: null,
+      xPost: null,
+    });
+
+    expect(
+      result.claimsVsProof.some(
+        (c) => c.claim.includes("/api/policy-status") && c.status === "CONTRADICTED"
+      )
+    ).toBe(false);
+    expect(result.keyRedFlags.some((f) => f.includes('cluster "devnet"'))).toBe(false);
+  });
 });

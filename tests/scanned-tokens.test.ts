@@ -324,4 +324,22 @@ describe("Recently Scanned Tokens Ledger & Persistence", () => {
       else process.env.KV_REST_API_TOKEN = prevToken;
     }
   });
+
+  it("preserves Robinhood Chain L2 & ERC-20 tokenProgram and auto-heals legacy SPL mislabels on 0x contracts", () => {
+    const hoodSummary = makeSampleTokenReport({
+      mintAddress: "0xb9434fE38b47F1525b7b16A57cD2b2820BABE341",
+      symbol: "HOOD",
+      name: "Hood Asset",
+      tokenProgram: "Robinhood Chain L2" as TokenScanReport["tokenProgram"],
+    });
+    const converted = tokenReportToSummary(hoodSummary, "buildcheck");
+    expect(converted.tokenProgram).toBe("Robinhood Chain L2");
+
+    const legacyMislabelled = {
+      ...converted,
+      tokenProgram: "SPL Token" as const,
+    };
+    const normalized = mergeScannedTokenLists([legacyMislabelled], [], 10);
+    expect(normalized[0].tokenProgram).toBe("ERC-20");
+  });
 });

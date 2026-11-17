@@ -787,7 +787,16 @@ export async function collectChainTokenIntel(
       symbol: tokenSymbol,
       decimals: onChainDecimals,
       rawSupply: onChainSupply,
-      supplyUi: onChainSupply !== "0" ? Number(BigInt(onChainSupply) / BigInt(10 ** onChainDecimals)) : 0,
+      supplyUi: (() => {
+        try {
+          if (onChainSupply === "0") return 0;
+          const clampedDecimals = Math.max(0, Math.min(77, Math.trunc(onChainDecimals || 0)));
+          const divisor = BigInt(10) ** BigInt(clampedDecimals);
+          return Number(BigInt(onChainSupply) / divisor);
+        } catch {
+          return 0;
+        }
+      })(),
       mintAuthority: null,
       freezeAuthority: null,
       extensions: isDeployedOnHood ? ["Robinhood Chain Arbitrum Orbit"] : [],

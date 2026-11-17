@@ -25,7 +25,7 @@ async function handleLineageAnalysis(
   }
 
   const guard = await guardApiRoute(req, {
-    profile: "web-tool",
+    profile: "web-ai",
     kind: "fresh",
     byokKey: options.veniceApiKey,
     consumeDailyBudget: false,

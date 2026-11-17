@@ -31,7 +31,7 @@ export interface ScannedTokenSummary {
   mintAddress: string;
   symbol: string | null;
   name: string | null;
-  tokenProgram: "SPL Token" | "Token-2022" | "ERC-20";
+  tokenProgram: "SPL Token" | "Token-2022" | "ERC-20" | "Robinhood Chain L2" | (string & {});
   riskScore: number;
   classification: "SAFE" | "CAUTION" | "CRITICAL";
   recommendedAction: "VERIFIED_SAFE" | "DYOR_CAUTION" | "HIGH_RUG_RISK";
@@ -146,6 +146,35 @@ export function mergeTokenScoreHistory(
   return deduped;
 }
 
+const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const SAFE_PROGRAM_LABEL_RE = /^[A-Za-z0-9 ._-]{2,32}$/;
+
+/**
+ * Normalizes token program labels across Solana (SPL / Token-2022) and EVM / Robinhood Chain L2
+ * so EVM contracts are never mislabeled as SPL Tokens.
+ */
+export function normalizeScannedTokenProgram(
+  rawProgram: unknown,
+  mintAddress: string
+): ScannedTokenSummary["tokenProgram"] {
+  const trimmed = typeof rawProgram === "string" ? rawProgram.trim() : "";
+  const lower = trimmed.toLowerCase();
+  const isEvm = EVM_ADDRESS_RE.test(mintAddress.trim());
+
+  if (lower.includes("robinhood")) return "Robinhood Chain L2";
+  if (lower === "token-2022") return isEvm ? "ERC-20" : "Token-2022";
+  if (lower.includes("erc-20") || lower === "erc20") {
+    return SAFE_PROGRAM_LABEL_RE.test(trimmed) ? trimmed : "ERC-20";
+  }
+  if (isEvm) {
+    if (trimmed && lower !== "spl token" && SAFE_PROGRAM_LABEL_RE.test(trimmed)) {
+      return trimmed;
+    }
+    return "ERC-20";
+  }
+  return "SPL Token";
+}
+
 function normalizeScannedTokenEntry(
   entry: ScannedTokenSummary
 ): ScannedTokenSummary {
@@ -163,6 +192,7 @@ function normalizeScannedTokenEntry(
 
   return {
     ...entry,
+    tokenProgram: normalizeScannedTokenProgram(entry.tokenProgram, entry.mintAddress),
     priceUsd: positiveNumOrNull(entry.priceUsd) ?? undefined,
     marketCapUsd: positiveNumOrNull(entry.marketCapUsd) ?? undefined,
     liquidityUsd: nonNegNumOrNull(entry.liquidityUsd) ?? undefined,

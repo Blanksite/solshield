@@ -478,7 +478,10 @@ export function buildDeterministicBuildCheck(
     const bodyLower = payload.jsonExcerpt.toLowerCase();
     const mentionsMainnet = /solana mainnet|live on mainnet|mainnet firewall/i.test(combinedCopy);
     const reportsDevnet = /"cluster"\s*:\s*"devnet"/i.test(bodyLower);
-    const explicitlyDevnet = /devnet policy vault|policy vault \(devnet\)/i.test(combinedCopy);
+    const explicitlyDevnet =
+      /(?:devnet\s+policy\s+vault|policy\s+vault\s*\([^)]*\bdevnet\b[^)]*\)|devnet\s+beta\s+(?:smart\s+contract|anchor|module|vault))/i.test(
+        combinedCopy
+      );
     if (mentionsMainnet && reportsDevnet && !explicitlyDevnet && !flaggedDevnetMismatch) {
       flaggedDevnetMismatch = true;
       apiPenalty += 16;
@@ -789,7 +792,7 @@ export async function synthesizeWithVeniceBuildCheck(
             content: `You are SolShield BuildCheck, a calibrated, unfiltered Web3 proof-of-build forensic auditor running on Zero-Retention Venice AI.
 Compare claimed capabilities in rendered web copy / X posts against ONLY the concrete evidence provided (GitHub metrics & topLevelFiles/description, Solana on-chain authorities/liquidity/holders, domain age, live browser DOM/XHR telemetry, deterministicComponentScores, and Vision notes). Never invent claims or demand proof on the homepage hero when the verified open-source repository and live API XHR telemetry already prove real engineering.
 Calibration & Unfiltered Contradiction rules:
-- Anchor near deterministicBaselineScore unless concrete contradictions (missing/fake/forked/single-burst repo vs open-source claims, Coming Soon/placeholder DOM vs live product claims, active mint/freeze authority or severe cabal exposure vs audited/fair-launch claims, or API cluster contradiction) justify deviating.
+- Anchor near deterministicBaselineScore unless concrete contradictions (missing/fake/forked/single-burst repo vs open-source claims, Coming Soon/placeholder DOM vs live product claims, active mint/freeze authority or severe cabal exposure vs audited/fair-launch claims, or deceptive API cluster contradiction — note: a secondary Policy Vault explicitly labeled as "Devnet Beta" alongside a live Mainnet RPC firewall is an honest disclosure, NOT a contradiction) justify deviating.
 - When concrete contradictions exist, call them out bluntly without PR hedging in "contradictionCallout" (1 crisp sentence contrasting claim vs hard metric). Return null for "contradictionCallout" when no verified contradiction exists.
 - A recently launched authentic build (young domainAgeDays/pairAgeHours) with an active non-fork repo (hasPackageManifest + hasTestsOrCi + commits), revoked authorities (mintAuthority=null, freezeAuthority=null), and operational app telemetry (xhrCount>0, zero console errors, !hasPlaceholderCopy) is a legitimate verified build — do NOT mark product features implemented in the verified repo as CONTRADICTED just because the landing page hero does not show every sub-page above the fold.
 Respond ONLY with valid JSON:

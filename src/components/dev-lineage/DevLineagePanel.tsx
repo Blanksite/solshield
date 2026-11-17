@@ -38,11 +38,11 @@ import type {
 
 const SAMPLE_WALLETS = [
   {
-    label: "Known Pump.fun Deployer",
-    address: "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
+    label: "$SHIELD Deployer (Verified Mint)",
+    address: "Edwc4wHn1bfPHLfMu5SeydhwDKeuJwVSAuFfbgZ7aLqJ",
   },
   {
-    label: "Random Mainnet Wallet",
+    label: "Mainnet Wallet Sample",
     address: "86xCnPeV69n6t3DnyGvkKobf9FdN2H9oiVDdaMpo2MMY",
   },
 ];
@@ -92,15 +92,24 @@ function LineageTreeNode({
   edges,
   allNodes,
   isRoot,
+  ancestors = new Set([node.wallet]),
 }: {
   node: LineageNode;
   edges: FundingEdge[];
   allNodes: LineageNode[];
   isRoot: boolean;
+  ancestors?: ReadonlySet<string>;
 }) {
   const [expanded, setExpanded] = useState(isRoot);
   const childEdges = edges.filter((e) => e.to === node.wallet);
+  const seenChildWallets = new Set<string>();
   const childNodes = childEdges
+    .filter((e) => !ancestors.has(e.from))
+    .filter((e) => {
+      if (seenChildWallets.has(e.from)) return false;
+      seenChildWallets.add(e.from);
+      return true;
+    })
     .map((e) => allNodes.find((n) => n.wallet === e.from))
     .filter(Boolean) as LineageNode[];
 
@@ -189,15 +198,20 @@ function LineageTreeNode({
       )}
 
       {expanded &&
-        childNodes.map((child) => (
-          <LineageTreeNode
-            key={child.wallet}
-            node={child}
-            edges={edges}
-            allNodes={allNodes}
-            isRoot={false}
-          />
-        ))}
+        childNodes.map((child) => {
+          const nextAncestors = new Set(ancestors);
+          nextAncestors.add(child.wallet);
+          return (
+            <LineageTreeNode
+              key={child.wallet}
+              node={child}
+              edges={edges}
+              allNodes={allNodes}
+              isRoot={false}
+              ancestors={nextAncestors}
+            />
+          );
+        })}
 
       {expanded && childEdges.length > 0 && (
         <div className="ml-6 mt-1 space-y-0.5">
@@ -336,8 +350,8 @@ export default function DevLineagePanel({
               </span>
             </p>
 
-            <div className="flex gap-2 items-center">
-              <div className="relative flex-1">
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+              <div className="relative flex-1 min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="text"
@@ -352,7 +366,7 @@ export default function DevLineagePanel({
               <button
                 onClick={() => runAnalysis()}
                 disabled={loading || !address.trim()}
-                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2 flex-shrink-0"
+                className="w-full sm:w-auto justify-center px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2 flex-shrink-0"
               >
                 {loading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -406,6 +420,16 @@ export default function DevLineagePanel({
         {/* Results */}
         {report && !loading && (
           <div className="space-y-6">
+            {report.rpcDegraded && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span>
+                  {report.rpcWarning ||
+                    "Solana RPC encountered rate limits during tracing; results may be incomplete."}
+                </span>
+              </div>
+            )}
+
             {/* Risk Overview Card */}
             <SpotlightCard
               spotlightColor={
@@ -419,14 +443,25 @@ export default function DevLineagePanel({
               }
               className={`rounded-2xl border p-6 backdrop-blur-sm ${riskLevelBg(report.riskLevel)}`}
             >
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <p
-                    className={`text-lg font-bold ${riskLevelColor(report.riskLevel)}`}
-                  >
-                    {report.verdictLabel}
-                  </p>
-                  <div className="flex gap-4 text-xs text-zinc-400">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2 min-w-0">
+                  <div className="flex items-center gap-2">
+                    {report.riskLevel === "SERIAL_RUGPULLER" ? (
+                      <ShieldAlert className="w-5 h-5 text-red-400 shrink-0" />
+                    ) : report.riskLevel === "HIGH_RISK" ? (
+                      <AlertTriangle className="w-5 h-5 text-orange-400 shrink-0" />
+                    ) : report.riskLevel === "SUSPICIOUS" ? (
+                      <Search className="w-5 h-5 text-yellow-400 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    )}
+                    <p
+                      className={`text-lg font-bold ${riskLevelColor(report.riskLevel)}`}
+                    >
+                      {report.verdictLabel}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-400">
                     <span>
                       Risk Score:{" "}
                       <span className={`font-bold ${riskLevelColor(report.riskLevel)}`}>
@@ -673,8 +708,8 @@ export default function DevLineagePanel({
 
       {/* Footer */}
       <footer className="border-t border-zinc-800/40 mt-16">
-        <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-4 text-[10px] text-zinc-600">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-4">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] text-zinc-500">
             <Link href="/" className="hover:text-zinc-400 transition-colors">
               Home
             </Link>

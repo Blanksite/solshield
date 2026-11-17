@@ -3,6 +3,7 @@ import {
   computeLineageRisk,
   buildDeterministicSummary,
   buildDeterministicRecommendations,
+  synthesizeLineageWithVenice,
   type LineageNode,
   type FundingEdge,
   type LineageRiskLevel,
@@ -243,5 +244,47 @@ describe("Dev Lineage: deterministic fallback", () => {
     const nodes = [makeNode()];
     const risk = computeLineageRisk(nodes, []);
     expect(risk.verdictLabel).toContain("Clean");
+  });
+
+  test("synthesizeLineageWithVenice sends nested venice_parameters without leaking wallet addresses", async () => {
+    const capturedBodies: string[] = [];
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async (_url, init) => {
+        capturedBodies.push(String(init?.body || "{}"));
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    "1) Clean wallet summary.\n2) Findings:\n- Low risk.\n3) Recommendations:\n- Verify LP lock.",
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      });
+
+    try {
+      const result = await synthesizeLineageWithVenice(
+        [makeNode()],
+        [],
+        0,
+        "CLEAN",
+        { apiKey: "test-venice-key-1234567890" }
+      );
+      expect(result.inferenceMode).toBe("venice-live-api");
+      expect(capturedBodies).toHaveLength(1);
+      const sentJson = JSON.parse(capturedBodies[0]) as Record<string, unknown>;
+      expect(sentJson.include_venice_system_prompt).toBeUndefined();
+      expect(sentJson.venice_parameters).toEqual({
+        include_venice_system_prompt: false,
+      });
+      expect(capturedBodies[0]).not.toContain("11111111111111111111111111111112");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

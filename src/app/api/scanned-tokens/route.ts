@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import { buildGuardErrorResponse, guardApiRoute } from "../../../lib/api-guard";
 import { corsJson, corsOptionsResponse } from "../../../lib/cors";
-import type {
-  ScannedTokenBuildVerdict,
-  ScannedTokenSummary,
-  TokenCheckCheckpoint,
+import {
+  normalizeScannedTokenProgram,
+  type ScannedTokenBuildVerdict,
+  type ScannedTokenSummary,
+  type TokenCheckCheckpoint,
 } from "../../../lib/scanned-token-types";
 import { listScannedTokens, recordScannedTokenSummary } from "../../../lib/scanned-tokens";
 
@@ -104,12 +105,10 @@ function parseSummaryPayload(raw: unknown): ScannedTokenSummary | null {
     return null;
   }
 
-  const tokenProgram =
-    candidate.tokenProgram === "ERC-20"
-      ? "ERC-20"
-      : candidate.tokenProgram === "Token-2022"
-        ? "Token-2022"
-        : "SPL Token";
+  const tokenProgram = normalizeScannedTokenProgram(
+    candidate.tokenProgram,
+    mintAddress
+  );
   const scannedAt =
     typeof candidate.scannedAt === "string" &&
     Number.isFinite(Date.parse(candidate.scannedAt))
