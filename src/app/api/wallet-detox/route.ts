@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
+import { auditEvmWalletApprovals } from "@/lib/evm-detox";
 import { auditWalletApprovals } from "@/lib/wallet-detox";
 
 export const maxDuration = 30;
@@ -8,18 +9,25 @@ export const maxDuration = 30;
 async function handleWalletDetoxAudit(
   req: NextRequest,
   rawAddress: string,
-  options: { cluster?: string; veniceApiKey?: string; rpcUrl?: string }
+  options: {
+    cluster?: string;
+    chain?: string;
+    veniceApiKey?: string;
+    rpcUrl?: string;
+    additionalTokens?: string[];
+    additionalSpenders?: string[];
+  }
 ) {
   const address = rawAddress.trim();
   if (!address) {
     return corsJson(
-      { ok: false, error: "Please provide a Solana wallet address." },
+      { ok: false, error: "Please provide a Solana or EVM (0x...) wallet address." },
       { status: 400, req, policy: "web" }
     );
   }
   if (address.length > 64) {
     return corsJson(
-      { ok: false, error: "Invalid Solana wallet address length." },
+      { ok: false, error: "Invalid wallet address length." },
       { status: 400, req, policy: "web" }
     );
   }
@@ -35,11 +43,20 @@ async function handleWalletDetoxAudit(
   }
 
   try {
-    const report = await auditWalletApprovals(address, {
-      cluster: options.cluster,
-      veniceApiKey: options.veniceApiKey,
-      rpcUrl: options.rpcUrl,
-    });
+    const isEvm = address.startsWith("0x");
+    const report = isEvm
+      ? await auditEvmWalletApprovals(address, {
+          chain: options.chain || options.cluster,
+          veniceApiKey: options.veniceApiKey,
+          rpcUrl: options.rpcUrl,
+          additionalTokens: options.additionalTokens,
+          additionalSpenders: options.additionalSpenders,
+        })
+      : await auditWalletApprovals(address, {
+          cluster: options.cluster,
+          veniceApiKey: options.veniceApiKey,
+          rpcUrl: options.rpcUrl,
+        });
 
     return corsJson(
       {
@@ -83,7 +100,8 @@ export async function GET(req: NextRequest) {
   const address =
     url.searchParams.get("address") || url.searchParams.get("wallet") || "";
   const cluster = url.searchParams.get("cluster") || undefined;
-  return handleWalletDetoxAudit(req, address, { cluster });
+  const chain = url.searchParams.get("chain") || undefined;
+  return handleWalletDetoxAudit(req, address, { cluster, chain });
 }
 
 export async function POST(req: NextRequest) {
@@ -91,9 +109,12 @@ export async function POST(req: NextRequest) {
     address?: unknown;
     walletAddress?: unknown;
     cluster?: unknown;
+    chain?: unknown;
     veniceApiKey?: unknown;
     apiKey?: unknown;
     rpcUrl?: unknown;
+    additionalTokens?: unknown;
+    additionalSpenders?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -111,6 +132,7 @@ export async function POST(req: NextRequest) {
         ? body.walletAddress
         : "";
   const cluster = typeof body?.cluster === "string" ? body.cluster : undefined;
+  const chain = typeof body?.chain === "string" ? body.chain : undefined;
   const veniceApiKey =
     typeof body?.veniceApiKey === "string"
       ? body.veniceApiKey
@@ -118,6 +140,19 @@ export async function POST(req: NextRequest) {
         ? body.apiKey
         : undefined;
   const rpcUrl = typeof body?.rpcUrl === "string" ? body.rpcUrl : undefined;
+  const additionalTokens = Array.isArray(body?.additionalTokens)
+    ? body.additionalTokens.filter((v): v is string => typeof v === "string")
+    : undefined;
+  const additionalSpenders = Array.isArray(body?.additionalSpenders)
+    ? body.additionalSpenders.filter((v): v is string => typeof v === "string")
+    : undefined;
 
-  return handleWalletDetoxAudit(req, address, { cluster, veniceApiKey, rpcUrl });
+  return handleWalletDetoxAudit(req, address, {
+    cluster,
+    chain,
+    veniceApiKey,
+    rpcUrl,
+    additionalTokens,
+    additionalSpenders,
+  });
 }

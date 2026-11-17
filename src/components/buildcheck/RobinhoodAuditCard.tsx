@@ -13,9 +13,11 @@ import {
   Zap,
 } from "lucide-react";
 import type { RobinhoodVerificationReport } from "@/lib/buildcheck/types";
+import type { EvmContractSecurityReport } from "@/lib/evm-security";
 
 interface RobinhoodAuditCardProps {
   robinhood: RobinhoodVerificationReport | null | undefined;
+  evmSecurity?: EvmContractSecurityReport | null;
   tokenSymbol?: string | null;
   tokenName?: string | null;
   address?: string | null;
@@ -23,23 +25,24 @@ interface RobinhoodAuditCardProps {
 
 export function RobinhoodAuditCard({
   robinhood,
+  evmSecurity,
   tokenSymbol,
   tokenName,
   address,
 }: RobinhoodAuditCardProps) {
-  if (!robinhood) {
+  if (!robinhood && !evmSecurity) {
     return (
       <div className="p-6 rounded-xl border border-white/[0.08] bg-[#0A0D14] text-center text-slate-400">
         <HelpCircle className="w-8 h-8 mx-auto text-slate-500 mb-2" />
-        <p className="text-sm font-mono">No Robinhood forensics data available for this target.</p>
+        <p className="text-sm font-mono">No Robinhood or EVM contract forensics data available for this target.</p>
       </div>
     );
   }
 
-  const isOfficial = robinhood.status === "OFFICIAL_LISTED";
-  const isHoodChain = robinhood.status === "ROBINHOOD_CHAIN_NATIVE";
-  const isImpostor = robinhood.status === "IMPOSTOR_ALERT";
-  const isClone = robinhood.status === "TICKER_CLONE_WARNING";
+  const isOfficial = robinhood?.status === "OFFICIAL_LISTED";
+  const isHoodChain = robinhood?.status === "ROBINHOOD_CHAIN_NATIVE";
+  const isImpostor = robinhood?.status === "IMPOSTOR_ALERT";
+  const isClone = robinhood?.status === "TICKER_CLONE_WARNING";
 
   return (
     <div className="space-y-4">
@@ -164,6 +167,7 @@ export function RobinhoodAuditCard({
       )}
 
       {/* Main Spec Card */}
+      {robinhood && (
       <div className="rounded-xl border border-white/[0.08] bg-[#0A0D14] overflow-hidden">
         <div className="px-4 sm:px-6 py-4 border-b border-white/[0.08] flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
@@ -266,6 +270,121 @@ export function RobinhoodAuditCard({
           )}
         </div>
       </div>
+      )}
+
+      {/* EVM Contract, Proxy & Honeypot Security */}
+      {evmSecurity && (
+        <div className="rounded-xl border border-white/[0.08] bg-[#0A0D14] overflow-hidden">
+          <div className="px-4 sm:px-6 py-4 border-b border-white/[0.08] flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-2.5 h-2.5 rounded-full ${
+                  evmSecurity.verdict === "CRITICAL"
+                    ? "bg-red-400 shadow-[0_0_8px_#F87171]"
+                    : evmSecurity.verdict === "CAUTION"
+                      ? "bg-amber-400 shadow-[0_0_8px_#FBBF24]"
+                      : "bg-emerald-400 shadow-[0_0_8px_#34D399]"
+                }`}
+              />
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-white">
+                EVM Bytecode, Proxy &amp; Honeypot Simulator
+              </span>
+            </div>
+            <span className="font-mono text-[11px] text-slate-400">
+              Basis: {evmSecurity.verificationBasis} · {evmSecurity.bytecodeBytes}B
+            </span>
+          </div>
+
+          <div className="p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+            <div className="p-3 rounded-lg bg-black/40 border border-white/[0.06] space-y-1">
+              <span className="text-slate-400 block text-[11px]">Honeypot / Sellability</span>
+              <span
+                className={`font-bold text-sm block ${
+                  evmSecurity.honeypotStatus === "HONEYPOT"
+                    ? "text-red-400"
+                    : evmSecurity.honeypotStatus === "HIGH_TAX"
+                      ? "text-amber-400"
+                      : evmSecurity.honeypotStatus === "SELLABLE"
+                        ? "text-emerald-400"
+                        : "text-sky-300"
+                }`}
+              >
+                {evmSecurity.honeypotStatus.replace(/_/g, " ")}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg bg-black/40 border border-white/[0.06] space-y-1">
+              <span className="text-slate-400 block text-[11px]">Buy / Sell Tax</span>
+              <span className="font-bold text-sm text-white block">
+                {evmSecurity.buyTaxPct !== null || evmSecurity.sellTaxPct !== null
+                  ? `${evmSecurity.buyTaxPct ?? 0}% / ${evmSecurity.sellTaxPct ?? 0}%`
+                  : "Not Indexed (RPC Check)"}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg bg-black/40 border border-white/[0.06] space-y-1">
+              <span className="text-slate-400 block text-[11px]">Proxy / Upgradeability</span>
+              <span
+                className={`font-bold text-sm block ${
+                  evmSecurity.isProxy ? "text-amber-300" : "text-emerald-400"
+                }`}
+              >
+                {evmSecurity.isProxy ? `${evmSecurity.proxyType || "Proxy"}` : "Immutable (No Proxy)"}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg bg-black/40 border border-white/[0.06] space-y-1">
+              <span className="text-slate-400 block text-[11px]">Contract Ownership</span>
+              <span
+                className={`font-bold text-sm block ${
+                  evmSecurity.ownershipRenounced === true
+                    ? "text-emerald-400"
+                    : evmSecurity.ownershipRenounced === false
+                      ? "text-amber-300"
+                      : "text-slate-300"
+                }`}
+              >
+                {evmSecurity.ownershipRenounced === true
+                  ? "Renounced (0x000...)"
+                  : evmSecurity.ownershipRenounced === false
+                    ? `Active (${evmSecurity.ownerAddress?.slice(0, 8)}...)`
+                    : "No Public owner()"}
+              </span>
+            </div>
+          </div>
+
+          <div className="px-4 sm:px-6 pb-4 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+            <span className="px-2.5 py-1 rounded border border-white/10 bg-white/[0.03] text-slate-300">
+              Source: {evmSecurity.verifiedSource}
+            </span>
+            {evmSecurity.capabilities.mintable && (
+              <span className="px-2.5 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
+                mint() Selector
+              </span>
+            )}
+            {evmSecurity.capabilities.pausable && (
+              <span className="px-2.5 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
+                pause() Selector
+              </span>
+            )}
+            {evmSecurity.capabilities.blacklistable && (
+              <span className="px-2.5 py-1 rounded border border-red-500/40 bg-red-500/10 text-red-300">
+                blacklist Selector
+              </span>
+            )}
+            {evmSecurity.capabilities.feeModifiable && (
+              <span className="px-2.5 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
+                Modifiable Fee
+              </span>
+            )}
+            {evmSecurity.capabilities.hasSelfDestruct && (
+              <span className="px-2.5 py-1 rounded border border-red-500/50 bg-red-500/15 text-red-300">
+                SELFDESTRUCT Opcode
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

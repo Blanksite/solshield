@@ -2,6 +2,10 @@ import { NextRequest } from "next/server";
 import { buildGuardErrorResponse, guardApiRoute } from "@/lib/api-guard";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
 import {
+  buildEvmRevokeTransactions,
+  type EvmRevokeTargetSpec,
+} from "@/lib/evm-detox";
+import {
   BatchRevokeSpec,
   buildBatchSplDelegateRevokeTransaction,
   normalizeDetoxCluster,
@@ -16,6 +20,7 @@ export async function POST(req: NextRequest) {
     owner?: unknown;
     targets?: unknown;
     cluster?: unknown;
+    chain?: unknown;
     recentBlockhash?: unknown;
   };
   try {
@@ -38,6 +43,84 @@ export async function POST(req: NextRequest) {
 
   const owner = typeof body?.owner === "string" ? body.owner.trim() : "";
   const rawTargets = Array.isArray(body?.targets) ? body.targets : [];
+
+  if (owner.startsWith("0x")) {
+    const evmTargets: EvmRevokeTargetSpec[] = rawTargets
+      .filter(
+        (
+          item
+        ): item is {
+          kind?: string;
+          tokenAddress: string;
+          spenderAddress: string;
+        } =>
+          Boolean(item) &&
+          typeof (item as { tokenAddress?: unknown }).tokenAddress === "string" &&
+          typeof (item as { spenderAddress?: unknown }).spenderAddress === "string"
+      )
+      .map((item) => ({
+        kind: item.kind === "permit2" ? "permit2" : "erc20",
+        tokenAddress: item.tokenAddress.trim(),
+        spenderAddress: item.spenderAddress.trim(),
+      }));
+
+    if (evmTargets.length === 0) {
+      return corsJson(
+        {
+          ok: false,
+          error:
+            "Both `owner` EVM address and non-empty EVM `targets` (tokenAddress, spenderAddress) are required.",
+        },
+        { status: 400, req, policy: "web", headers: guard.rateHeaders }
+      );
+    }
+
+    try {
+      const artifact = buildEvmRevokeTransactions({
+        owner,
+        chain:
+          typeof body?.chain === "string"
+            ? body.chain
+            : typeof body?.cluster === "string"
+              ? body.cluster
+              : undefined,
+        targets: evmTargets,
+      });
+
+      return corsJson(
+        {
+          ok: true,
+          artifact,
+        },
+        {
+          req,
+          policy: "web",
+          headers: {
+            ...guard.rateHeaders,
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to construct EVM Revoke transaction.";
+      return corsJson(
+        { ok: false, error: message },
+        {
+          status: 400,
+          req,
+          policy: "web",
+          headers: {
+            ...guard.rateHeaders,
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+  }
+
   const targets: BatchRevokeSpec[] = rawTargets
     .filter(
       (item): item is { tokenAccount: string; isToken2022?: boolean } =>

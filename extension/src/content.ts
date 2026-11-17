@@ -107,9 +107,13 @@ import type {
 
       const verdict = auditResponse.verdict;
 
-      // For wallet `connect()`, allow silently if Domain Guard & reputation report SAFE
+      // For wallet connect() / eth_requestAccounts, allow silently if Domain Guard & reputation report SAFE
+      const isConnectOnly =
+        payload.walletMethod === "connect" ||
+        payload.walletMethod === "eth_requestAccounts" ||
+        payload.walletMethod === "wallet_requestPermissions";
       if (
-        payload.walletMethod === "connect" &&
+        isConnectOnly &&
         verdict.decision === "SAFE" &&
         !verdict.timeoutUnverified
       ) {
@@ -291,6 +295,30 @@ import type {
           </div>`
         : "";
 
+      const evmSummaryHtml = verdict.evmReport
+        ? `<div class="section">
+            <div class="section-title">Decoded EVM Payload (${escapeHtml(
+              verdict.evmReport.chainIdHex || "EVM"
+            )})</div>
+            <div class="diff-row">
+              <span>Action</span>
+              <span style="font-family: ui-monospace, monospace; color:#93C5FD;">${escapeHtml(
+                verdict.evmReport.summary.slice(0, 56)
+              )}</span>
+            </div>
+            ${
+              verdict.evmReport.spenderDetected
+                ? `<div class="diff-row">
+                    <span>Spender</span>
+                    <span style="font-family: ui-monospace, monospace; color:#FCA5A5;">${escapeHtml(
+                      verdict.evmReport.spenderDetected
+                    )}</span>
+                  </div>`
+                : ""
+            }
+          </div>`
+        : "";
+
       const allowInputHtml = verdict.requiresTypedConfirmation
         ? `<div class="allow-gate">
             <label for="solsh-allow-input">Transaksi diblokir karena risiko CRITICAL/HIGH. Ketik <strong>ALLOW</strong> untuk membuka tombol lanjut:</label>
@@ -425,6 +453,7 @@ import type {
             </div>
 
             ${tokenAuditHtml}
+            ${evmSummaryHtml}
 
             <div class="section">
               <div class="section-title">Security Findings</div>

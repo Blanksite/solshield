@@ -1,5 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { evaluateDomainSafety, normalizeHostname } from "../domain-guard";
+import { inspectEvmContractSecurity } from "../evm-security";
 import { scanSolanaTokenMint } from "../token-scanner";
 import {
   decodeHtmlEntities,
@@ -766,19 +767,47 @@ export async function collectChainTokenIntel(
       }
     }
 
-    const robinhoodReport = await verifyRobinhoodStatus({
-      address: resolvedContractAddress,
-      name: tokenName,
-      symbol: tokenSymbol,
-      chainFamily: "evm",
-      isRobinhoodChain: isDeployedOnHood,
-    });
+    const targetChainForSecurity = isDeployedOnHood ? "robinhood" : topPairChain;
+    const [robinhoodReport, evmSecurity] = await Promise.all([
+      verifyRobinhoodStatus({
+        address: resolvedContractAddress,
+        name: tokenName,
+        symbol: tokenSymbol,
+        chainFamily: "evm",
+        isRobinhoodChain: isDeployedOnHood,
+      }),
+      inspectEvmContractSecurity(resolvedContractAddress, targetChainForSecurity),
+    ]);
 
-    const isHighRisk = robinhoodReport.impostorRiskScore >= 70;
+    const combinedRisk = Math.min(
+      99,
+      Math.max(
+        robinhoodReport.impostorRiskScore,
+        evmSecurity.riskScore,
+        isDeployedOnHood || robinhoodReport.impostorRiskScore >= 70 ? 10 : 12
+      )
+    );
+    const isHighRisk = combinedRisk >= 70;
+    const isCautionRisk = !isHighRisk && combinedRisk >= 35;
+
+    const mergedFlags = [
+      ...(robinhoodReport.warning
+        ? [
+            {
+              code: "ROBINHOOD_WARNING",
+              severity: robinhoodReport.impostorRiskScore >= 70 ? "HIGH" : "MEDIUM",
+              title: "Robinhood Asset Warning",
+              description: robinhoodReport.warning,
+            },
+          ]
+        : []),
+      ...evmSecurity.flags,
+    ];
+
     const syntheticTokenReport: any = {
       mintAddress,
       tokenProgram: isDeployedOnHood
-        ? "Robinhood Chain L2"
+        ? "Robinhood Chain L2 (ERC-20)"
         : `${topPairChain.toUpperCase()} ERC-20`,
       programId: isDeployedOnHood ? "ROBINHOOD_CHAIN_L2" : "EVM_ERC20",
       isToken2022: false,
@@ -799,28 +828,34 @@ export async function collectChainTokenIntel(
       })(),
       mintAuthority: null,
       freezeAuthority: null,
-      extensions: isDeployedOnHood ? ["Robinhood Chain Arbitrum Orbit"] : [],
-      transferFeeBps: null,
+      extensions: isDeployedOnHood
+        ? [
+            "Robinhood Chain Arbitrum Orbit",
+            ...(evmSecurity.isProxy ? [`${evmSecurity.proxyType || "Proxy"} Contract`] : []),
+          ]
+        : evmSecurity.isProxy
+          ? [`${evmSecurity.proxyType || "Proxy"} Contract`]
+          : [],
+      transferFeeBps:
+        evmSecurity.sellTaxPct !== null ? Math.round(evmSecurity.sellTaxPct * 100) : null,
       permanentDelegate: null,
       transferHookProgramId: null,
       defaultAccountState: null,
       topHolders: [],
       top5Pct: 0,
       top10Pct: 0,
-      riskScore: isHighRisk ? robinhoodReport.impostorRiskScore : 10,
-      classification: isHighRisk ? "CRITICAL" : "SAFE",
-      recommendedAction: isHighRisk ? "HIGH_RUG_RISK" : "VERIFIED_SAFE",
-      executiveSummary: robinhoodReport.summary,
-      flags: robinhoodReport.warning
-        ? [
-            {
-              code: "ROBINHOOD_WARNING",
-              severity: isHighRisk ? "HIGH" : "MEDIUM",
-              title: "Robinhood Asset Warning",
-              description: robinhoodReport.warning,
-            },
-          ]
-        : [],
+      riskScore: combinedRisk,
+      classification: isHighRisk ? "CRITICAL" : isCautionRisk ? "CAUTION" : "SAFE",
+      recommendedAction: isHighRisk
+        ? "HIGH_RUG_RISK"
+        : isCautionRisk
+          ? "CAUTION_REVIEW"
+          : "VERIFIED_SAFE",
+      executiveSummary:
+        robinhoodReport.impostorRiskScore >= 70
+          ? robinhoodReport.summary
+          : evmSecurity.summary,
+      flags: mergedFlags,
     };
 
     const syntheticDeep: any = {
@@ -854,12 +889,12 @@ export async function collectChainTokenIntel(
         sells24h: null,
       },
       holders: {
-        totalHolders: null,
+        totalHolders: evmSecurity.holderCount,
         top10ConcentrationPct: 0,
         nodes: [],
         clusters: [],
-        score: 85,
-        verdict: "Distributed",
+        score: evmSecurity.honeypotStatus === "HONEYPOT" ? 10 : 85,
+        verdict: evmSecurity.honeypotStatus === "HONEYPOT" ? "High Risk" : "Distributed",
         distribution: {
           insidersPct: 0,
           snipersPct: 0,
@@ -885,8 +920,9 @@ export async function collectChainTokenIntel(
       accountRecentTxCount: null,
       deep: syntheticDeep,
       robinhood: robinhoodReport,
+      evmSecurity,
       chainFamily: "evm",
-      networkName: isDeployedOnHood ? "Robinhood Chain" : `${topPairChain.toUpperCase()} Network`,
+      networkName: isDeployedOnHood ? "Robinhood Chain" : evmSecurity.networkName || `${topPairChain.toUpperCase()} Network`,
     };
   }
 

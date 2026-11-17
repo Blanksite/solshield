@@ -267,13 +267,18 @@ export function buildDeterministicBuildCheck(
   if (input.chain) {
     let s = 72;
     const tok = input.chain.tokenReport;
+    const isEvm =
+      input.chain.chainFamily === "evm" ||
+      input.chain.mintAddress.startsWith("0x");
+    const evmSec = input.chain.evmSecurity ?? null;
+
     if (tok) {
       s = Math.max(10, 100 - tok.riskScore);
       if (tok.verifiedAsset) {
         verifiedSignals.push(
           `Canonical verified asset (${tok.symbol || tok.mintAddress.slice(0, 8)} issued by ${tok.verifiedAsset.issuer}).`
         );
-      } else if (tok.mintAuthority === null && tok.freezeAuthority === null) {
+      } else if (!isEvm && tok.mintAuthority === null && tok.freezeAuthority === null) {
         verifiedSignals.push(
           `Token mint & freeze authorities are revoked (${tok.symbol || tok.mintAddress.slice(0, 8)}).`
         );
@@ -286,6 +291,49 @@ export function buildDeterministicBuildCheck(
     } else if (input.chain.error) {
       s = 40;
       keyRedFlags.push(`On-chain lookup issue: ${input.chain.error}`);
+    }
+
+    if (evmSec) {
+      if (evmSec.honeypotStatus === "SELLABLE") {
+        verifiedSignals.push(
+          `EVM Swap Simulation passed on ${evmSec.networkName} (Buy ${evmSec.buyTaxPct ?? 0}% / Sell ${evmSec.sellTaxPct ?? 0}% tax).`
+        );
+      }
+      if (evmSec.ownershipRenounced === true) {
+        verifiedSignals.push(
+          `EVM contract ownership is renounced (0x0000...0000) on ${evmSec.networkName}.`
+        );
+      }
+      if (evmSec.verifiedSource === "sourcify-full" || evmSec.verifiedSource === "goplus-open-source") {
+        verifiedSignals.push(
+          `Smart contract source code verified (${evmSec.verifiedSource}).`
+        );
+      }
+      if (evmSec.verdict === "CRITICAL") {
+        s = Math.min(s, 22);
+      } else if (evmSec.verdict === "CAUTION") {
+        s = Math.min(s, 62);
+      }
+      claimsVsProof.push({
+        claim: `EVM Contract & Honeypot Security (${evmSec.networkName})`,
+        status:
+          evmSec.verdict === "SAFE"
+            ? "VERIFIED"
+            : evmSec.verdict === "CAUTION"
+              ? "MIXED"
+              : "CONTRADICTED",
+        evidence: `${evmSec.honeypotStatus}${
+          evmSec.buyTaxPct !== null || evmSec.sellTaxPct !== null
+            ? ` (Tax ${evmSec.buyTaxPct ?? "?"}% / ${evmSec.sellTaxPct ?? "?"}%)`
+            : ""
+        } · ${evmSec.isProxy ? `${evmSec.proxyType || "Proxy"}` : "Non-Proxy"} · Owner=${
+          evmSec.ownershipRenounced === true
+            ? "Renounced"
+            : evmSec.ownershipRenounced === false
+              ? "Active"
+              : "No owner()"
+        } · Source=${evmSec.verifiedSource}`,
+      });
     }
 
     if (input.chain.dexPair) {
@@ -330,7 +378,9 @@ export function buildDeterministicBuildCheck(
           evidence: rh.summary,
         });
       } else if (rh.status === "ROBINHOOD_CHAIN_NATIVE") {
-        s = Math.max(s, 80);
+        if (!evmSec || evmSec.verdict === "SAFE") {
+          s = Math.max(s, 80);
+        }
         verifiedSignals.push(rh.summary);
         claimsVsProof.push({
           claim: "Robinhood Chain L2 Deployment (Chain ID 4663)",
@@ -341,18 +391,24 @@ export function buildDeterministicBuildCheck(
     }
 
     chainProof = clampScore(s);
-    const chainLabel = input.chain.chainFamily === "evm" ? "EVM Smart Contract" : "On-chain Solana Mint";
+    const chainLabel = isEvm ? "EVM Smart Contract" : "On-chain Solana Mint";
     claimsVsProof.push({
       claim: `${chainLabel} (${input.chain.mintAddress.slice(0, 8)}...)`,
       status:
         chainProof >= 68 ? "VERIFIED" : chainProof >= 40 ? "MIXED" : "CONTRADICTED",
-      evidence: tok
-        ? tok.verifiedAsset
-          ? `${tok.tokenProgram} · Canonical ${tok.verifiedAsset.issuer} ${tok.symbol || "asset"} · Regulated/verified authorities`
-          : `${tok.tokenProgram} · MintAuth=${tok.mintAuthority ? "ACTIVE" : "Null"} · FreezeAuth=${
-              tok.freezeAuthority ? "ACTIVE" : "Null"
-            } · Top5=${tok.top5Pct.toFixed(1)}%`
-        : input.chain.error || "Unable to verify token structure.",
+      evidence: isEvm
+        ? evmSec
+          ? `${tok?.tokenProgram || "ERC-20"} · ${evmSec.bytecodeBytes}B Bytecode · ${
+              evmSec.isProxy ? `${evmSec.proxyType || "Proxy"}` : "Immutable"
+            } · ${evmSec.detectedSelectors.length} risk selector(s)`
+          : `${tok?.tokenProgram || "ERC-20"} · Deployed EVM Smart Contract`
+        : tok
+          ? tok.verifiedAsset
+            ? `${tok.tokenProgram} · Canonical ${tok.verifiedAsset.issuer} ${tok.symbol || "asset"} · Regulated/verified authorities`
+            : `${tok.tokenProgram} · MintAuth=${tok.mintAuthority ? "ACTIVE" : "Null"} · FreezeAuth=${
+                tok.freezeAuthority ? "ACTIVE" : "Null"
+              } · Top5=${tok.top5Pct.toFixed(1)}%`
+          : input.chain.error || "Unable to verify token structure.",
     });
   }
 
@@ -741,6 +797,7 @@ export async function synthesizeWithVeniceBuildCheck(
           riskScore: input.chain.tokenReport?.riskScore,
           flags: input.chain.tokenReport?.flags.map((f) => f.title),
           dexPair: input.chain.dexPair,
+          evmSecurity: input.chain.evmSecurity ?? null,
           holders: input.chain.deep?.holders
             ? {
                 score: input.chain.deep.holders.score,

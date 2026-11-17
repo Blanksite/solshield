@@ -58,6 +58,7 @@ import {
 import {
   clearLocalScannedTokens,
   mergeScannedTokenLists,
+  normalizeScannedTokenProgram,
   readLocalScannedTokens,
   saveLocalScannedToken,
   type ScannedTokenSummary,
@@ -1141,16 +1142,25 @@ export default function BuildCheckWorkbench({
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Robinhood Listing</span>
-            {report.robinhood && report.robinhood.status === "IMPOSTOR_ALERT" && (
+            <span>
+              {report.chain?.evmSecurity
+                ? "EVM Contract & Robinhood"
+                : "Robinhood Listing"}
+            </span>
+            {((report.robinhood && report.robinhood.status === "IMPOSTOR_ALERT") ||
+              report.chain?.evmSecurity?.verdict === "CRITICAL") && (
               <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
             )}
-            {report.robinhood && report.robinhood.status === "OFFICIAL_LISTED" && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            )}
-            {report.robinhood && report.robinhood.status === "ROBINHOOD_CHAIN_NATIVE" && (
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-            )}
+            {report.robinhood &&
+              report.robinhood.status === "OFFICIAL_LISTED" &&
+              report.chain?.evmSecurity?.verdict !== "CRITICAL" && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              )}
+            {report.robinhood &&
+              report.robinhood.status === "ROBINHOOD_CHAIN_NATIVE" &&
+              report.chain?.evmSecurity?.verdict !== "CRITICAL" && (
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+              )}
           </button>
 
           {report.chain?.deep?.holders && (
@@ -1234,6 +1244,7 @@ export default function BuildCheckWorkbench({
           <div className="p-5">
             <RobinhoodAuditCard
               robinhood={report.robinhood || report.chain?.robinhood}
+              evmSecurity={report.chain?.evmSecurity}
               tokenSymbol={report.chain?.tokenReport?.symbol || tokenSymbol}
               tokenName={report.chain?.tokenReport?.name}
               address={report.chain?.mintAddress || report.target.mintAddress}
@@ -2504,7 +2515,10 @@ export default function BuildCheckWorkbench({
                         <span>Token &amp; Dev Specs</span>
                         {report.chain.tokenReport && (
                           <span className="font-mono text-[10px] text-slate-400">
-                            {report.chain.tokenReport.tokenProgram}
+                            {normalizeScannedTokenProgram(
+                              report.chain.tokenReport.tokenProgram,
+                              report.chain.mintAddress
+                            )}
                           </span>
                         )}
                       </div>
@@ -2514,17 +2528,65 @@ export default function BuildCheckWorkbench({
                             <div className="py-2.5 flex items-center justify-between gap-2">
                               <span className="text-slate-400">Contract Standard</span>
                               <span className="font-mono text-sky-300">
-                                {report.chain.tokenReport?.tokenProgram || "ERC-20"}
+                                {normalizeScannedTokenProgram(
+                                  report.chain.tokenReport?.tokenProgram,
+                                  report.chain.mintAddress
+                                )}
                               </span>
                             </div>
                             <div className="py-2.5 flex items-center justify-between gap-2">
                               <span className="text-slate-400">Network / Status</span>
                               <span className="font-mono text-emerald-400 text-right">
                                 {report.robinhood?.networkName ||
+                                  report.chain.networkName ||
                                   report.chain.deep?.metadata?.launchpad ||
                                   "EVM Smart Contract"}
                               </span>
                             </div>
+                            {report.chain.evmSecurity && (
+                              <>
+                                <div className="py-2.5 flex items-center justify-between gap-2">
+                                  <span className="text-slate-400">Honeypot / Tax</span>
+                                  <span
+                                    className={`font-mono ${
+                                      report.chain.evmSecurity.honeypotStatus === "HONEYPOT"
+                                        ? "text-rose-400"
+                                        : report.chain.evmSecurity.honeypotStatus === "HIGH_TAX"
+                                          ? "text-amber-300"
+                                          : report.chain.evmSecurity.honeypotStatus === "SELLABLE"
+                                            ? "text-emerald-400"
+                                            : "text-sky-300"
+                                    }`}
+                                  >
+                                    {report.chain.evmSecurity.honeypotStatus === "UNVERIFIED"
+                                      ? "Bytecode Checked"
+                                      : `${report.chain.evmSecurity.honeypotStatus}${
+                                          report.chain.evmSecurity.sellTaxPct !== null
+                                            ? ` (${report.chain.evmSecurity.buyTaxPct ?? 0}%/${report.chain.evmSecurity.sellTaxPct}%)`
+                                            : ""
+                                        }`}
+                                  </span>
+                                </div>
+                                <div className="py-2.5 flex items-center justify-between gap-2">
+                                  <span className="text-slate-400">Proxy / Owner</span>
+                                  <span
+                                    className={`font-mono ${
+                                      report.chain.evmSecurity.isProxy
+                                        ? "text-amber-300"
+                                        : report.chain.evmSecurity.ownershipRenounced === true
+                                          ? "text-emerald-400"
+                                          : "text-slate-300"
+                                    }`}
+                                  >
+                                    {report.chain.evmSecurity.isProxy
+                                      ? report.chain.evmSecurity.proxyType || "Proxy"
+                                      : report.chain.evmSecurity.ownershipRenounced === true
+                                        ? "Immutable · Renounced"
+                                        : "Non-Proxy"}
+                                  </span>
+                                </div>
+                              </>
+                            )}
                           </>
                         ) : (
                           <>

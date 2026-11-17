@@ -1,4 +1,5 @@
 import type { DomainEvaluation } from "../domain-guard";
+import type { EvmContractSecurityReport } from "../evm-security";
 import type { TokenScanReport } from "../token-scanner";
 
 export type BuildCheckTargetKind =
@@ -260,6 +261,7 @@ export interface ChainTokenIntelReport {
   accountRecentTxCount: number | null;
   deep?: TokenDeepForensics | null;
   robinhood?: RobinhoodVerificationReport | null;
+  evmSecurity?: EvmContractSecurityReport | null;
   chainFamily?: "solana" | "evm" | "unknown";
   networkName?: string;
   error?: string;

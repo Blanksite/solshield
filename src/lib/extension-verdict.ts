@@ -5,6 +5,12 @@ import {
   ThreatFlag,
 } from "./solana-parser";
 import { DomainEvaluation, evaluateDomainSafety, normalizeHostname } from "./domain-guard";
+import {
+  inspectEvmRpcRequest,
+  type EvmDeterministicInspection,
+  type EvmInterceptMethod,
+  type EvmRpcInspectionInput,
+} from "./evm-tx-parser";
 import type { RpcTxSimulationReport, SimulatedBalanceDiff } from "./tx-simulator";
 import type { VeniceSecurityAuditResult } from "./venice-ai";
 import type { TokenScanReport } from "./token-scanner";
@@ -15,7 +21,8 @@ export type ExtensionRequestKind =
   | "signAllTransactions"
   | "signMessage"
   | "signIn"
-  | "connect";
+  | "connect"
+  | EvmInterceptMethod;
 
 export interface SignInInspectionInput {
   domain?: string;
@@ -43,10 +50,13 @@ export interface RemoteAuditSnapshot {
     sources: string[];
     inferenceMode: "venice-live-api" | "deterministic-fallback";
   } | null;
+  evmContractWarning?: string | null;
+  evmContractRiskScore?: number | null;
 }
 
 export interface ExtensionVerdict {
   decision: "SAFE" | "WARNING" | "BLOCK";
+  chainFamily?: "solana" | "evm";
   riskScore: number;
   headline: string;
   requiresTypedConfirmation: boolean;
@@ -56,6 +66,7 @@ export interface ExtensionVerdict {
   txCount: number;
   domainEvaluation: DomainEvaluation;
   localReports: DeterministicSimulationReport[];
+  evmReport?: EvmDeterministicInspection | null;
   balanceDiffs: SimulatedBalanceDiff[];
   tokenAudits: TokenScanReport[];
   reasons: string[];
@@ -182,6 +193,7 @@ export function buildExtensionVerdict(params: {
   walletMethod: ExtensionRequestKind;
   hostname: string;
   base64Transactions?: string[];
+  evmRequest?: EvmRpcInspectionInput | null;
   messageInspection?: LocalOffchainMessageInspection | null;
   signInInput?: SignInInspectionInput | null;
   trustedDomains?: string[];
@@ -189,6 +201,12 @@ export function buildExtensionVerdict(params: {
   strictMode?: boolean;
   remote?: RemoteAuditSnapshot;
 }): ExtensionVerdict {
+  const isEvmMethod =
+    Boolean(params.evmRequest) ||
+    params.walletMethod.startsWith("eth_") ||
+    params.walletMethod.startsWith("wallet_") ||
+    params.walletMethod === "personal_sign";
+
   const txs = params.base64Transactions ?? [];
   const domainEval = evaluateDomainSafety(params.hostname, {
     trustedDomains: params.trustedDomains,
@@ -199,16 +217,25 @@ export function buildExtensionVerdict(params: {
   const combinedFlags: ThreatFlag[] = [];
   const reasons: string[] = [];
   let parseFailureError: string | null = null;
+  let evmReport: EvmDeterministicInspection | null = null;
 
-  for (let i = 0; i < txs.length; i++) {
-    try {
-      const rep = analyzeBase64Transaction(txs[i]);
-      localReports.push(rep);
-      combinedFlags.push(...rep.threatFlags);
-    } catch (err) {
-      parseFailureError =
-        err instanceof Error ? err.message : "Failed to parse Solana transaction payload.";
-      reasons.push(`Transaction #${i + 1} decode error: ${parseFailureError}`);
+  if (params.evmRequest) {
+    evmReport = inspectEvmRpcRequest(params.evmRequest);
+    reasons.push(...evmReport.reasons);
+    if (evmReport.reasons.length === 0 && evmReport.summary) {
+      reasons.push(evmReport.summary);
+    }
+  } else {
+    for (let i = 0; i < txs.length; i++) {
+      try {
+        const rep = analyzeBase64Transaction(txs[i]);
+        localReports.push(rep);
+        combinedFlags.push(...rep.threatFlags);
+      } catch (err) {
+        parseFailureError =
+          err instanceof Error ? err.message : "Failed to parse Solana transaction payload.";
+        reasons.push(`Transaction #${i + 1} decode error: ${parseFailureError}`);
+      }
     }
   }
 
@@ -230,7 +257,11 @@ export function buildExtensionVerdict(params: {
     localReports.length > 0
       ? Math.max(...localReports.map((r) => r.deterministicRiskScore))
       : 0;
-  const localBaseScore = Math.max(maxReportScore, combinedFlagScore);
+  const localBaseScore = Math.max(
+    maxReportScore,
+    combinedFlagScore,
+    evmReport?.riskScore ?? 0
+  );
 
   let riskScore = Math.max(localBaseScore, domainEval.riskScore);
 
@@ -333,8 +364,16 @@ export function buildExtensionVerdict(params: {
     }
   }
 
+  if (remote?.evmContractRiskScore) {
+    riskScore = Math.max(riskScore, remote.evmContractRiskScore);
+  }
+  if (remote?.evmContractWarning) {
+    reasons.push(remote.evmContractWarning);
+  }
+
   const hasCriticalDeterministic =
     combinedFlags.some((f) => f.severity === "CRITICAL") ||
+    (evmReport?.flags.some((f) => f.severity === "CRITICAL") ?? false) ||
     domainEval.status === "TYPOSQUAT_CRITICAL" ||
     (rpcSim?.authorityChanges.length ?? 0) > 0 ||
     (rpcSim?.tokenAudits.some((t) => t.classification === "CRITICAL") ?? false);
@@ -371,15 +410,17 @@ export function buildExtensionVerdict(params: {
 
   return {
     decision,
+    chainFamily: isEvmMethod ? "evm" : "solana",
     riskScore: Math.min(99, Math.round(riskScore)),
     headline,
     requiresTypedConfirmation: decision === "BLOCK",
     apiVerified,
     timeoutUnverified,
     walletMethod: params.walletMethod,
-    txCount: txs.length,
+    txCount: isEvmMethod ? Math.max(1, evmReport?.decodedCalls.length ?? 1) : txs.length,
     domainEvaluation: domainEval,
     localReports,
+    evmReport,
     balanceDiffs,
     tokenAudits: rpcSim?.tokenAudits ?? [],
     reasons: Array.from(new Set(reasons)),

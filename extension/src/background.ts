@@ -133,6 +133,7 @@ async function runAudit(payload: InterceptRequestPayload) {
       walletMethod: payload.walletMethod,
       hostname: normalizedHost,
       base64Transactions: payload.base64Transactions,
+      evmRequest: payload.evmRequest,
       trustedDomains: settings.trustedDomains,
       blockedDomains: settings.blockedDomains,
       strictMode: false,
@@ -163,16 +164,22 @@ async function runAudit(payload: InterceptRequestPayload) {
     cachedDomainRep && cachedDomainRep.expiresAt > Date.now();
 
   const deepTx = selectPrimaryTxForDeepAudit(txs);
+  const needEvmAudit =
+    Boolean(payload.evmRequest) &&
+    payload.walletMethod !== "eth_requestAccounts" &&
+    payload.walletMethod !== "wallet_requestPermissions";
   const needTxAudit = Boolean(deepTx);
 
   let attempted = false;
   let domainLookupOk = !needDomainLookup || Boolean(hasFreshDomainCache);
-  let txAuditOk = !needTxAudit;
+  let txAuditOk = !needTxAudit && !needEvmAudit;
   let timedOutOrError: string | null = null;
   let domainReputation: RemoteAuditSnapshot["domainReputation"] =
     hasFreshDomainCache ? cachedDomainRep.data : null;
   let veniceAudit: RemoteAuditSnapshot["veniceAudit"] = null;
   let rpcSimulation: RemoteAuditSnapshot["rpcSimulation"] = null;
+  let evmContractWarning: string | null = null;
+  let evmContractRiskScore: number | null = null;
 
   const promises: Promise<void>[] = [];
 
@@ -264,6 +271,43 @@ async function runAudit(payload: InterceptRequestPayload) {
     );
   }
 
+  if (needEvmAudit && payload.evmRequest) {
+    attempted = true;
+    promises.push(
+      fetchJsonWithTimeout(
+        `${baseUrl}/api/audit`,
+        {
+          evmRequest: payload.evmRequest,
+          veniceApiKey: settings.veniceApiKey.trim() || undefined,
+        },
+        4200
+      )
+        .then((res) => {
+          if (res.ok) {
+            evmContractWarning =
+              typeof res.evmContractWarning === "string"
+                ? res.evmContractWarning
+                : null;
+            evmContractRiskScore =
+              typeof res.evmContractRiskScore === "number"
+                ? res.evmContractRiskScore
+                : null;
+            txAuditOk = true;
+          } else {
+            timedOutOrError =
+              timedOutOrError ?? "EVM contract audit API returned non-ok status";
+          }
+        })
+        .catch((err) => {
+          timedOutOrError =
+            timedOutOrError ??
+            (err instanceof Error
+              ? err.message
+              : "EVM audit API unreachable");
+        })
+    );
+  }
+
   if (promises.length > 0) {
     await Promise.all(promises);
   }
@@ -274,6 +318,7 @@ async function runAudit(payload: InterceptRequestPayload) {
     walletMethod: payload.walletMethod,
     hostname: normalizedHost,
     base64Transactions: txs,
+    evmRequest: payload.evmRequest,
     messageInspection,
     signInInput: payload.signInInput ?? null,
     trustedDomains: settings.trustedDomains,
@@ -286,6 +331,8 @@ async function runAudit(payload: InterceptRequestPayload) {
       veniceAudit,
       rpcSimulation,
       domainReputation,
+      evmContractWarning,
+      evmContractRiskScore,
     },
   });
 

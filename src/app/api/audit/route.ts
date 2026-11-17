@@ -5,6 +5,14 @@ import {
 } from "@/lib/api-guard";
 import { analyzeBase64Transaction } from "@/lib/solana-parser";
 import { corsJson, corsOptionsResponse } from "@/lib/cors";
+import {
+  inspectEvmContractSecurity,
+  isValidEvmAddress,
+} from "@/lib/evm-security";
+import {
+  inspectEvmRpcRequest,
+  type EvmRpcInspectionInput,
+} from "@/lib/evm-tx-parser";
 import { createCacheKeyHash } from "@/lib/scan-cache";
 import { recordScannedToken } from "@/lib/scanned-tokens";
 import {
@@ -78,6 +86,7 @@ export async function POST(req: NextRequest) {
     const {
       base64Transaction,
       blinkUrl,
+      evmRequest,
       veniceApiKey,
       veniceModel,
       maxAllowedRiskScore,
@@ -96,15 +105,83 @@ export async function POST(req: NextRequest) {
       typeof base64Transaction === "string" ? base64Transaction.trim() : "";
     const cleanBlinkUrl =
       typeof blinkUrl === "string" ? blinkUrl.trim() : "";
+    const cleanEvmRequest =
+      evmRequest &&
+      typeof evmRequest === "object" &&
+      typeof (evmRequest as { method?: unknown }).method === "string"
+        ? (evmRequest as EvmRpcInspectionInput)
+        : null;
 
-    if (!cleanBase64 && !cleanBlinkUrl) {
+    if (!cleanBase64 && !cleanBlinkUrl && !cleanEvmRequest) {
       return corsJson(
         {
           ok: false,
           error:
-            "Provide a serialized base64Transaction or a Solana Action blinkUrl to inspect.",
+            "Provide a serialized base64Transaction, Solana Action blinkUrl, or evmRequest payload to inspect.",
         },
         { status: 400, req, policy: "extension" }
+      );
+    }
+
+    if (cleanEvmRequest) {
+      const evmCacheKey = createCacheKeyHash(JSON.stringify(cleanEvmRequest));
+      const evmGuarded = await runGuardedCachedOperation(
+        req,
+        {
+          profile: "extension-hybrid",
+          byokKey: typeof veniceApiKey === "string" ? veniceApiKey : undefined,
+          namespace: "evm-tx-audit",
+          cacheKey: evmCacheKey,
+          ttlMs: 3 * 60_000,
+          forceRefresh: forceRefresh === true,
+        },
+        async () => {
+          const evmAudit = inspectEvmRpcRequest(cleanEvmRequest);
+          const contractCandidate =
+            evmAudit.verifyingContract && isValidEvmAddress(evmAudit.verifyingContract)
+              ? evmAudit.verifyingContract
+              : null;
+
+          const evmContractSecurity = contractCandidate
+            ? await inspectEvmContractSecurity(
+                contractCandidate,
+                cleanEvmRequest.chainId ?? evmAudit.chainIdHex ?? "ethereum",
+                { timeoutMs: 2800 }
+              ).catch(() => null)
+            : null;
+
+          const evmContractRiskScore =
+            evmContractSecurity && evmContractSecurity.honeypotStatus === "HONEYPOT"
+              ? 96
+              : evmContractSecurity && evmContractSecurity.riskScore >= 70
+                ? evmContractSecurity.riskScore
+                : null;
+          const evmContractWarning =
+            evmContractSecurity && evmContractSecurity.flags.length > 0
+              ? `${evmContractSecurity.networkName}: ${evmContractSecurity.flags[0].title}`
+              : null;
+
+          return {
+            evmAudit,
+            evmContractSecurity,
+            evmContractRiskScore,
+            evmContractWarning,
+          };
+        }
+      );
+
+      if (!evmGuarded.ok) {
+        return buildGuardErrorResponse(evmGuarded);
+      }
+
+      return corsJson(
+        {
+          ok: true,
+          cached: evmGuarded.cached,
+          cachedAt: evmGuarded.cachedAt,
+          ...evmGuarded.value,
+        },
+        { req, policy: "extension", headers: evmGuarded.headers }
       );
     }
 

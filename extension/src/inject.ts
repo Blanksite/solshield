@@ -1,9 +1,12 @@
+import type { EvmRpcInspectionInput } from "../../src/lib/evm-tx-parser";
 import type {
   ExtensionRequestKind,
   SignInInspectionInput,
 } from "../../src/lib/extension-verdict";
 import {
+  createFrozenEthereumProxy,
   createFrozenProviderProxy,
+  wrapEthereumProvider,
   wrapLegacyProvider,
   wrapWalletStandardWallet,
 } from "./provider-wrapper";
@@ -33,6 +36,7 @@ import type { ProviderProtectionStatus } from "./types";
   const trackedStatus: ProviderProtectionStatus = {
     legacyProvidersWrapped: [],
     walletStandardWrapped: [],
+    evmProvidersWrapped: [],
     frozenProviders: [],
     updatedAt: Date.now(),
   };
@@ -60,6 +64,7 @@ import type { ProviderProtectionStatus } from "./types";
       status: {
         legacyProvidersWrapped: [...trackedStatus.legacyProvidersWrapped],
         walletStandardWrapped: [...trackedStatus.walletStandardWrapped],
+        evmProvidersWrapped: [...(trackedStatus.evmProvidersWrapped || [])],
         frozenProviders: [...trackedStatus.frozenProviders],
         updatedAt: trackedStatus.updatedAt,
       },
@@ -76,6 +81,7 @@ import type { ProviderProtectionStatus } from "./types";
     walletName: string;
     walletMethod: ExtensionRequestKind;
     base64Transactions?: string[];
+    evmRequest?: EvmRpcInspectionInput;
     signMessageBytesBase64?: string;
     signMessagePreviewText?: string;
     signInInput?: SignInInspectionInput;
@@ -109,6 +115,7 @@ import type { ProviderProtectionStatus } from "./types";
           originUrl: window.location.href,
           hostname: window.location.hostname,
           base64Transactions: input.base64Transactions,
+          evmRequest: input.evmRequest,
           signMessageBytesBase64: input.signMessageBytesBase64,
           signMessagePreviewText: input.signMessagePreviewText,
           signInInput: input.signInInput,
@@ -195,11 +202,58 @@ import type { ProviderProtectionStatus } from "./types";
     return false;
   }
 
+  function tryWrapEvmProvider(
+    holder: Record<string, unknown>,
+    key: string,
+    label: string
+  ): boolean {
+    const obj = holder[key];
+    if (!obj) return false;
+    const res = wrapEthereumProvider(obj, label, { interceptRequest });
+    if (!trackedStatus.evmProvidersWrapped) {
+      trackedStatus.evmProvidersWrapped = [];
+    }
+    if (res.status === "WRAPPED") {
+      addUnique(trackedStatus.evmProvidersWrapped, label);
+      return true;
+    }
+    if (res.status === "LIMITED_FROZEN") {
+      const desc = nativeGetOwnPropertyDescriptor(holder, key);
+      if (!Object.isFrozen(holder) && (!desc || desc.configurable || desc.writable)) {
+        try {
+          const proxied = createFrozenEthereumProxy(obj as object, label, {
+            interceptRequest,
+          });
+          if (!desc || desc.configurable) {
+            nativeDefineProperty(holder, key, {
+              value: proxied,
+              writable: true,
+              configurable: true,
+              enumerable: desc ? desc.enumerable : true,
+            });
+          } else {
+            holder[key] = proxied;
+          }
+          addUnique(trackedStatus.evmProvidersWrapped, `${label} (Proxy)`);
+          return true;
+        } catch {
+          // fall through to frozen status
+        }
+      }
+      addUnique(trackedStatus.frozenProviders, `${label} EVM (Frozen)`);
+      return true;
+    }
+    return false;
+  }
+
   function inspectAndWrapLegacyProviders() {
     let updated = false;
     const phantomObj = WIN.phantom as Record<string, unknown> | undefined;
     if (phantomObj && typeof phantomObj === "object") {
       if (tryWrapSlotProvider(phantomObj, "solana", "Phantom")) {
+        updated = true;
+      }
+      if (tryWrapEvmProvider(phantomObj, "ethereum", "Phantom EVM")) {
         updated = true;
       }
     }
@@ -213,11 +267,25 @@ import type { ProviderProtectionStatus } from "./types";
         updated = true;
       }
     }
+    for (const [key, label] of [
+      ["ethereum", "EIP-1193"],
+      ["rabby", "Rabby"],
+      ["coinbaseWalletExtension", "Coinbase"],
+      ["okxwallet", "OKX EVM"],
+    ] as const) {
+      if (tryWrapEvmProvider(WIN, key, label)) {
+        updated = true;
+      }
+    }
 
     if (updated) emitStatus();
   }
 
-  function installConfigurableTrap(propName: string, label: string) {
+  function installConfigurableTrap(
+    propName: string,
+    label: string,
+    family: "solana" | "evm" = "solana"
+  ) {
     const existingDesc = nativeGetOwnPropertyDescriptor(window, propName);
     if (existingDesc && !existingDesc.configurable) {
       inspectAndWrapLegacyProviders();
@@ -241,6 +309,25 @@ import type { ProviderProtectionStatus } from "./types";
           if (nextVal) {
             if (propName === "phantom") {
               inspectAndWrapLegacyProviders();
+            } else if (family === "evm") {
+              const res = wrapEthereumProvider(nextVal, label, {
+                interceptRequest,
+              });
+              if (!trackedStatus.evmProvidersWrapped) {
+                trackedStatus.evmProvidersWrapped = [];
+              }
+              if (res.status === "WRAPPED") {
+                addUnique(trackedStatus.evmProvidersWrapped, label);
+                emitStatus();
+              } else if (res.status === "LIMITED_FROZEN") {
+                internalVal = createFrozenEthereumProxy(
+                  nextVal as object,
+                  label,
+                  { interceptRequest }
+                );
+                addUnique(trackedStatus.evmProvidersWrapped, `${label} (Proxy)`);
+                emitStatus();
+              }
             } else {
               const res = wrapLegacyProvider(nextVal, label, {
                 interceptRequest,
@@ -360,10 +447,57 @@ import type { ProviderProtectionStatus } from "./types";
     return event;
   }
 
+  function wrapEip6963Event(event: Event): Event {
+    if (event.type !== "eip6963:announceProvider") return event;
+    const customEvent = event as CustomEvent<{
+      info?: { name?: string };
+      provider?: unknown;
+    }>;
+    const detail = customEvent.detail;
+    if (!detail || typeof detail !== "object" || !detail.provider) return event;
+    const label = String(detail.info?.name || "EIP-6963");
+    const res = wrapEthereumProvider(detail.provider, label, {
+      interceptRequest,
+    });
+    if (!trackedStatus.evmProvidersWrapped) {
+      trackedStatus.evmProvidersWrapped = [];
+    }
+    if (res.status === "WRAPPED") {
+      addUnique(trackedStatus.evmProvidersWrapped, `${label} (6963)`);
+      emitStatus();
+      return event;
+    }
+    if (res.status === "LIMITED_FROZEN") {
+      const proxied = createFrozenEthereumProxy(
+        detail.provider as object,
+        label,
+        { interceptRequest }
+      );
+      try {
+        if (!Object.isFrozen(detail)) {
+          (detail as { provider: unknown }).provider = proxied;
+          addUnique(trackedStatus.evmProvidersWrapped, `${label} (6963 Proxy)`);
+          emitStatus();
+          return event;
+        }
+        const clone = new CustomEvent("eip6963:announceProvider", {
+          detail: Object.freeze({ info: detail.info, provider: proxied }),
+        });
+        addUnique(trackedStatus.evmProvidersWrapped, `${label} (6963 Proxy)`);
+        emitStatus();
+        return clone;
+      } catch {
+        // leave original frozen detail untouched
+      }
+    }
+    return event;
+  }
+
   try {
     window.dispatchEvent = function (event: Event): boolean {
       patchWalletStandardEvent(event);
-      return nativeDispatchEvent(event);
+      const patchedEv = wrapEip6963Event(event);
+      return nativeDispatchEvent(patchedEv);
     };
   } catch {
     // ignore if non-writable
@@ -379,14 +513,16 @@ import type { ProviderProtectionStatus } from "./types";
       if (!listener) return;
       if (
         type === "wallet-standard:register-wallet" ||
-        type === "wallet-standard:app-ready"
+        type === "wallet-standard:app-ready" ||
+        type === "eip6963:announceProvider"
       ) {
         const wrappedListener: EventListener = (ev: Event) => {
           patchWalletStandardEvent(ev);
+          const safeEv = wrapEip6963Event(ev);
           if (typeof listener === "function") {
-            listener.call(window, ev);
+            listener.call(window, safeEv);
           } else {
-            listener.handleEvent(ev);
+            listener.handleEvent(safeEv);
           }
         };
         return origAddListener(type, wrappedListener, options);
@@ -403,6 +539,10 @@ import type { ProviderProtectionStatus } from "./types";
   installConfigurableTrap("solflare", "Solflare");
   installConfigurableTrap("backpack", "Backpack");
   installConfigurableTrap("glow", "Glow");
+  installConfigurableTrap("ethereum", "EIP-1193", "evm");
+  installConfigurableTrap("rabby", "Rabby", "evm");
+  installConfigurableTrap("coinbaseWalletExtension", "Coinbase", "evm");
+  installConfigurableTrap("okxwallet", "OKX EVM", "evm");
 
   inspectAndWrapLegacyProviders();
   let polls = 0;

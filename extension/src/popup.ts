@@ -56,6 +56,7 @@ async function refreshPopup() {
     prov &&
     (prov.legacyProvidersWrapped.length > 0 ||
       prov.walletStandardWrapped.length > 0 ||
+      (prov.evmProvidersWrapped && prov.evmProvidersWrapped.length > 0) ||
       prov.frozenProviders.length > 0)
   ) {
     const items: string[] = [];
@@ -65,13 +66,16 @@ async function refreshPopup() {
     for (const w of prov.walletStandardWrapped) {
       items.push(`<span class="chip">Standard: ${escapeText(w)}</span>`);
     }
+    for (const e of prov.evmProvidersWrapped || []) {
+      items.push(`<span class="chip">EVM: ${escapeText(e)}</span>`);
+    }
     for (const f of prov.frozenProviders) {
       items.push(`<span class="chip frozen">Limited: ${escapeText(f)}</span>`);
     }
     chipsContainer.innerHTML = items.join("");
   } else {
     chipsContainer.innerHTML =
-      '<span class="muted">No Solana wallet provider detected on this tab yet.</span>';
+      '<span class="muted">No Solana or EVM wallet provider detected on this tab yet.</span>';
   }
 
   if (history.length === 0) {

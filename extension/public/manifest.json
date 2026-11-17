@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SolShield Browser Guard",
   "version": "0.3.0",
-  "description": "Non-custodial Solana pre-sign firewall, Wallet Standard guard, Dual-Lane Venice AI domain defense & pre-sign RPC simulation.",
+  "description": "Non-custodial Solana & EVM (EIP-1193 / EIP-6963) pre-sign firewall, Permit2 guard, Dual-Lane Venice AI domain defense & RPC simulation.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://sol-shield.xyz/*",

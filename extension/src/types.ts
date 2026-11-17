@@ -1,4 +1,5 @@
 import type { DomainEvaluation } from "../../src/lib/domain-guard";
+import type { EvmRpcInspectionInput } from "../../src/lib/evm-tx-parser";
 import type {
   ExtensionRequestKind,
   ExtensionVerdict,
@@ -30,6 +31,7 @@ export const DEFAULT_SETTINGS: SolShieldSettings = {
 export interface ProviderProtectionStatus {
   legacyProvidersWrapped: string[];
   walletStandardWrapped: string[];
+  evmProvidersWrapped?: string[];
   frozenProviders: string[];
   updatedAt: number;
 }
@@ -55,6 +57,7 @@ export interface InterceptRequestPayload {
   originUrl: string;
   hostname: string;
   base64Transactions?: string[];
+  evmRequest?: EvmRpcInspectionInput;
   signMessageBytesBase64?: string;
   signMessagePreviewText?: string;
   signInInput?: SignInInspectionInput;

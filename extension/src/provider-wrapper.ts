@@ -1,4 +1,9 @@
 import type {
+  EvmInterceptMethod,
+  EvmRpcInspectionInput,
+  EvmTransactionObjectInput,
+} from "../../src/lib/evm-tx-parser";
+import type {
   ExtensionRequestKind,
   SignInInspectionInput,
 } from "../../src/lib/extension-verdict";
@@ -19,6 +24,7 @@ export interface InterceptorHooks {
     walletName: string;
     walletMethod: ExtensionRequestKind;
     base64Transactions?: string[];
+    evmRequest?: EvmRpcInspectionInput;
     signMessageBytesBase64?: string;
     signMessagePreviewText?: string;
     signInInput?: SignInInspectionInput;
@@ -747,4 +753,319 @@ export function wrapWalletStandardWallet(
     return { status: "NOT_PRESENT", wrappedMethods, frozenMethods };
   }
   return { status: "WRAPPED", wrappedMethods, frozenMethods };
+}
+
+const INTERCEPTED_EVM_METHOD_SET = new Set<EvmInterceptMethod>([
+  "eth_sendTransaction",
+  "wallet_sendCalls",
+  "eth_signTypedData",
+  "eth_signTypedData_v3",
+  "eth_signTypedData_v4",
+  "personal_sign",
+  "eth_sign",
+  "eth_requestAccounts",
+  "wallet_requestPermissions",
+]);
+
+function isEvmAddressHex(val: unknown): val is string {
+  return typeof val === "string" && /^0x[a-fA-F0-9]{40}$/.test(val.trim());
+}
+
+export function buildEvmRpcInterceptInput(
+  walletName: string,
+  method: EvmInterceptMethod,
+  params: unknown,
+  chainIdHint?: unknown
+): Parameters<InterceptorHooks["interceptRequest"]>[0] {
+  const arr = Array.isArray(params) ? params : [];
+  let evmRequest: EvmRpcInspectionInput = {
+    method,
+    chainId:
+      typeof chainIdHint === "string" || typeof chainIdHint === "number"
+        ? chainIdHint
+        : undefined,
+  };
+
+  if (method === "eth_sendTransaction") {
+    const rawTx = (arr[0] && typeof arr[0] === "object"
+      ? arr[0]
+      : {}) as EvmTransactionObjectInput;
+    evmRequest = {
+      ...evmRequest,
+      chainId: rawTx.chainId ?? evmRequest.chainId,
+      fromAddress: typeof rawTx.from === "string" ? rawTx.from : undefined,
+      transactions: [rawTx],
+    };
+  } else if (method === "wallet_sendCalls") {
+    const batch = (arr[0] && typeof arr[0] === "object" ? arr[0] : {}) as {
+      chainId?: string | number;
+      from?: string;
+      calls?: EvmTransactionObjectInput[];
+    };
+    evmRequest = {
+      ...evmRequest,
+      chainId: batch.chainId ?? evmRequest.chainId,
+      fromAddress: typeof batch.from === "string" ? batch.from : undefined,
+      transactions: Array.isArray(batch.calls) ? batch.calls : [],
+    };
+  } else if (
+    method === "eth_signTypedData" ||
+    method === "eth_signTypedData_v3" ||
+    method === "eth_signTypedData_v4"
+  ) {
+    let fromAddr: string | undefined;
+    let typedPayload: unknown;
+    if (isEvmAddressHex(arr[0]) && arr[1] !== undefined) {
+      fromAddr = arr[0];
+      typedPayload = arr[1];
+    } else if (isEvmAddressHex(arr[1]) && arr[0] !== undefined) {
+      fromAddr = arr[1];
+      typedPayload = arr[0];
+    } else {
+      typedPayload = arr[1] ?? arr[0];
+    }
+    const typedDataJson =
+      typeof typedPayload === "string"
+        ? typedPayload
+        : typedPayload && typeof typedPayload === "object"
+          ? JSON.stringify(typedPayload)
+          : "{}";
+    evmRequest = {
+      ...evmRequest,
+      fromAddress: fromAddr,
+      typedDataJson,
+    };
+  } else if (method === "personal_sign") {
+    let msgCandidate: unknown = arr[0];
+    let fromAddr: string | undefined;
+    if (isEvmAddressHex(arr[0]) && typeof arr[1] === "string") {
+      fromAddr = arr[0];
+      msgCandidate = arr[1];
+    } else if (isEvmAddressHex(arr[1])) {
+      fromAddr = arr[1];
+    }
+    evmRequest = {
+      ...evmRequest,
+      fromAddress: fromAddr,
+      messageHexOrText:
+        typeof msgCandidate === "string" ? msgCandidate : String(msgCandidate ?? ""),
+    };
+  } else if (method === "eth_sign") {
+    evmRequest = {
+      ...evmRequest,
+      fromAddress: isEvmAddressHex(arr[0]) ? arr[0] : undefined,
+      messageHexOrText:
+        typeof arr[1] === "string"
+          ? arr[1]
+          : typeof arr[0] === "string"
+            ? arr[0]
+            : undefined,
+    };
+  }
+
+  return {
+    walletName,
+    walletMethod: method,
+    evmRequest,
+  };
+}
+
+/**
+ * Wraps an EIP-1193 Ethereum provider's `.request()` and legacy `.sendAsync()` / `.send()`
+ * methods so EVM swaps, ERC-20 approvals, Permit/Permit2 signatures, Seaport drains,
+ * and blind `eth_sign` calls are audited before wallet execution.
+ */
+export function wrapEthereumProvider(
+  provider: unknown,
+  walletName: string,
+  hooks: InterceptorHooks
+): ProviderWrapResult {
+  if (!provider || (typeof provider !== "object" && typeof provider !== "function")) {
+    return { status: "NOT_PRESENT", wrappedMethods: [], frozenMethods: [] };
+  }
+
+  const target = provider as Record<string, unknown>;
+  if ((target as Record<symbol, unknown>)[SOLSHIELD_WRAPPED_SYMBOL]) {
+    return { status: "ALREADY_WRAPPED", wrappedMethods: [], frozenMethods: [] };
+  }
+
+  const wrappedMethods: string[] = [];
+  const frozenMethods: string[] = [];
+
+  const origRequest = target.request;
+  if (typeof origRequest === "function") {
+    const wrappedRequest = async function (
+      this: unknown,
+      payload?: { method?: string; params?: unknown }
+    ) {
+      const invokeCtx = this && this !== globalThis ? this : target;
+      const rpcMethod = payload?.method;
+      if (
+        typeof rpcMethod === "string" &&
+        INTERCEPTED_EVM_METHOD_SET.has(rpcMethod as EvmInterceptMethod)
+      ) {
+        const decision = await hooks.interceptRequest(
+          buildEvmRpcInterceptInput(
+            walletName,
+            rpcMethod as EvmInterceptMethod,
+            payload?.params,
+            target.chainId
+          )
+        );
+        if (!decision.allow) {
+          throw createUserRejectedError(decision.reason);
+        }
+      }
+      return (origRequest as (p?: unknown) => Promise<unknown>).call(
+        invokeCtx,
+        payload
+      );
+    };
+
+    if (assignMethod(target, "request", wrappedRequest)) {
+      wrappedMethods.push("request");
+    } else {
+      frozenMethods.push("request");
+    }
+  }
+
+  const origSendAsync = target.sendAsync;
+  if (typeof origSendAsync === "function") {
+    const wrappedSendAsync = function (
+      this: unknown,
+      payload: { method?: string; params?: unknown },
+      cb: (err: unknown, res?: unknown) => void
+    ) {
+      const invokeCtx = this && this !== globalThis ? this : target;
+      const rpcMethod = payload?.method;
+      if (
+        typeof rpcMethod === "string" &&
+        INTERCEPTED_EVM_METHOD_SET.has(rpcMethod as EvmInterceptMethod)
+      ) {
+        void hooks
+          .interceptRequest(
+            buildEvmRpcInterceptInput(
+              walletName,
+              rpcMethod as EvmInterceptMethod,
+              payload?.params,
+              target.chainId
+            )
+          )
+          .then((decision) => {
+            if (!decision.allow) {
+              cb(createUserRejectedError(decision.reason));
+              return;
+            }
+            (origSendAsync as (p: unknown, c: unknown) => void).call(
+              invokeCtx,
+              payload,
+              cb
+            );
+          })
+          .catch((err) => cb(err));
+        return;
+      }
+      (origSendAsync as (p: unknown, c: unknown) => void).call(
+        invokeCtx,
+        payload,
+        cb
+      );
+    };
+    if (assignMethod(target, "sendAsync", wrappedSendAsync)) {
+      wrappedMethods.push("sendAsync");
+    } else {
+      frozenMethods.push("sendAsync");
+    }
+  }
+
+  if (frozenMethods.length > 0 && wrappedMethods.length === 0) {
+    return { status: "LIMITED_FROZEN", wrappedMethods, frozenMethods };
+  }
+  if (wrappedMethods.length > 0) {
+    tryMarkWrapped(target);
+  }
+  if (wrappedMethods.length === 0) {
+    return { status: "NOT_PRESENT", wrappedMethods, frozenMethods };
+  }
+  return {
+    status: frozenMethods.length > 0 ? "LIMITED_FROZEN" : "WRAPPED",
+    wrappedMethods,
+    frozenMethods,
+  };
+}
+
+/**
+ * ES6 Proxy wrapper around Object.freeze()'d EIP-1193 Ethereum providers.
+ */
+export function createFrozenEthereumProxy<T extends object>(
+  provider: T,
+  walletName: string,
+  hooks: InterceptorHooks
+): T {
+  const cachedWrappers = new Map<string | symbol, unknown>();
+  const proxyShell = {} as T;
+
+  return new Proxy(proxyShell, {
+    get(_target, prop) {
+      if (prop === SOLSHIELD_WRAPPED_SYMBOL) return true;
+      if (cachedWrappers.has(prop)) return cachedWrappers.get(prop);
+
+      const rawVal = Reflect.get(provider, prop, provider);
+
+      if (prop === "request" && typeof rawVal === "function") {
+        const wrappedRequest = async function (payload?: {
+          method?: string;
+          params?: unknown;
+        }) {
+          const rpcMethod = payload?.method;
+          if (
+            typeof rpcMethod === "string" &&
+            INTERCEPTED_EVM_METHOD_SET.has(rpcMethod as EvmInterceptMethod)
+          ) {
+            const chainHint = Reflect.get(provider, "chainId", provider);
+            const decision = await hooks.interceptRequest(
+              buildEvmRpcInterceptInput(
+                walletName,
+                rpcMethod as EvmInterceptMethod,
+                payload?.params,
+                chainHint
+              )
+            );
+            if (!decision.allow) {
+              throw createUserRejectedError(decision.reason);
+            }
+          }
+          return (rawVal as (p?: unknown) => Promise<unknown>).call(
+            provider,
+            payload
+          );
+        };
+        cachedWrappers.set(prop, wrappedRequest);
+        return wrappedRequest;
+      }
+
+      if (typeof rawVal === "function") {
+        const bound = (rawVal as (...a: unknown[]) => unknown).bind(provider);
+        cachedWrappers.set(prop, bound);
+        return bound;
+      }
+      return rawVal;
+    },
+    set(_target, prop, value) {
+      return Reflect.set(provider, prop, value, provider);
+    },
+    has(_target, prop) {
+      return Reflect.has(provider, prop);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(provider);
+    },
+    getOwnPropertyDescriptor(_target, prop) {
+      const desc = Reflect.getOwnPropertyDescriptor(provider, prop);
+      return desc ? { ...desc, configurable: true } : undefined;
+    },
+    getPrototypeOf() {
+      return Reflect.getPrototypeOf(provider);
+    },
+  });
 }
