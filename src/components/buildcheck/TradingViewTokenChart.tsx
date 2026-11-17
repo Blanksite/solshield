@@ -479,7 +479,7 @@ export function TradingViewTokenChart({
             <span>Loading live TradingView OHLCV candlesticks...</span>
           </div>
         ) : bars.length === 0 ? (
-          <div className="h-[400px] flex flex-col items-center justify-center gap-2 px-6 text-center text-xs text-slate-400">
+          <div className="h-[400px] flex flex-col items-center justify-center gap-3 px-6 text-center text-xs text-slate-400">
             <Activity className="w-6 h-6 text-slate-500" />
             <span>
               {errorMsg && !errorMsg.includes("Solana")
@@ -488,6 +488,22 @@ export function TradingViewTokenChart({
                 ? "No indexed liquidity pool OHLCV candles available on EVM/Robinhood DEX yet."
                 : "No indexed liquidity pool OHLCV data available yet."}
             </span>
+            {resolvedPool && (
+              <a
+                href={`https://dexscreener.com/${
+                  networkName?.toLowerCase().includes("robinhood")
+                    ? "robinhood"
+                    : isEvmToken
+                    ? "ethereum"
+                    : "solana"
+                }/${resolvedPool}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-md border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-slate-200 transition-colors"
+              >
+                Open Live Chart on DexScreener ↗
+              </a>
+            )}
           </div>
         ) : (
           <div ref={containerRef} className="w-full h-[400px]" />

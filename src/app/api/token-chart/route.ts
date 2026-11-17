@@ -58,6 +58,115 @@ function mapChainToGeckoNetwork(chain: string): string {
   return norm;
 }
 
+function parseGeckoOhlcvList(rawList: unknown): OhlcvCandleBar[] {
+  if (!Array.isArray(rawList)) return [];
+  const seenTimes = new Set<number>();
+  return rawList
+    .filter(
+      (row): row is [number, number, number, number, number, number] =>
+        Array.isArray(row) &&
+        row.length >= 6 &&
+        row.every((v) => Number.isFinite(Number(v)))
+    )
+    .map((row) => ({
+      time: Math.floor(Number(row[0])),
+      open: Number(row[1]),
+      high: Number(row[2]),
+      low: Number(row[3]),
+      close: Number(row[4]),
+      volume: Number(row[5]),
+    }))
+    .sort((a, b) => a.time - b.time)
+    .filter((bar) => {
+      if (seenTimes.has(bar.time)) return false;
+      seenTimes.add(bar.time);
+      return true;
+    });
+}
+
+async function fetchGeckoPoolOhlcv(
+  network: string,
+  poolAddress: string,
+  unit: "minute" | "hour" | "day",
+  aggregate: number,
+  limit: number
+): Promise<{ ok: boolean; status: number; bars: OhlcvCandleBar[] }> {
+  const ohlcvRes = await fetch(
+    `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(
+      network
+    )}/pools/${encodeURIComponent(poolAddress)}/ohlcv/${unit}?aggregate=${aggregate}&limit=${limit}`,
+    {
+      headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
+      signal: AbortSignal.timeout(6500),
+      cache: "no-store",
+    }
+  );
+  if (!ohlcvRes.ok) {
+    return { ok: false, status: ohlcvRes.status, bars: [] };
+  }
+  const ohlcvJson = (await ohlcvRes.json()) as {
+    data?: { attributes?: { ohlcv_list?: unknown } };
+  };
+  return {
+    ok: true,
+    status: ohlcvRes.status,
+    bars: parseGeckoOhlcvList(ohlcvJson?.data?.attributes?.ohlcv_list),
+  };
+}
+
+async function resolveDexScreenerPair(
+  mintAddress: string
+): Promise<{ pairAddress: string; network: string } | null> {
+  try {
+    const dexRes = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(mintAddress)}`,
+      {
+        headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
+        signal: AbortSignal.timeout(4500),
+        cache: "no-store",
+      }
+    );
+    if (!dexRes.ok) return null;
+    const dexJson = (await dexRes.json()) as {
+      pairs?: Array<{ pairAddress?: string; chainId?: string }>;
+    };
+    const top = dexJson?.pairs?.[0];
+    if (!top?.pairAddress) return null;
+    return {
+      pairAddress: top.pairAddress.toLowerCase(),
+      network: top.chainId ? mapChainToGeckoNetwork(top.chainId) : "eth",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveGeckoTokenTopPool(
+  network: string,
+  mintAddress: string
+): Promise<string | null> {
+  try {
+    const geckoRes = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(
+        network
+      )}/tokens/${encodeURIComponent(mintAddress)}/pools`,
+      {
+        headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
+        signal: AbortSignal.timeout(4500),
+        cache: "no-store",
+      }
+    );
+    if (!geckoRes.ok) return null;
+    const geckoJson = (await geckoRes.json()) as {
+      data?: Array<{ attributes?: { address?: string } }>;
+    };
+    const resolved = sanitizeAddress(geckoJson?.data?.[0]?.attributes?.address || null);
+    return resolved?.address || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function OPTIONS(req: NextRequest) {
   return corsOptionsResponse(req, "web");
 }
@@ -96,72 +205,18 @@ export async function GET(req: NextRequest) {
   // Resolve pool address if not explicitly passed
   if (!poolAddress && parsedMint) {
     if (parsedMint.chain === "evm") {
-      try {
-        const dexRes = await fetch(
-          `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(parsedMint.address)}`,
-          {
-            headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
-            signal: AbortSignal.timeout(4500),
-            cache: "no-store",
-          }
-        );
-        if (dexRes.ok) {
-          const dexJson = (await dexRes.json()) as {
-            pairs?: Array<{ pairAddress?: string; chainId?: string }>;
-          };
-          const top = dexJson?.pairs?.[0];
-          if (top?.pairAddress) {
-            poolAddress = top.pairAddress.toLowerCase();
-            if (top.chainId) {
-              targetNetwork = mapChainToGeckoNetwork(top.chainId);
-            }
-          }
-        }
-      } catch {
-        // Fallback below
+      const dexPair = await resolveDexScreenerPair(parsedMint.address);
+      if (dexPair) {
+        poolAddress = dexPair.pairAddress;
+        targetNetwork = dexPair.network;
       }
 
       if (!poolAddress) {
-        try {
-          const geckoRes = await fetch(
-            `https://api.geckoterminal.com/api/v2/networks/eth/tokens/${encodeURIComponent(parsedMint.address)}/pools`,
-            {
-              headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
-              signal: AbortSignal.timeout(4500),
-              cache: "no-store",
-            }
-          );
-          if (geckoRes.ok) {
-            const geckoJson = (await geckoRes.json()) as {
-              data?: Array<{ attributes?: { address?: string } }>;
-            };
-            poolAddress = geckoJson?.data?.[0]?.attributes?.address?.toLowerCase() || null;
-          }
-        } catch {
-          // Fallback below
-        }
+        poolAddress = await resolveGeckoTokenTopPool(targetNetwork, parsedMint.address);
       }
     } else {
       // Solana pool resolution
-      try {
-        const poolsRes = await fetch(
-          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${encodeURIComponent(parsedMint.address)}/pools`,
-          {
-            headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
-            signal: AbortSignal.timeout(5500),
-            cache: "no-store",
-          }
-        );
-        if (poolsRes.ok) {
-          const poolsJson = (await poolsRes.json()) as {
-            data?: Array<{ attributes?: { address?: string } }>;
-          };
-          const resolved = sanitizeAddress(poolsJson?.data?.[0]?.attributes?.address || null);
-          poolAddress = resolved?.address || null;
-        }
-      } catch {
-        // Handled below
-      }
+      poolAddress = await resolveGeckoTokenTopPool("solana", parsedMint.address);
     }
   }
 
@@ -173,20 +228,6 @@ export async function GET(req: NextRequest) {
         tf,
         bars: [],
         note: "No indexed liquidity pool OHLCV found for this contract yet.",
-      },
-      { req, policy: "web", headers: guarded.rateHeaders }
-    );
-  }
-
-  if (targetNetwork === "robinhood") {
-    return corsJson(
-      {
-        ok: true,
-        poolAddress,
-        network: "robinhood",
-        tf,
-        bars: [],
-        note: "Robinhood Chain L2 DEX pairs are monitored directly via DexScreener & RPC.",
       },
       { req, policy: "web", headers: guarded.rateHeaders }
     );
@@ -210,77 +251,92 @@ export async function GET(req: NextRequest) {
 
   const spec = TIMEFRAME_MAP[tf];
   try {
-    const ohlcvRes = await fetch(
-      `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(
-        targetNetwork
-      )}/pools/${encodeURIComponent(poolAddress)}/ohlcv/${spec.unit}?aggregate=${spec.aggregate}&limit=${spec.limit}`,
-      {
-        headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
-        signal: AbortSignal.timeout(6500),
-        cache: "no-store",
-      }
+    let activePool = poolAddress;
+    let activeNetwork = targetNetwork;
+    let feed = await fetchGeckoPoolOhlcv(
+      activeNetwork,
+      activePool,
+      spec.unit,
+      spec.aggregate,
+      spec.limit
     );
 
-    if (!ohlcvRes.ok) {
+    // If an explicit pool/network defaulted to "eth" (e.g. legacy cached Robinhood report), auto-detect chain via DexScreener
+    if ((!feed.ok || feed.bars.length === 0) && chain === "evm" && parsedMint) {
+      const dexPair = await resolveDexScreenerPair(parsedMint.address);
+      if (dexPair && (dexPair.network !== activeNetwork || dexPair.pairAddress !== activePool)) {
+        const dexFeed = await fetchGeckoPoolOhlcv(
+          dexPair.network,
+          dexPair.pairAddress,
+          spec.unit,
+          spec.aggregate,
+          spec.limit
+        );
+        if (dexFeed.ok && (dexFeed.bars.length > 0 || !feed.ok)) {
+          activeNetwork = dexPair.network;
+          activePool = dexPair.pairAddress;
+          feed = dexFeed;
+        }
+      }
+    }
+
+    // If an explicit/secondary pool isn't indexed on GeckoTerminal, resolve the token's top pool
+    if ((!feed.ok || feed.bars.length === 0) && parsedMint) {
+      const altPool = await resolveGeckoTokenTopPool(activeNetwork, parsedMint.address);
+      if (altPool && altPool !== activePool) {
+        const altFeed = await fetchGeckoPoolOhlcv(
+          activeNetwork,
+          altPool,
+          spec.unit,
+          spec.aggregate,
+          spec.limit
+        );
+        if (altFeed.ok && altFeed.bars.length > 0) {
+          activePool = altPool;
+          feed = altFeed;
+        }
+      }
+    }
+
+    // Lower-frequency L2/DEX pools may have no minute bars yet; fall back to hourly bars
+    if (feed.ok && feed.bars.length === 0 && spec.unit === "minute") {
+      const hourlyFeed = await fetchGeckoPoolOhlcv(activeNetwork, activePool, "hour", 1, 150);
+      if (hourlyFeed.ok && hourlyFeed.bars.length > 0) {
+        feed = hourlyFeed;
+      }
+    }
+
+    if (!feed.ok) {
       return corsJson(
         {
           ok: true,
-          poolAddress,
-          network: targetNetwork,
+          poolAddress: activePool,
+          network: activeNetwork,
           tf,
           bars: [],
-          note: `OHLCV feed not yet indexed for ${targetNetwork} pool (${ohlcvRes.status}).`,
+          note: `OHLCV feed not yet indexed for ${activeNetwork} pool (${feed.status}).`,
         },
         { req, policy: "web", headers: guarded.rateHeaders }
       );
     }
 
-    const ohlcvJson = (await ohlcvRes.json()) as {
-      data?: {
-        attributes?: {
-          ohlcv_list?: Array<[number, number, number, number, number, number]>;
-        };
-      };
-    };
-
-    const rawList = ohlcvJson?.data?.attributes?.ohlcv_list || [];
-    const seenTimes = new Set<number>();
-    const bars: OhlcvCandleBar[] = rawList
-      .filter(
-        (row) =>
-          Array.isArray(row) &&
-          row.length >= 6 &&
-          row.every((v) => Number.isFinite(Number(v)))
-      )
-      .map((row) => ({
-        time: Math.floor(Number(row[0])),
-        open: Number(row[1]),
-        high: Number(row[2]),
-        low: Number(row[3]),
-        close: Number(row[4]),
-        volume: Number(row[5]),
-      }))
-      .sort((a, b) => a.time - b.time)
-      .filter((bar) => {
-        if (seenTimes.has(bar.time)) return false;
-        seenTimes.add(bar.time);
-        return true;
+    const bars = feed.bars;
+    if (bars.length > 0) {
+      if (CHART_CACHE.size > 50) {
+        const oldestKey = CHART_CACHE.keys().next().value;
+        if (oldestKey) CHART_CACHE.delete(oldestKey);
+      }
+      CHART_CACHE.set(cacheKey, {
+        expiresAt: Date.now() + 25_000,
+        payload: { poolAddress: activePool, bars },
       });
-
-    if (CHART_CACHE.size > 50) {
-      const oldestKey = CHART_CACHE.keys().next().value;
-      if (oldestKey) CHART_CACHE.delete(oldestKey);
     }
-    CHART_CACHE.set(cacheKey, {
-      expiresAt: Date.now() + 25_000,
-      payload: { poolAddress, bars },
-    });
 
     return corsJson(
       {
         ok: true,
-        poolAddress,
-        network: targetNetwork,
+        poolAddress: activePool,
+        network: activeNetwork,
         tf,
         cached: false,
         bars,

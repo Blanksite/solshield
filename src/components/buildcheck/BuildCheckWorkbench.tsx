@@ -2447,7 +2447,12 @@ export default function BuildCheckWorkbench({
                         report.chain.chainFamily ||
                         (report.chain.mintAddress.startsWith("0x") ? "evm" : "solana")
                       }
-                      networkName={report.chain.networkName}
+                      networkName={
+                        report.chain.networkName ||
+                        report.robinhood?.networkName ||
+                        report.chain.deep?.metadata?.launchpad ||
+                        undefined
+                      }
                       quoteSymbol={
                         report.chain.dexPair?.quoteSymbol ||
                         (report.chain.chainFamily === "evm" ||
@@ -2472,7 +2477,12 @@ export default function BuildCheckWorkbench({
                         report.chain.chainFamily ||
                         (report.chain.mintAddress.startsWith("0x") ? "evm" : "solana")
                       }
-                      networkName={report.chain.networkName}
+                      networkName={
+                        report.chain.networkName ||
+                        report.robinhood?.networkName ||
+                        report.chain.deep?.metadata?.launchpad ||
+                        undefined
+                      }
                       robinhood={report.robinhood || report.chain.robinhood}
                       dexPairUrl={report.chain.dexPair?.pairUrl}
                     />
