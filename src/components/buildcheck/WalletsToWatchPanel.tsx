@@ -190,26 +190,34 @@ export function WalletsToWatchPanel({
     return () => window.removeEventListener(WATCHLIST_CHANGED_EVENT, refreshWatched);
   }, []);
 
+  const isMmMatch = (e: WalletToWatchEntry) =>
+    e.category === "possible_mm" || e.tags.some((t) => t.startsWith("Possible MM"));
+  const isEarlyMatch = (e: WalletToWatchEntry) =>
+    e.category === "early_buyer" || e.tags.some((t) => t.startsWith("Early Buyer"));
+  const isCabalDevMatch = (e: WalletToWatchEntry) =>
+    e.category === "cabal_linked" ||
+    e.category === "dev_linked" ||
+    e.tags.some((t) => t.includes("Bundle") || t.includes("Creator"));
+  const isTopMatch = (e: WalletToWatchEntry) =>
+    e.category === "top_holder" || e.holdingPct >= 0.4;
+
   const counts = useMemo(() => {
     return {
       all: entries.length,
-      possible_mm: entries.filter((e) => e.category === "possible_mm").length,
-      early_buyer: entries.filter((e) => e.category === "early_buyer").length,
-      top_holder: entries.filter((e) => e.category === "top_holder").length,
-      cabal_dev: entries.filter(
-        (e) => e.category === "cabal_linked" || e.category === "dev_linked"
-      ).length,
+      possible_mm: entries.filter(isMmMatch).length,
+      early_buyer: entries.filter(isEarlyMatch).length,
+      top_holder: entries.filter(isTopMatch).length,
+      cabal_dev: entries.filter(isCabalDevMatch).length,
     };
   }, [entries]);
 
   const filtered = useMemo(() => {
     if (filter === "all") return entries;
-    if (filter === "cabal_dev") {
-      return entries.filter(
-        (e) => e.category === "cabal_linked" || e.category === "dev_linked"
-      );
-    }
-    return entries.filter((e) => e.category === filter);
+    if (filter === "possible_mm") return entries.filter(isMmMatch);
+    if (filter === "early_buyer") return entries.filter(isEarlyMatch);
+    if (filter === "top_holder") return entries.filter(isTopMatch);
+    if (filter === "cabal_dev") return entries.filter(isCabalDevMatch);
+    return entries;
   }, [entries, filter]);
 
   const toggleWatch = (entry: WalletToWatchEntry) => {
@@ -327,7 +335,7 @@ export function WalletsToWatchPanel({
             Possible MM Wallets
           </span>
           <span className="mt-1 block font-mono tabular-nums text-base font-semibold text-violet-300">
-            {counts.possible_mm}
+            {Math.max(counts.possible_mm, holders.possibleMmCount ?? 0)}
           </span>
         </div>
         <div className="px-4 py-3">
@@ -336,7 +344,7 @@ export function WalletsToWatchPanel({
             Early Buyer Wallets
           </span>
           <span className="mt-1 block font-mono tabular-nums text-base font-semibold text-amber-300">
-            {counts.early_buyer}
+            {Math.max(counts.early_buyer, holders.earlyBuyersCount ?? 0)}
           </span>
         </div>
         <div className="px-4 py-3">

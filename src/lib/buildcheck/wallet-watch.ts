@@ -118,6 +118,53 @@ function categorySortWeight(cat: WalletWatchCategory): number {
   }
 }
 
+function selectBalancedWalletsToWatch(
+  candidates: WalletToWatchEntry[],
+  maxCount = 20
+): WalletToWatchEntry[] {
+  const rankWithinCat = (a: WalletToWatchEntry, b: WalletToWatchEntry) => {
+    if (b.holdingPct !== a.holdingPct) return b.holdingPct - a.holdingPct;
+    return (b.txCount || 0) - (a.txCount || 0);
+  };
+
+  const buckets: Array<{ cat: WalletWatchCategory; quota: number }> = [
+    { cat: "dev_linked", quota: 2 },
+    { cat: "possible_mm", quota: 6 },
+    { cat: "early_buyer", quota: 6 },
+    { cat: "top_holder", quota: 5 },
+    { cat: "cabal_linked", quota: 4 },
+  ];
+
+  const picked = new Map<string, WalletToWatchEntry>();
+  for (const { cat, quota } of buckets) {
+    const group = candidates.filter((c) => c.category === cat).sort(rankWithinCat);
+    for (const item of group.slice(0, quota)) {
+      if (picked.size >= maxCount) break;
+      picked.set(item.address, item);
+    }
+  }
+
+  if (picked.size < maxCount) {
+    const remaining = [...candidates].sort((a, b) => {
+      const catDiff = categorySortWeight(a.category) - categorySortWeight(b.category);
+      if (catDiff !== 0) return catDiff;
+      return rankWithinCat(a, b);
+    });
+    for (const item of remaining) {
+      if (picked.size >= maxCount) break;
+      if (!picked.has(item.address)) {
+        picked.set(item.address, item);
+      }
+    }
+  }
+
+  return Array.from(picked.values()).sort((a, b) => {
+    const catDiff = categorySortWeight(a.category) - categorySortWeight(b.category);
+    if (catDiff !== 0) return catDiff;
+    return rankWithinCat(a, b);
+  });
+}
+
 function isL2ChainKey(chainKey: EvmChainKey): boolean {
   return (
     chainKey === "robinhood" ||
@@ -554,14 +601,7 @@ export function analyzeEvmTransferLogsForWalletsToWatch(params: {
     });
   }
 
-  const walletsToWatch = Array.from(watchMap.values())
-    .sort((a, b) => {
-      const catDiff = categorySortWeight(a.category) - categorySortWeight(b.category);
-      if (catDiff !== 0) return catDiff;
-      if (b.holdingPct !== a.holdingPct) return b.holdingPct - a.holdingPct;
-      return (b.txCount || 0) - (a.txCount || 0);
-    })
-    .slice(0, 20);
+  const walletsToWatch = selectBalancedWalletsToWatch(Array.from(watchMap.values()), 20);
 
   // Build graph nodes for SniperCabalGraph on EVM
   const nonPoolSorted = Array.from(statsMap.values())
@@ -1058,17 +1098,16 @@ export function buildSolanaWalletsToWatch(params: {
     });
   }
 
-  const walletsToWatch = Array.from(watchMap.values())
-    .sort((a, b) => {
-      const catDiff = categorySortWeight(a.category) - categorySortWeight(b.category);
-      if (catDiff !== 0) return catDiff;
-      return b.holdingPct - a.holdingPct;
-    })
-    .slice(0, 20);
+  const allWatch = Array.from(watchMap.values());
+  const walletsToWatch = selectBalancedWalletsToWatch(allWatch, 20);
 
   return {
     walletsToWatch,
-    earlyBuyersCount: walletsToWatch.filter((w) => w.category === "early_buyer").length,
-    possibleMmCount: walletsToWatch.filter((w) => w.category === "possible_mm").length,
+    earlyBuyersCount: allWatch.filter(
+      (w) => w.category === "early_buyer" || w.tags.some((t) => t.startsWith("Early Buyer"))
+    ).length,
+    possibleMmCount: allWatch.filter(
+      (w) => w.category === "possible_mm" || w.tags.some((t) => t.startsWith("Possible MM"))
+    ).length,
   };
 }

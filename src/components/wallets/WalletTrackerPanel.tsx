@@ -214,8 +214,9 @@ export default function WalletTrackerPanel() {
             <span className="text-white/20">/</span>
             <div className="flex items-center gap-2 min-w-0">
               <Eye className="w-4 h-4 text-[#84A7FF] shrink-0" />
-              <span className="font-semibold tracking-tight text-sm sm:text-base truncate">
-                Wallets to Watch
+              <span className="font-semibold tracking-tight text-sm sm:text-base whitespace-nowrap">
+                <span className="hidden sm:inline">Wallets to Watch</span>
+                <span className="sm:hidden">Watchlist</span>
               </span>
             </div>
             <Link
@@ -243,7 +244,10 @@ export default function WalletTrackerPanel() {
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
-            <span>Refresh Live Activity</span>
+            <span>
+              <span className="hidden sm:inline">Refresh Live Activity</span>
+              <span className="sm:hidden">Refresh</span>
+            </span>
           </button>
         </div>
       </header>

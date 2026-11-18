@@ -1070,7 +1070,16 @@ export async function collectChainTokenIntel(
 
     let evmHolderScore = evmSecurity.honeypotStatus === "HONEYPOT" ? 10 : 85;
     if (evmSecurity.honeypotStatus !== "HONEYPOT" && evmWatch) {
-      if (evmWatch.clusters.length > 0) evmHolderScore -= Math.min(28, evmWatch.clusters.length * 14);
+      if (evmWatch.clusters.length > 0) {
+        const insidersPct = evmWatch.distribution.insidersPct;
+        const bundlePenalty =
+          insidersPct >= 10
+            ? Math.min(28, evmWatch.clusters.length * 14)
+            : insidersPct >= 3
+              ? Math.min(14, evmWatch.clusters.length * 5)
+              : Math.min(6, evmWatch.clusters.length * 2);
+        evmHolderScore -= bundlePenalty;
+      }
       if (evmWatch.distribution.snipersPct >= 15) evmHolderScore -= 16;
       if (evmWatch.topHoldersPct >= 40) evmHolderScore -= 14;
       else if (evmWatch.topHoldersPct >= 25) evmHolderScore -= 6;

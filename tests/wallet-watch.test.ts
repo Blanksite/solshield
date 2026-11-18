@@ -154,6 +154,9 @@ describe("SolShield Wallets to Watch Forensics Engine", () => {
     expect(res.clusters[0].slot).toBe(1004);
     expect(res.walletsToWatch.some((w) => w.address === routerContract)).toBe(false);
 
+    // Ensure balanced mix across categories so MM / Early Buyer / Cabal all stay visible
+    expect(new Set(res.walletsToWatch.map((w) => w.category)).size).toBeGreaterThanOrEqual(3);
+
     const mm = res.walletsToWatch.find((w) => w.address === mmWallet);
     expect(mm).toBeDefined();
     expect(mm?.category).toBe("possible_mm");
@@ -225,7 +228,7 @@ describe("SolShield Wallets to Watch Forensics Engine", () => {
     });
 
     expect(res.possibleMmCount).toBe(2);
-    expect(res.earlyBuyersCount).toBe(1);
+    expect(res.earlyBuyersCount).toBe(2);
     expect(res.walletsToWatch.find((w) => w.address.startsWith("Cab"))?.category).toBe(
       "cabal_linked"
     );
