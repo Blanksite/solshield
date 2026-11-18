@@ -68,10 +68,25 @@ export function SniperCabalGraph({
   symbol,
   holders,
 }: SniperCabalGraphProps) {
+  const safeNodes = Array.isArray(holders.nodes) ? holders.nodes : [];
+  const safeClusters = Array.isArray(holders.clusters) ? holders.clusters : [];
+  const safeChecks = Array.isArray(holders.checks) ? holders.checks : [];
+  const safeDist = {
+    insidersPct: holders.distribution?.insidersPct ?? 0,
+    snipersPct: holders.distribution?.snipersPct ?? 0,
+    burnedOrLockedPct: holders.distribution?.burnedOrLockedPct ?? 0,
+    devPct: holders.distribution?.devPct ?? 0,
+    retailPct: holders.distribution?.retailPct ?? 100,
+  };
+  const safeFlagsCount = holders.flagsCount ?? safeChecks.filter((c) => c.status === "flag").length;
+  const safeWatchCount = holders.watchCount ?? safeChecks.filter((c) => c.status === "watch").length;
+  const safeClearCount = holders.clearCount ?? safeChecks.filter((c) => c.status === "clear").length;
+  const isEvmMint = mintAddress.startsWith("0x");
+
   const [selectedNode, setSelectedNode] = useState<HolderClusterNode | null>(
     () =>
-      holders.nodes.find((n) => n.role === "cabal" || n.role === "sniper") ||
-      holders.nodes[0] ||
+      safeNodes.find((n) => n.role === "cabal" || n.role === "sniper") ||
+      safeNodes[0] ||
       null
   );
   const [showChecks, setShowChecks] = useState(true);
@@ -79,7 +94,7 @@ export function SniperCabalGraph({
   const layout = useMemo(() => {
     const cx = 320;
     const cy = 175;
-    const visibleNodes = holders.nodes.slice(0, 14);
+    const visibleNodes = safeNodes.slice(0, 14);
     const placedNodes = visibleNodes.map((node, idx) => {
       const angle = (idx / Math.max(visibleNodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
       const radius =
@@ -121,17 +136,17 @@ export function SniperCabalGraph({
     });
 
     return { cx, cy, placedNodes, funderHubs };
-  }, [holders.nodes]);
+  }, [safeNodes]);
 
   const verdictBadgeClass =
-    holders.verdict === "OK"
+    holders.verdict === "OK" || String(holders.verdict) === "Distributed"
       ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
       : holders.verdict === "SKETCHY"
         ? "border-amber-500/35 bg-amber-500/15 text-amber-300"
         : "border-rose-500/35 bg-rose-500/15 text-rose-300";
 
   const verdictDisplayLabel =
-    holders.verdict === "OK"
+    holders.verdict === "OK" || String(holders.verdict) === "Distributed"
       ? "CLEAN POSTURE"
       : holders.verdict === "SKETCHY"
         ? "WATCHLIST"
@@ -145,9 +160,9 @@ export function SniperCabalGraph({
           <span className={`px-2.5 py-1 rounded-md border font-mono text-xs font-semibold ${verdictBadgeClass}`}>
             {verdictDisplayLabel} · {holders.score} / 100
           </span>
-          {holders.distribution.insidersPct > 0 ? (
+          {safeDist.insidersPct > 0 ? (
             <span className="px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 font-mono text-[11px] text-rose-300">
-              CABAL {holders.distribution.insidersPct}%
+              CABAL {safeDist.insidersPct}%
             </span>
           ) : null}
           {holders.totalHolders !== null ? (
@@ -175,32 +190,32 @@ export function SniperCabalGraph({
       {/* Stacked Supply Distribution Bar */}
       <div className="space-y-2">
         <div className="h-3 w-full rounded-full overflow-hidden bg-white/[0.06] flex">
-          {holders.distribution.insidersPct > 0 ? (
+          {safeDist.insidersPct > 0 ? (
             <div
-              style={{ width: `${Math.min(100, holders.distribution.insidersPct)}%` }}
+              style={{ width: `${Math.min(100, safeDist.insidersPct)}%` }}
               className="bg-rose-500 h-full"
-              title={`Insiders / Cabal ${holders.distribution.insidersPct}%`}
+              title={`Insiders / Cabal ${safeDist.insidersPct}%`}
             />
           ) : null}
-          {holders.distribution.snipersPct > 0 ? (
+          {safeDist.snipersPct > 0 ? (
             <div
-              style={{ width: `${Math.min(100, holders.distribution.snipersPct)}%` }}
+              style={{ width: `${Math.min(100, safeDist.snipersPct)}%` }}
               className="bg-amber-400 h-full"
-              title={`Launch Snipers ${holders.distribution.snipersPct}%`}
+              title={`Launch Snipers ${safeDist.snipersPct}%`}
             />
           ) : null}
-          {holders.distribution.burnedOrLockedPct > 0 ? (
+          {safeDist.burnedOrLockedPct > 0 ? (
             <div
-              style={{ width: `${Math.min(100, holders.distribution.burnedOrLockedPct)}%` }}
+              style={{ width: `${Math.min(100, safeDist.burnedOrLockedPct)}%` }}
               className="bg-emerald-500 h-full"
-              title={`Burned / Locked ${holders.distribution.burnedOrLockedPct}%`}
+              title={`Burned / Locked ${safeDist.burnedOrLockedPct}%`}
             />
           ) : null}
-          {holders.distribution.devPct > 0 ? (
+          {safeDist.devPct > 0 ? (
             <div
-              style={{ width: `${Math.min(100, holders.distribution.devPct)}%` }}
+              style={{ width: `${Math.min(100, safeDist.devPct)}%` }}
               className="bg-sky-400 h-full"
-              title={`Dev ${holders.distribution.devPct}%`}
+              title={`Dev ${safeDist.devPct}%`}
             />
           ) : null}
           <div className="bg-zinc-600/70 h-full flex-1" title="Retail / Remaining Holders" />
@@ -209,25 +224,25 @@ export function SniperCabalGraph({
           <div className="px-3.5 py-2.5">
             <span className="text-slate-400 block text-[11px]">Insiders / Cabal</span>
             <span className="font-mono tabular-nums text-rose-300 font-semibold">
-              {holders.distribution.insidersPct}%
+              {safeDist.insidersPct}%
             </span>
           </div>
           <div className="px-3.5 py-2.5">
             <span className="text-slate-400 block text-[11px]">Launch Snipers</span>
             <span className="font-mono tabular-nums text-amber-300 font-semibold">
-              {holders.distribution.snipersPct}%
+              {safeDist.snipersPct}%
             </span>
           </div>
           <div className="px-3.5 py-2.5">
             <span className="text-slate-400 block text-[11px]">Burned / Locked</span>
             <span className="font-mono tabular-nums text-emerald-300 font-semibold">
-              {holders.distribution.burnedOrLockedPct}%
+              {safeDist.burnedOrLockedPct}%
             </span>
           </div>
           <div className="px-3.5 py-2.5">
             <span className="text-slate-400 block text-[11px]">Dev / Retail</span>
             <span className="font-mono tabular-nums text-white font-semibold">
-              {holders.distribution.devPct}% / {holders.distribution.retailPct}%
+              {safeDist.devPct}% / {safeDist.retailPct}%
             </span>
           </div>
         </div>
@@ -391,12 +406,16 @@ export function SniperCabalGraph({
                   {ROLE_COLORS[selectedNode.role].label}
                 </span>
                 <a
-                  href={`https://solscan.io/account/${selectedNode.address}`}
+                  href={
+                    isEvmMint
+                      ? `https://robinhoodchain.blockscout.com/address/${selectedNode.address}`
+                      : `https://solscan.io/account/${selectedNode.address}`
+                  }
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] font-mono text-[#84A7FF] hover:text-white"
                 >
-                  Solscan <ExternalLink className="w-3 h-3" />
+                  {isEvmMint ? "Explorer" : "Solscan"} <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
               <div className="font-mono text-xs text-white break-all">
@@ -430,12 +449,12 @@ export function SniperCabalGraph({
             </div>
           ) : null}
 
-          {holders.clusters.length > 0 ? (
+          {safeClusters.length > 0 ? (
             <div className="p-3.5 rounded-xl border border-rose-500/25 bg-[#160D11] space-y-2">
               <div className="flex items-center gap-1.5 text-xs font-medium text-rose-300">
                 <ShieldAlert className="w-3.5 h-3.5" /> Linked Clusters Detected
               </div>
-              {holders.clusters.map((cl) => (
+              {safeClusters.map((cl) => (
                 <div
                   key={cl.clusterId}
                   className="text-xs border-t border-white/[0.07] pt-2 first:border-t-0 first:pt-0"
@@ -449,7 +468,9 @@ export function SniperCabalGraph({
             </div>
           ) : (
             <div className="p-3.5 rounded-xl border border-emerald-500/20 bg-[#0B1410] text-xs text-emerald-200/90">
-              No co-funded cabal clusters detected among top 10 non-pool wallets.
+              {isEvmMint
+                ? "EVM contract checks clear. Detailed L2 holder clustering available when indexed by explorer."
+                : "No co-funded cabal clusters detected among top 10 non-pool wallets."}
             </div>
           )}
         </div>
@@ -463,8 +484,8 @@ export function SniperCabalGraph({
           className="w-full px-4 py-3 flex items-center justify-between text-xs font-medium text-slate-200 hover:bg-white/[0.02] cursor-pointer"
         >
           <span>
-            What we checked ({holders.flagsCount} flags · {holders.watchCount} watch ·{" "}
-            {holders.clearCount} clear)
+            What we checked ({safeFlagsCount} flags · {safeWatchCount} watch ·{" "}
+            {safeClearCount} clear)
           </span>
           {showChecks ? (
             <ChevronUp className="w-4 h-4 text-slate-400" />
@@ -472,9 +493,9 @@ export function SniperCabalGraph({
             <ChevronDown className="w-4 h-4 text-slate-400" />
           )}
         </button>
-        {showChecks ? (
+        {showChecks && safeChecks.length > 0 ? (
           <div className="px-4 pb-3 divide-y sm:divide-y-0 grid grid-cols-1 sm:grid-cols-2 gap-x-6 border-t border-white/[0.06] pt-2">
-            {holders.checks.map((chk, idx) => (
+            {safeChecks.map((chk, idx) => (
               <div
                 key={`${chk.label}-${idx}`}
                 className="flex items-center justify-between gap-2 py-2 border-b border-white/[0.04] text-xs"

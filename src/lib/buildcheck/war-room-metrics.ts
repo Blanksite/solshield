@@ -308,6 +308,7 @@ export function formatSignedPct(pct: number | null | undefined): string {
 
 export function formatCompactUsd(val: number | null | undefined): string {
   if (val === null || val === undefined || !Number.isFinite(val)) return "—";
+  if (val === 0) return "$0";
   if (val >= 1_000_000_000) return `$${(val / 1_000_000_000).toFixed(2)}B`;
   if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}M`;
   if (val >= 1_000) return `$${(val / 1_000).toFixed(2)}K`;

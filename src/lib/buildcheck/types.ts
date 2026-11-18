@@ -282,6 +282,7 @@ export interface XPostIntelReport {
   handle: string | null;
   tweetId: string | null;
   authorName: string | null;
+  authorImageUrl?: string | null;
   textContent: string | null;
   extractedUrls: string[];
   extractedSolanaAddresses: string[];

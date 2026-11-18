@@ -859,6 +859,70 @@ async function executeFreshBuildCheckInvestigation(
     }
   }
 
+  // Reconcile verified project website, official X handle, and avatar onto chain telemetry
+  // so alert bots/third-party retweets never override the verified project's own links.
+  if (chainReport) {
+    const verifiedProjectSite =
+      (domainReport?.registrableDomain ? `https://${domainReport.registrableDomain}` : null) ||
+      (xPostReport?.extractedUrls || []).find(
+        (u) => !isExcludedWebsiteHost(u) && !/t\.me|telegram\.me|discord\.gg/i.test(u)
+      ) ||
+      null;
+    const xAuthorLinksMint = Boolean(
+      xPostReport?.handle &&
+        (target.kind === "x_post" ||
+          target.kind === "x_profile" ||
+          xPostReport.extractedEvmAddresses?.some(
+            (a) => a.toLowerCase() === chainReport!.mintAddress.toLowerCase()
+          ) ||
+          xPostReport.extractedSolanaAddresses?.includes(chainReport!.mintAddress))
+    );
+    const verifiedTwitterUrl =
+      xAuthorLinksMint && xPostReport?.handle ? `https://x.com/${xPostReport.handle}` : null;
+    const verifiedAvatar =
+      xAuthorLinksMint && xPostReport?.authorImageUrl ? xPostReport.authorImageUrl : null;
+
+    if (chainReport.dexPair) {
+      const hasOnlyTelegramSite =
+        chainReport.dexPair.websites.length > 0 &&
+        chainReport.dexPair.websites.every((w) => /t\.me|telegram\.me/i.test(w));
+      if (verifiedProjectSite && (chainReport.dexPair.websites.length === 0 || hasOnlyTelegramSite)) {
+        chainReport.dexPair.websites = [verifiedProjectSite];
+      }
+      if (verifiedTwitterUrl) {
+        chainReport.dexPair.socials = [
+          { type: "twitter", url: verifiedTwitterUrl },
+          ...chainReport.dexPair.socials.filter((s) => s.type !== "twitter"),
+        ];
+      }
+      if (verifiedAvatar && (!chainReport.dexPair.imageUrl || !chainReport.dexPair.pairAddress)) {
+        chainReport.dexPair.imageUrl = verifiedAvatar;
+      } else if (verifiedAvatar && chainReport.dexPair.pairUrl?.includes("geckoterminal.com")) {
+        chainReport.dexPair.imageUrl = verifiedAvatar;
+      }
+    }
+
+    if (chainReport.deep?.metadata) {
+      const metaSites = chainReport.deep.metadata.websites || [];
+      const hasOnlyTelegramMeta =
+        metaSites.length > 0 && metaSites.every((w) => /t\.me|telegram\.me/i.test(w));
+      if (verifiedProjectSite && (metaSites.length === 0 || hasOnlyTelegramMeta)) {
+        chainReport.deep.metadata.websites = [verifiedProjectSite];
+      }
+      if (verifiedTwitterUrl) {
+        chainReport.deep.metadata.twitterUrl = verifiedTwitterUrl;
+      }
+      if (
+        verifiedAvatar &&
+        (!chainReport.deep.metadata.imageUrl ||
+          !chainReport.dexPair?.pairAddress ||
+          chainReport.dexPair?.pairUrl?.includes("geckoterminal.com"))
+      ) {
+        chainReport.deep.metadata.imageUrl = verifiedAvatar;
+      }
+    }
+  }
+
   let socialReport: SocialMindshareReport | null = null;
   if (options.enableSocial) {
     emit({

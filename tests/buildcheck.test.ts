@@ -28,6 +28,7 @@ import {
   synthesizeWithVeniceBuildCheck,
 } from "../src/lib/buildcheck/venice-buildcheck";
 import { classifyDevTx } from "../src/lib/buildcheck/token-forensics";
+import { formatCompactUsd } from "../src/lib/buildcheck/war-room-metrics";
 
 describe("BuildCheck URL & SSRF Safety Guards", () => {
   it("detects private, loopback, metadata, CGNAT, and mapped IPv6 addresses", () => {
@@ -1305,10 +1306,36 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
                   id: "8001",
                   name: "Archivum",
                   username: "Use_Archivum",
+                  profile_image_url: "https://pbs.twimg.com/profile_images/2123008235666075649/lcNeVkPU_normal.jpg",
                   description: "Memory for AI agents. 0xda4283f14b487034b90d865aac489994f2c680c4",
                   entities: {
                     url: { urls: [{ expanded_url: "https://tryarchivum.com" }] },
                   },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.includes("api.x.com/2/tweets/search/recent")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                author_id: "9001",
+                text: "New launch 0xda4283f14b487034b90d865aac489994f2c680c4 https://t.co/tg1",
+                entities: { urls: [{ expanded_url: "https://t.me/RobinhoodAlerts1" }] },
+              },
+            ],
+            includes: {
+              users: [
+                {
+                  id: "9001",
+                  name: "Robinhood Alerts Bot",
+                  username: "agent_1313",
+                  profile_image_url: "https://pbs.twimg.com/profile_images/999/bot_normal.jpg",
+                  description: "Automated token launch alerts",
                 },
               ],
             },
@@ -1342,9 +1369,11 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
                   address: "0x9db7a7d4a7a2e737fc18d2c4eb7f7a61602bc68f",
                   name: "ARCH / WETH",
                   pool_created_at: "2026-11-18T12:07:26Z",
+                  base_token_price_usd: "0.0000159",
                   fdv_usd: "14751.89",
                   reserve_in_usd: "10322.64",
                   volume_usd: { h24: "20249.96" },
+                  transactions: { h1: { buys: 50, sells: 30 }, h24: { buys: 185, sells: 86 } },
                 },
                 relationships: {
                   base_token: {
@@ -1366,8 +1395,12 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
 
     vi.stubGlobal("fetch", fetchMock);
     try {
+      expect(formatCompactUsd(0)).toBe("$0");
       const xPost = await collectXPostIntel("https://x.com/Use_Archivum/status/2123032889386496247");
       expect(xPost.methodUsed).toBe("x-api-v2");
+      expect(xPost.authorImageUrl).toBe(
+        "https://pbs.twimg.com/profile_images/2123008235666075649/lcNeVkPU_400x400.jpg"
+      );
       expect(xPost.extractedUrls).not.toContain(
         "https://x.com/Use_Archivum/status/2123032889386496247/video/1"
       );
@@ -1382,6 +1415,14 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
       expect(evmChain.dexPair?.dexId).toBe("pons-v2");
       expect(evmChain.dexPair?.baseSymbol).toBe("ARCH");
       expect(evmChain.dexPair?.liquidityUsd).toBe(10323);
+      expect(evmChain.deep?.market?.priceUsd).toBeCloseTo(0.0000159, 7);
+      // Ensures alert bots (@agent_1313 / t.me/RobinhoodAlerts1) are rejected from token metadata
+      expect(evmChain.deep?.metadata?.twitterUrl).toBeNull();
+      expect(evmChain.deep?.metadata?.websites).toEqual([]);
+      // Ensures Sniper & Cabal Graph required fields always exist on EVM reports
+      expect(Array.isArray(evmChain.deep?.holders?.checks)).toBe(true);
+      expect(evmChain.deep?.holders?.checks.length).toBeGreaterThan(0);
+      expect(evmChain.deep?.holders?.verdict).toBe("OK");
       expect(evmChain.networkName || evmChain.robinhood?.networkName).toMatch(/robinhood/i);
     } finally {
       vi.unstubAllGlobals();

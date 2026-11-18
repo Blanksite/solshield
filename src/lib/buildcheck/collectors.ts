@@ -22,6 +22,8 @@ import type {
   DexPairSummary,
   DomainIntelReport,
   GitHubForensicReport,
+  HolderAuditCheckRow,
+  HoldersDeepAnalysis,
   XPostIntelReport,
 } from "./types";
 
@@ -479,9 +481,18 @@ export async function collectGitHubForensics(
   });
 }
 
+function normalizeXProfileAvatar(raw?: string | null): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return trimmed.includes("_normal.") ? trimmed.replace("_normal.", "_400x400.") : trimmed;
+}
+
+const ALERT_BOT_ACCOUNT_RE = /\b(alerts?|bots?|signals?|calls?|scanner|snipers?|trackers?)\b/i;
+
 /**
  * Discovers official token socials, avatar image, website, and GitHub by querying X API
- * using contract address and/or symbol as search query.
+ * using contract address as search query, rejecting retweets, alert bots, and unmatched random users.
  */
 async function discoverTokenSocialsFromX(
   contractAddress: string,
@@ -499,7 +510,7 @@ async function discoverTokenSocialsFromX(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
     const url = `https://api.x.com/2/tweets/search/recent?query=${encodeURIComponent(
-      contractAddress
+      `${contractAddress} -is:retweet`
     )}&tweet.fields=text,entities,author_id&expansions=author_id&user.fields=name,username,profile_image_url,description,entities`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -528,30 +539,42 @@ async function discoverTokenSocialsFromX(
 
     const users = data.includes?.users || [];
     const tweets = data.data || [];
+    const caPrefix = contractAddress.toLowerCase().slice(0, 12);
+    const cleanSym = (symbol || "").trim().replace(/^\$+/, "").toLowerCase();
 
-    // Find best matching user: description contains CA or $SYMBOL
-    let bestUser = users.find(
-      (u) =>
-        u.description?.toLowerCase().includes(contractAddress.toLowerCase().slice(0, 10)) ||
-        (symbol && u.description?.toLowerCase().includes(`$${symbol.toLowerCase()}`))
+    // Only accept users whose profile/bio explicitly ties them to this CA or $SYMBOL and are not alert/call bots
+    const eligibleUsers = users.filter(
+      (u) => !ALERT_BOT_ACCOUNT_RE.test(`${u.username || ""} ${u.name || ""} ${u.description || ""}`)
     );
 
-    if (!bestUser && users.length > 0) {
-      bestUser = users[0];
-    }
+    const bestUser = eligibleUsers.find((u) => {
+      const desc = (u.description || "").toLowerCase();
+      const uname = (u.username || "").toLowerCase();
+      const cleanUname = uname.replace(/^(use|try|get)[_-]?/, "");
+      const hasDollarSymbol =
+        cleanSym.length >= 2 &&
+        new RegExp(`(^|[^a-z0-9])\\$${cleanSym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^a-z0-9])`, "i").test(
+          desc
+        );
+      return (
+        desc.includes(caPrefix) ||
+        hasDollarSymbol ||
+        (cleanSym.length >= 3 && (uname === cleanSym || cleanUname === cleanSym))
+      );
+    });
 
     if (!bestUser) return { imageUrl: null, twitterUrl: null, websiteUrl: null, githubUrl: null };
 
-    let avatar = bestUser.profile_image_url || null;
-    if (avatar && avatar.includes("_normal.")) {
-      avatar = avatar.replace("_normal.", "_400x400.");
-    }
-
+    const avatar = normalizeXProfileAvatar(bestUser.profile_image_url);
     const twitterUrl = bestUser.username ? `https://x.com/${bestUser.username}` : null;
-    let websiteUrl = bestUser.entities?.url?.urls?.[0]?.expanded_url || null;
+    const rawProfileSite = bestUser.entities?.url?.urls?.[0]?.expanded_url || null;
+    let websiteUrl =
+      rawProfileSite && !/t\.me|telegram\.me|discord\.gg/i.test(rawProfileSite)
+        ? rawProfileSite
+        : null;
     let githubUrl: string | null = null;
 
-    for (const tw of tweets) {
+    for (const tw of tweets.filter((t) => t.author_id === bestUser.id)) {
       if (tw.entities?.urls) {
         for (const u of tw.entities.urls) {
           const exp = u.expanded_url || "";
@@ -560,9 +583,11 @@ async function discoverTokenSocialsFromX(
           }
           if (
             !websiteUrl &&
-            !exp.includes("x.com") &&
-            !exp.includes("twitter.com") &&
-            !exp.includes("github.com")
+            exp &&
+            !isExcludedWebsiteHost(exp) &&
+            !/t\.me|telegram\.me|discord\.gg|dexscreener\.com|geckoterminal\.com|blockscout\.com/i.test(
+              exp
+            )
           ) {
             websiteUrl = exp;
           }
@@ -629,6 +654,16 @@ export async function collectChainTokenIntel(
       verifyRobinhoodChainDeployment(mintAddress),
     ]);
 
+    let isDeployedOnHood =
+      hoodDeploy.status === "fulfilled" && hoodDeploy.value.isDeployed;
+    let geckoPriceUsd: number | null = null;
+    let geckoTxStats: {
+      buys1h?: number | null;
+      sells1h?: number | null;
+      buys24h?: number | null;
+      sells24h?: number | null;
+    } = {};
+
     if (dexTokenRes.status === "fulfilled" && dexTokenRes.value.ok && dexTokenRes.value.data?.pairs?.length) {
       dexData = dexTokenRes.value.data;
     } else {
@@ -655,30 +690,54 @@ export async function collectChainTokenIntel(
       if (dexSearchRes.ok && dexSearchRes.data?.pairs?.length) {
         dexData = dexSearchRes.data;
       } else {
-        // Fallback 2: GeckoTerminal pool search (covers newer L2s like Robinhood Chain / Pons v2)
-        const geckoRes = await fetchJsonWithTimeout<{
-          data?: Array<{
-            id?: string;
-            attributes?: {
-              address?: string;
-              name?: string;
-              pool_created_at?: string;
-              fdv_usd?: string | null;
-              reserve_in_usd?: string | null;
-              volume_usd?: { h24?: string | null };
+        // Fallback 2: GeckoTerminal pool lookup (direct Robinhood L2 token pools + global search)
+        type GeckoPoolItem = {
+          id?: string;
+          attributes?: {
+            address?: string;
+            name?: string;
+            pool_created_at?: string;
+            base_token_price_usd?: string | null;
+            fdv_usd?: string | null;
+            reserve_in_usd?: string | null;
+            volume_usd?: { h24?: string | null };
+            transactions?: {
+              h1?: { buys?: number; sells?: number };
+              h24?: { buys?: number; sells?: number };
             };
-            relationships?: {
-              base_token?: { data?: { id?: string } };
-              quote_token?: { data?: { id?: string } };
-              dex?: { data?: { id?: string } };
-            };
-          }>;
-        }>(
-          `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(mintAddress)}`,
-          {},
-          4500
-        );
-        const pools = geckoRes.ok ? geckoRes.data?.data ?? [] : [];
+          };
+          relationships?: {
+            base_token?: { data?: { id?: string } };
+            quote_token?: { data?: { id?: string } };
+            dex?: { data?: { id?: string } };
+          };
+        };
+        const geckoHeaders = { Accept: "application/json;version=20230302" };
+        const geckoQueries = [
+          fetchJsonWithTimeout<{ data?: GeckoPoolItem[] }>(
+            `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(mintAddress)}`,
+            geckoHeaders,
+            7500
+          ),
+          ...(isDeployedOnHood
+            ? [
+                fetchJsonWithTimeout<{ data?: GeckoPoolItem[] }>(
+                  `https://api.geckoterminal.com/api/v2/networks/robinhood/tokens/${encodeURIComponent(
+                    mintAddress.toLowerCase()
+                  )}/pools`,
+                  geckoHeaders,
+                  7500
+                ),
+              ]
+            : []),
+        ];
+        const geckoSettled = await Promise.allSettled(geckoQueries);
+        const pools: GeckoPoolItem[] = [];
+        for (const r of geckoSettled) {
+          if (r.status === "fulfilled" && r.value.ok && Array.isArray(r.value.data?.data)) {
+            pools.push(...r.value.data.data);
+          }
+        }
         if (pools.length > 0) {
           const sortedPools = [...pools].sort(
             (a, b) => Number(b.attributes?.reserve_in_usd || 0) - Number(a.attributes?.reserve_in_usd || 0)
@@ -688,7 +747,8 @@ export async function collectChainTokenIntel(
             const rawId = topPool.id || "";
             const underscoreIdx = rawId.indexOf("_");
             const networkId = underscoreIdx > 0 ? rawId.slice(0, underscoreIdx) : "ethereum";
-            const poolAddress = topPool.attributes?.address || (underscoreIdx > 0 ? rawId.slice(underscoreIdx + 1) : "");
+            const poolAddress =
+              topPool.attributes?.address || (underscoreIdx > 0 ? rawId.slice(underscoreIdx + 1) : "");
             const baseTokenRawId = topPool.relationships?.base_token?.data?.id || "";
             const baseAddrMatch = baseTokenRawId.match(/0x[a-fA-F0-9]{40}/i);
             const baseTokenAddress = baseAddrMatch ? baseAddrMatch[0] : mintAddress;
@@ -699,6 +759,16 @@ export async function collectChainTokenIntel(
             const createdMs = topPool.attributes?.pool_created_at
               ? Date.parse(topPool.attributes.pool_created_at)
               : NaN;
+            const parsedPrice = Number(topPool.attributes?.base_token_price_usd || "");
+            if (Number.isFinite(parsedPrice) && parsedPrice > 0) {
+              geckoPriceUsd = parsedPrice;
+            }
+            geckoTxStats = {
+              buys1h: topPool.attributes?.transactions?.h1?.buys ?? null,
+              sells1h: topPool.attributes?.transactions?.h1?.sells ?? null,
+              buys24h: topPool.attributes?.transactions?.h24?.buys ?? null,
+              sells24h: topPool.attributes?.transactions?.h24?.sells ?? null,
+            };
             dexData = {
               pairs: [
                 {
@@ -730,9 +800,6 @@ export async function collectChainTokenIntel(
         }
       }
     }
-
-    let isDeployedOnHood =
-      hoodDeploy.status === "fulfilled" && hoodDeploy.value.isDeployed;
 
     let dexPair: DexPairSummary | null = null;
     let tokenName = "EVM Token";
@@ -935,6 +1002,60 @@ export async function collectChainTokenIntel(
       flags: mergedFlags,
     };
 
+    const evmHolderChecks: HolderAuditCheckRow[] = [
+      {
+        label: "Honeypot / sellability check",
+        value: evmSecurity.honeypotStatus,
+        status: evmSecurity.honeypotStatus === "HONEYPOT" ? "flag" : "clear",
+      },
+      {
+        label: "Contract ownership & proxy",
+        value: evmSecurity.isProxy
+          ? `${evmSecurity.proxyType || "Proxy"}`
+          : evmSecurity.ownerAddress
+            ? `Owner ${evmSecurity.ownerAddress.slice(0, 8)}...`
+            : "Non-Proxy · No owner()",
+        status: evmSecurity.isProxy ? "watch" : "clear",
+      },
+      {
+        label: "Source verification",
+        value: evmSecurity.verifiedSource || "unverified",
+        status: evmSecurity.verifiedSource !== "unverified" ? "clear" : "watch",
+      },
+      {
+        label: "Indexed DEX liquidity",
+        value:
+          dexPair && dexPair.liquidityUsd > 0
+            ? `$${dexPair.liquidityUsd.toLocaleString("en-US")}`
+            : "Unindexed",
+        status: dexPair && dexPair.liquidityUsd > 0 ? "clear" : "watch",
+      },
+    ];
+
+    const evmHoldersAnalysis: HoldersDeepAnalysis = {
+      totalHolders: evmSecurity.holderCount,
+      nodes: [],
+      clusters: [],
+      score: evmSecurity.honeypotStatus === "HONEYPOT" ? 10 : 85,
+      verdict: evmSecurity.honeypotStatus === "HONEYPOT" ? "RIGGED" : "OK",
+      distribution: {
+        insidersPct: 0,
+        snipersPct: 0,
+        burnedOrLockedPct: 0,
+        devPct: 0,
+        retailPct: 100,
+      },
+      checks: evmHolderChecks,
+      flagsCount: evmHolderChecks.filter((c) => c.status === "flag").length,
+      watchCount: evmHolderChecks.filter((c) => c.status === "watch").length,
+      clearCount: evmHolderChecks.filter((c) => c.status === "clear").length,
+      notes: [
+        isDeployedOnHood
+          ? "Contract audited via Robinhood Chain L2 RPC bytecode inspection."
+          : "Contract audited via EVM RPC bytecode inspection.",
+      ],
+    };
+
     const syntheticDeep: any = {
       mintAddress: resolvedContractAddress,
       metadata: {
@@ -942,16 +1063,25 @@ export async function collectChainTokenIntel(
         symbol: tokenSymbol,
         description: null,
         imageUrl: dexPair?.imageUrl || xSocials?.imageUrl || null,
-        websites: dexPair?.websites?.length ? dexPair.websites : xSocials?.websiteUrl ? [xSocials.websiteUrl] : [],
-        twitterUrl: dexPair?.socials?.find((s) => s.type === "twitter" || s.url?.includes("x.com"))?.url || xSocials?.twitterUrl || null,
-        telegramUrl: dexPair?.socials?.find((s) => s.type === "telegram" || s.url?.includes("t.me"))?.url || null,
+        websites: dexPair?.websites?.length
+          ? dexPair.websites
+          : xSocials?.websiteUrl
+            ? [xSocials.websiteUrl]
+            : [],
+        twitterUrl:
+          dexPair?.socials?.find((s) => s.type === "twitter" || s.url?.includes("x.com"))?.url ||
+          xSocials?.twitterUrl ||
+          null,
+        telegramUrl:
+          dexPair?.socials?.find((s) => s.type === "telegram" || s.url?.includes("t.me"))?.url ||
+          null,
         launchpad: isDeployedOnHood ? "Robinhood Chain L2" : null,
         createdAt: dexPair?.pairCreatedAt || null,
       },
       market: {
         poolAddress: dexPair?.pairAddress || null,
         dexId: dexPair?.dexId || `${topPairChain}-dex`,
-        priceUsd: null,
+        priceUsd: geckoPriceUsd,
         marketCapUsd: dexPair?.fdv || null,
         fdvUsd: dexPair?.fdv || null,
         liquidityUsd: dexPair?.liquidityUsd || 0,
@@ -960,25 +1090,12 @@ export async function collectChainTokenIntel(
         priceChange1h: null,
         priceChange6h: null,
         priceChange24h: null,
-        buys1h: null,
-        sells1h: null,
-        buys24h: null,
-        sells24h: null,
+        buys1h: geckoTxStats.buys1h ?? null,
+        sells1h: geckoTxStats.sells1h ?? null,
+        buys24h: geckoTxStats.buys24h ?? null,
+        sells24h: geckoTxStats.sells24h ?? null,
       },
-      holders: {
-        totalHolders: evmSecurity.holderCount,
-        top10ConcentrationPct: 0,
-        nodes: [],
-        clusters: [],
-        score: evmSecurity.honeypotStatus === "HONEYPOT" ? 10 : 85,
-        verdict: evmSecurity.honeypotStatus === "HONEYPOT" ? "High Risk" : "Distributed",
-        distribution: {
-          insidersPct: 0,
-          snipersPct: 0,
-          retailPct: 100,
-          top10Pct: 0,
-        },
-      },
+      holders: evmHoldersAnalysis,
       devHistory: {
         deployerAddress: null,
         fundedBy: null,
@@ -1344,6 +1461,7 @@ function buildXPostReportFromCorpus(params: {
   handle: string | null;
   tweetId: string | null;
   authorName: string | null;
+  authorImageUrl?: string | null;
   displayText: string;
   extraUrls?: string[];
   extraCorpus?: string;
@@ -1363,6 +1481,7 @@ function buildXPostReportFromCorpus(params: {
     handle: params.handle,
     tweetId: params.tweetId,
     authorName: params.authorName,
+    authorImageUrl: params.authorImageUrl ?? null,
     textContent: params.displayText,
     extractedUrls: Array.from(new Set([...externalExpandedUrls, ...entities.websiteUrls])).slice(0, 6),
     extractedSolanaAddresses: entities.solanaAddresses,
@@ -1437,6 +1556,7 @@ export async function collectXPostIntel(
             id?: string;
             name?: string;
             username?: string;
+            profile_image_url?: string;
             description?: string;
             url?: string;
             entities?: {
@@ -1446,7 +1566,7 @@ export async function collectXPostIntel(
           }>;
         };
       }>(
-        `https://api.x.com/2/tweets/${encodeURIComponent(tweetId)}?tweet.fields=text,note_tweet,entities,author_id&expansions=author_id&user.fields=name,username,description,entities,url`,
+        `https://api.x.com/2/tweets/${encodeURIComponent(tweetId)}?tweet.fields=text,note_tweet,entities,author_id&expansions=author_id&user.fields=name,username,description,entities,url,profile_image_url`,
         { Authorization: `Bearer ${bearerToken}` },
         5000
       );
@@ -1469,6 +1589,7 @@ export async function collectXPostIntel(
           handle: author?.username || synRes.data?.user?.screen_name || handle,
           tweetId,
           authorName: author?.name || synRes.data?.user?.name || null,
+          authorImageUrl: normalizeXProfileAvatar(author?.profile_image_url),
           displayText: fullTweetText,
           extraUrls: Array.from(new Set([...collectedUrls, ...synExpandedUrls])),
           extraCorpus: [author?.description || "", author?.url || "", browserTextExcerpt || ""]
@@ -1518,6 +1639,7 @@ export async function collectXPostIntel(
         id?: string;
         name?: string;
         username?: string;
+        profile_image_url?: string;
         description?: string;
         url?: string;
         entities?: {
@@ -1526,7 +1648,7 @@ export async function collectXPostIntel(
         };
       };
     }>(
-      `https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}?user.fields=name,username,description,entities,url`,
+      `https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}?user.fields=name,username,description,entities,url,profile_image_url`,
       { Authorization: `Bearer ${bearerToken}` },
       4500
     );
@@ -1543,6 +1665,7 @@ export async function collectXPostIntel(
         handle: u.username || handle,
         tweetId: null,
         authorName: u.name || null,
+        authorImageUrl: normalizeXProfileAvatar(u.profile_image_url),
         displayText: u.description || "",
         extraUrls: profileUrls,
         extraCorpus: [u.url || "", browserTextExcerpt || ""].filter(Boolean).join("\n"),
