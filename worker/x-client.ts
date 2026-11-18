@@ -60,6 +60,9 @@ export interface XReferencedTweetContext {
   type: "replied_to" | "quoted" | "retweeted";
   id: string;
   authorId?: string;
+  authorUsername?: string;
+  authorBio?: string;
+  authorUrls?: string[];
   text?: string;
   expandedUrls?: string[];
 }
@@ -392,12 +395,75 @@ export function resolveMentionTarget(
     }
   }
 
+  for (const ref of refs) {
+    if (ref.authorBio || (ref.authorUrls && ref.authorUrls.length > 0)) {
+      const fromAuthorProfile = pickBestFromSource(
+        ref.authorBio || "",
+        ref.authorUrls || [],
+        {
+          ignoreTweetId: ref.id,
+          allowNonCaTarget: true,
+        }
+      );
+      if (fromAuthorProfile) return fromAuthorProfile;
+    }
+  }
+
   // Fallback: inspect parent/quoted X post itself in live browser + syndication
   if (refs.length > 0 && /^\d{10,25}$/.test(refs[0].id)) {
     return `https://x.com/i/status/${refs[0].id}`;
   }
 
   return null;
+}
+
+/**
+ * Builds supplementary context (full Note Tweet copy, author bio, CA, & official URLs) from a mention's referenced parent/quoted post.
+ */
+export function buildMentionInvestigationContext(
+  mention: XMentionItem,
+  botUserId?: string
+): {
+  extraText: string;
+  preferredXUrl?: string;
+  preferredHandle?: string;
+} {
+  const refs = mention.referencedTweets.filter((r) => {
+    if (r.type !== "quoted" && r.type !== "replied_to") return false;
+    if (
+      botUserId &&
+      (r.authorId === botUserId ||
+        (r.type === "replied_to" && mention.inReplyToUserId === botUserId))
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  const parts: string[] = [];
+  for (const u of mention.expandedUrls) {
+    if (!isXMediaOrInternalUrl(u, mention.id)) parts.push(u);
+  }
+  for (const ref of refs) {
+    if (ref.text) parts.push(ref.text);
+    if (ref.expandedUrls?.length) parts.push(...ref.expandedUrls);
+    if (ref.authorBio) parts.push(ref.authorBio);
+    if (ref.authorUrls?.length) parts.push(...ref.authorUrls);
+  }
+
+  const primaryRef = refs[0];
+  const preferredHandle = primaryRef?.authorUsername;
+  const preferredXUrl = primaryRef?.id
+    ? preferredHandle
+      ? `https://x.com/${preferredHandle}/status/${primaryRef.id}`
+      : `https://x.com/i/status/${primaryRef.id}`
+    : undefined;
+
+  return {
+    extraText: Array.from(new Set(parts.map((p) => p.trim()).filter(Boolean))).join("\n"),
+    preferredXUrl,
+    preferredHandle,
+  };
 }
 
 /**
@@ -647,6 +713,12 @@ export async function fetchBotUserId(
   return data.data.id;
 }
 
+interface RawXUrlEntity {
+  expanded_url?: string;
+  unwound_url?: string;
+  url?: string;
+}
+
 interface RawXTweet {
   id: string;
   text: string;
@@ -654,13 +726,31 @@ interface RawXTweet {
   in_reply_to_user_id?: string;
   conversation_id?: string;
   created_at?: string;
+  note_tweet?: {
+    text?: string;
+    entities?: {
+      urls?: RawXUrlEntity[];
+    };
+  };
   entities?: {
-    urls?: Array<{ expanded_url?: string; unwound_url?: string }>;
+    urls?: RawXUrlEntity[];
   };
   referenced_tweets?: Array<{
     type: "replied_to" | "quoted" | "retweeted";
     id: string;
   }>;
+}
+
+interface RawXUser {
+  id: string;
+  username: string;
+  name?: string;
+  description?: string;
+  url?: string;
+  entities?: {
+    url?: { urls?: RawXUrlEntity[] };
+    description?: { urls?: RawXUrlEntity[] };
+  };
 }
 
 export async function fetchBotMentions(
@@ -671,10 +761,10 @@ export async function fetchBotMentions(
 ): Promise<XMentionItem[]> {
   const qs = new URLSearchParams({
     max_results: "10",
-    expansions: "referenced_tweets.id,author_id",
+    expansions: "referenced_tweets.id,author_id,referenced_tweets.id.author_id",
     "tweet.fields":
-      "created_at,conversation_id,author_id,in_reply_to_user_id,entities,referenced_tweets",
-    "user.fields": "username",
+      "created_at,conversation_id,author_id,in_reply_to_user_id,entities,referenced_tweets,note_tweet",
+    "user.fields": "username,name,description,entities,url",
   });
   if (sinceId) {
     qs.set("since_id", sinceId);
@@ -699,7 +789,7 @@ export async function fetchBotMentions(
     data?: RawXTweet[];
     includes?: {
       tweets?: RawXTweet[];
-      users?: Array<{ id: string; username: string }>;
+      users?: RawXUser[];
     };
   };
 
@@ -709,38 +799,112 @@ export async function fetchBotMentions(
   for (const t of json.includes?.tweets || []) {
     refMap.set(t.id, t);
   }
-  const userMap = new Map<string, string>();
+  const userMap = new Map<string, RawXUser>();
   for (const u of json.includes?.users || []) {
-    userMap.set(u.id, u.username);
+    userMap.set(u.id, u);
   }
 
-  const extractUrls = (t?: RawXTweet): string[] =>
-    (t?.entities?.urls || [])
-      .map((u) => u.unwound_url || u.expanded_url || "")
-      .filter((u) => Boolean(u) && !isXMediaOrInternalUrl(u, t?.id));
+  const extractTweetUrls = (t?: RawXTweet): string[] => {
+    const rawList = [
+      ...(t?.note_tweet?.entities?.urls || []),
+      ...(t?.entities?.urls || []),
+    ];
+    return Array.from(
+      new Set(
+        rawList
+          .map((u) => u.unwound_url || u.expanded_url || u.url || "")
+          .filter((u) => Boolean(u) && !isXMediaOrInternalUrl(u, t?.id))
+      )
+    );
+  };
+
+  const extractProfileUrls = (u?: RawXUser): string[] => {
+    const rawList = [
+      ...(u?.entities?.url?.urls || []),
+      ...(u?.entities?.description?.urls || []),
+    ];
+    return Array.from(
+      new Set(
+        rawList
+          .map((item) => item.unwound_url || item.expanded_url || item.url || "")
+          .filter((item) => Boolean(item) && !isXMediaOrInternalUrl(item))
+      )
+    );
+  };
 
   // Process oldest mentions first so lastMentionId advances monotonically
   const ordered = [...json.data].reverse();
   return ordered.map((t) => ({
     id: t.id,
-    text: t.text,
+    text: t.note_tweet?.text || t.text,
     authorId: t.author_id,
-    authorUsername: t.author_id ? userMap.get(t.author_id) : undefined,
+    authorUsername: t.author_id ? userMap.get(t.author_id)?.username : undefined,
     inReplyToUserId: t.in_reply_to_user_id,
     conversationId: t.conversation_id,
     createdAt: t.created_at,
-    expandedUrls: extractUrls(t),
+    expandedUrls: extractTweetUrls(t),
     referencedTweets: (t.referenced_tweets || []).map((ref) => {
       const resolved = refMap.get(ref.id);
+      const refAuthor = resolved?.author_id ? userMap.get(resolved.author_id) : undefined;
       return {
         type: ref.type,
         id: ref.id,
         authorId: resolved?.author_id,
-        text: resolved?.text,
-        expandedUrls: extractUrls(resolved),
+        authorUsername: refAuthor?.username,
+        authorBio: refAuthor?.description,
+        authorUrls: extractProfileUrls(refAuthor),
+        text: resolved?.note_tweet?.text || resolved?.text,
+        expandedUrls: extractTweetUrls(resolved),
       };
     }),
   }));
+}
+
+/**
+ * Fetches mention IDs that `@bot` has already replied to recently on X so distributed/restarted workers never double-post.
+ */
+export async function fetchBotRecentRepliedMentionIds(
+  config: XBotAuthConfig,
+  botUserId: string,
+  transport?: XApiTransportOptions
+): Promise<Set<string>> {
+  const qs = new URLSearchParams({
+    max_results: "20",
+    "tweet.fields": "referenced_tweets",
+  });
+  const url = `https://api.x.com/2/users/${encodeURIComponent(
+    botUserId
+  )}/tweets?${qs.toString()}`;
+
+  try {
+    const res = await fetchWithXRetry(
+      url,
+      () => ({
+        headers: {
+          Authorization: getReadAuthHeader(config, "GET", url),
+        },
+      }),
+      "X bot timeline fetch failed",
+      transport
+    );
+    const json = (await res.json()) as {
+      data?: Array<{
+        id: string;
+        referenced_tweets?: Array<{ type?: string; id?: string }>;
+      }>;
+    };
+    const repliedIds = new Set<string>();
+    for (const t of json.data || []) {
+      for (const ref of t.referenced_tweets || []) {
+        if (ref.type === "replied_to" && ref.id) {
+          repliedIds.add(ref.id);
+        }
+      }
+    }
+    return repliedIds;
+  } catch {
+    return new Set<string>();
+  }
 }
 
 function extractUploadedMediaId(payload: unknown): string | null {

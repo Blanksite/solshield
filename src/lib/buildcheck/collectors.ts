@@ -5,7 +5,10 @@ import { scanSolanaTokenMint } from "../token-scanner";
 import {
   decodeHtmlEntities,
   extractEntitiesFromText,
+  extractNpmPackagesFromText,
   extractVisibleTextFromHtml,
+  isExcludedWebsiteHost,
+  parseGitHubOwnerRepo,
   parseXUrl,
 } from "./input-parser";
 import { collectTokenDeepIntel } from "./token-forensics";
@@ -651,6 +654,80 @@ export async function collectChainTokenIntel(
       }>(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(mintAddress)}`);
       if (dexSearchRes.ok && dexSearchRes.data?.pairs?.length) {
         dexData = dexSearchRes.data;
+      } else {
+        // Fallback 2: GeckoTerminal pool search (covers newer L2s like Robinhood Chain / Pons v2)
+        const geckoRes = await fetchJsonWithTimeout<{
+          data?: Array<{
+            id?: string;
+            attributes?: {
+              address?: string;
+              name?: string;
+              pool_created_at?: string;
+              fdv_usd?: string | null;
+              reserve_in_usd?: string | null;
+              volume_usd?: { h24?: string | null };
+            };
+            relationships?: {
+              base_token?: { data?: { id?: string } };
+              quote_token?: { data?: { id?: string } };
+              dex?: { data?: { id?: string } };
+            };
+          }>;
+        }>(
+          `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(mintAddress)}`,
+          {},
+          4500
+        );
+        const pools = geckoRes.ok ? geckoRes.data?.data ?? [] : [];
+        if (pools.length > 0) {
+          const sortedPools = [...pools].sort(
+            (a, b) => Number(b.attributes?.reserve_in_usd || 0) - Number(a.attributes?.reserve_in_usd || 0)
+          );
+          const topPool = sortedPools[0];
+          if (topPool) {
+            const rawId = topPool.id || "";
+            const underscoreIdx = rawId.indexOf("_");
+            const networkId = underscoreIdx > 0 ? rawId.slice(0, underscoreIdx) : "ethereum";
+            const poolAddress = topPool.attributes?.address || (underscoreIdx > 0 ? rawId.slice(underscoreIdx + 1) : "");
+            const baseTokenRawId = topPool.relationships?.base_token?.data?.id || "";
+            const baseAddrMatch = baseTokenRawId.match(/0x[a-fA-F0-9]{40}/i);
+            const baseTokenAddress = baseAddrMatch ? baseAddrMatch[0] : mintAddress;
+            const pairTitleParts = (topPool.attributes?.name || "")
+              .split("/")
+              .map((p) => p.trim())
+              .filter(Boolean);
+            const createdMs = topPool.attributes?.pool_created_at
+              ? Date.parse(topPool.attributes.pool_created_at)
+              : NaN;
+            dexData = {
+              pairs: [
+                {
+                  chainId: networkId,
+                  dexId: topPool.relationships?.dex?.data?.id || `${networkId}-dex`,
+                  url: poolAddress
+                    ? `https://www.geckoterminal.com/${networkId}/pools/${poolAddress}`
+                    : undefined,
+                  pairAddress: poolAddress,
+                  baseToken: {
+                    address: baseTokenAddress,
+                    symbol: pairTitleParts[0] || undefined,
+                  },
+                  quoteToken: {
+                    symbol: pairTitleParts[1] || undefined,
+                  },
+                  liquidity: {
+                    usd: Number(topPool.attributes?.reserve_in_usd || 0) || 0,
+                  },
+                  fdv: topPool.attributes?.fdv_usd ? Number(topPool.attributes.fdv_usd) : undefined,
+                  volume: {
+                    h24: Number(topPool.attributes?.volume_usd?.h24 || 0) || 0,
+                  },
+                  pairCreatedAt: Number.isFinite(createdMs) ? createdMs : undefined,
+                },
+              ],
+            };
+          }
+        }
       }
     }
 
@@ -1181,9 +1258,124 @@ export async function collectDomainIntel(
   };
 }
 
+function normalizeNpmRepoUrl(rawUrl: string): string {
+  return rawUrl
+    .trim()
+    .replace(/^git\+/i, "")
+    .replace(/^git:\/\//i, "https://")
+    .replace(/^ssh:\/\/git@github\.com\//i, "https://github.com/")
+    .replace(/^git@github\.com:/i, "https://github.com/");
+}
+
 /**
- * Collects X/Twitter post text & embedded entities via Twitter syndication / oEmbed
- * endpoints (and enriches with headless browser text when available).
+ * Resolves GitHub `owner/repo` and public homepage URLs from npm package names (e.g. `npx archivums init`).
+ */
+export async function discoverGithubRepoFromNpmPackages(packages: string[]): Promise<{
+  githubRepos: string[];
+  websiteUrls: string[];
+  matchedPackages: Array<{ name: string; repo: string | null; homepage: string | null }>;
+}> {
+  const uniquePkgs = Array.from(new Set(packages.map((p) => p.trim()).filter(Boolean))).slice(0, 3);
+  if (uniquePkgs.length === 0) {
+    return { githubRepos: [], websiteUrls: [], matchedPackages: [] };
+  }
+
+  const githubSet = new Set<string>();
+  const webSet = new Set<string>();
+  const matchedPackages: Array<{ name: string; repo: string | null; homepage: string | null }> = [];
+
+  const settled = await Promise.allSettled(
+    uniquePkgs.map(async (pkg) => {
+      const registryPath = pkg.startsWith("@")
+        ? `@${encodeURIComponent(pkg.slice(1)).replace(/%2F/i, "/")}`
+        : encodeURIComponent(pkg);
+      const res = await fetchJsonWithTimeout<{
+        name?: string;
+        repository?: string | { url?: string };
+        homepage?: string;
+        bugs?: string | { url?: string };
+      }>(`https://registry.npmjs.org/${registryPath}`, {}, 3800);
+      return { pkg, res };
+    })
+  );
+
+  for (const item of settled) {
+    if (item.status !== "fulfilled") continue;
+    const { pkg, res } = item.value;
+    const data = res.data;
+    if (!res.ok || !data) continue;
+    const rawRepo =
+      typeof data.repository === "string" ? data.repository : data.repository?.url || "";
+    const normalizedRepo = rawRepo ? normalizeNpmRepoUrl(rawRepo) : "";
+    const homepage = typeof data.homepage === "string" ? data.homepage.trim() : "";
+    const bugsUrl =
+      typeof data.bugs === "string" ? data.bugs : data.bugs?.url || "";
+
+    const gh =
+      (normalizedRepo ? parseGitHubOwnerRepo(normalizedRepo) : null) ||
+      (homepage ? parseGitHubOwnerRepo(homepage) : null) ||
+      (bugsUrl ? parseGitHubOwnerRepo(bugsUrl) : null);
+
+    if (gh) githubSet.add(gh);
+    if (
+      homepage &&
+      /^https?:\/\//i.test(homepage) &&
+      !isExcludedWebsiteHost(homepage) &&
+      !parseGitHubOwnerRepo(homepage)
+    ) {
+      webSet.add(homepage.replace(/#.*$/, ""));
+    }
+    matchedPackages.push({
+      name: data.name || pkg,
+      repo: gh,
+      homepage: homepage || null,
+    });
+  }
+
+  return {
+    githubRepos: Array.from(githubSet).slice(0, 4),
+    websiteUrls: Array.from(webSet).slice(0, 4),
+    matchedPackages,
+  };
+}
+
+function buildXPostReportFromCorpus(params: {
+  url: string;
+  handle: string | null;
+  tweetId: string | null;
+  authorName: string | null;
+  displayText: string;
+  extraUrls?: string[];
+  extraCorpus?: string;
+  methodUsed: XPostIntelReport["methodUsed"];
+}): XPostIntelReport {
+  const safeExtraUrls = (params.extraUrls ?? []).filter(Boolean);
+  const fullCorpus = [params.displayText, params.extraCorpus || "", ...safeExtraUrls]
+    .filter(Boolean)
+    .join("\n");
+  const entities = extractEntitiesFromText(fullCorpus);
+  const npmPackages = extractNpmPackagesFromText(fullCorpus);
+  const externalExpandedUrls = safeExtraUrls.filter(
+    (u) => /^https?:\/\//i.test(u) && !isExcludedWebsiteHost(u) && !parseGitHubOwnerRepo(u)
+  );
+  return {
+    url: params.url,
+    handle: params.handle,
+    tweetId: params.tweetId,
+    authorName: params.authorName,
+    textContent: params.displayText,
+    extractedUrls: Array.from(new Set([...externalExpandedUrls, ...entities.websiteUrls])).slice(0, 6),
+    extractedSolanaAddresses: entities.solanaAddresses,
+    extractedGithubRepos: entities.githubRepos,
+    extractedEvmAddresses: entities.evmAddresses,
+    extractedNpmPackages: npmPackages,
+    methodUsed: params.methodUsed,
+  };
+}
+
+/**
+ * Collects X/Twitter post text & embedded entities via Twitter syndication, X API v2 Note Tweets,
+ * oEmbed endpoints (and enriches with headless browser text when available).
  */
 export async function collectXPostIntel(
   xUrl: string,
@@ -1193,10 +1385,12 @@ export async function collectXPostIntel(
   const handle = parsed?.handle ?? null;
   const tweetId = parsed?.tweetId ?? null;
   const canonicalUrl = parsed?.canonicalUrl || xUrl;
+  const bearerToken = process.env.X_BEARER_TOKEN?.trim() || "";
 
   if (tweetId) {
     const synRes = await fetchJsonWithTimeout<{
       text?: string;
+      note_tweet?: { id?: string; text?: string };
       user?: { name?: string; screen_name?: string };
       entities?: {
         urls?: Array<{ expanded_url?: string; url?: string }>;
@@ -1207,25 +1401,95 @@ export async function collectXPostIntel(
       4500
     );
 
-    if (synRes.ok && synRes.data?.text) {
-      const expandedUrls = (synRes.data.entities?.urls ?? [])
-        .map((u) => u.expanded_url || u.url || "")
-        .filter(Boolean);
-      const combinedText = `${synRes.data.text}\n${expandedUrls.join(" ")}`;
-      const entities = extractEntitiesFromText(combinedText);
-      return {
+    const synOk = Boolean(synRes.ok && synRes.data?.text);
+    const synText = synRes.data?.text || "";
+    const synExpandedUrls = (synRes.data?.entities?.urls ?? [])
+      .map((u) => u.expanded_url || u.url || "")
+      .filter(Boolean);
+    const synPrelimEntities = synOk
+      ? extractEntitiesFromText([synText, ...synExpandedUrls, browserTextExcerpt || ""].join("\n"))
+      : null;
+
+    const shouldTryXApiV2 =
+      Boolean(bearerToken) &&
+      (!synOk ||
+        Boolean(synRes.data?.note_tweet) ||
+        synText.length >= 230 ||
+        (synPrelimEntities !== null &&
+          synPrelimEntities.websiteUrls.length === 0 &&
+          synPrelimEntities.githubRepos.length === 0 &&
+          synPrelimEntities.solanaAddresses.length === 0 &&
+          synPrelimEntities.evmAddresses.length === 0));
+
+    if (shouldTryXApiV2) {
+      const apiRes = await fetchJsonWithTimeout<{
+        data?: {
+          text?: string;
+          author_id?: string;
+          note_tweet?: {
+            text?: string;
+            entities?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+          };
+          entities?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+        };
+        includes?: {
+          users?: Array<{
+            id?: string;
+            name?: string;
+            username?: string;
+            description?: string;
+            url?: string;
+            entities?: {
+              url?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+              description?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+            };
+          }>;
+        };
+      }>(
+        `https://api.x.com/2/tweets/${encodeURIComponent(tweetId)}?tweet.fields=text,note_tweet,entities,author_id&expansions=author_id&user.fields=name,username,description,entities,url`,
+        { Authorization: `Bearer ${bearerToken}` },
+        5000
+      );
+
+      const tweetData = apiRes.data?.data;
+      if (apiRes.ok && tweetData) {
+        const author = apiRes.data?.includes?.users?.[0];
+        const fullTweetText = tweetData.note_tweet?.text || tweetData.text || synText;
+        const collectedUrls = [
+          ...(tweetData.note_tweet?.entities?.urls ?? []),
+          ...(tweetData.entities?.urls ?? []),
+          ...(author?.entities?.url?.urls ?? []),
+          ...(author?.entities?.description?.urls ?? []),
+        ]
+          .map((u) => u.unwound_url || u.expanded_url || u.url || "")
+          .filter(Boolean);
+
+        return buildXPostReportFromCorpus({
+          url: canonicalUrl,
+          handle: author?.username || synRes.data?.user?.screen_name || handle,
+          tweetId,
+          authorName: author?.name || synRes.data?.user?.name || null,
+          displayText: fullTweetText,
+          extraUrls: Array.from(new Set([...collectedUrls, ...synExpandedUrls])),
+          extraCorpus: [author?.description || "", author?.url || "", browserTextExcerpt || ""]
+            .filter(Boolean)
+            .join("\n"),
+          methodUsed: "x-api-v2",
+        });
+      }
+    }
+
+    if (synOk) {
+      return buildXPostReportFromCorpus({
         url: canonicalUrl,
-        handle: synRes.data.user?.screen_name || handle,
+        handle: synRes.data?.user?.screen_name || handle,
         tweetId,
-        authorName: synRes.data.user?.name || null,
-        textContent: synRes.data.text,
-        extractedUrls: Array.from(
-          new Set([...expandedUrls, ...entities.websiteUrls])
-        ).slice(0, 6),
-        extractedSolanaAddresses: entities.solanaAddresses,
-        extractedGithubRepos: entities.githubRepos,
+        authorName: synRes.data?.user?.name || null,
+        displayText: synText,
+        extraUrls: synExpandedUrls,
+        extraCorpus: browserTextExcerpt || "",
         methodUsed: "syndication",
-      };
+      });
     }
 
     const oembedRes = await fetchJsonWithTimeout<{
@@ -1238,34 +1502,64 @@ export async function collectXPostIntel(
     );
     if (oembedRes.ok && oembedRes.data?.html) {
       const plain = extractVisibleTextFromHtml(oembedRes.data.html);
-      const entities = extractEntitiesFromText(plain);
-      return {
+      return buildXPostReportFromCorpus({
         url: canonicalUrl,
         handle,
         tweetId,
         authorName: oembedRes.data.author_name || null,
-        textContent: plain,
-        extractedUrls: entities.websiteUrls,
-        extractedSolanaAddresses: entities.solanaAddresses,
-        extractedGithubRepos: entities.githubRepos,
+        displayText: plain,
+        extraCorpus: browserTextExcerpt || "",
         methodUsed: "oembed",
+      });
+    }
+  } else if (handle && bearerToken) {
+    const userRes = await fetchJsonWithTimeout<{
+      data?: {
+        id?: string;
+        name?: string;
+        username?: string;
+        description?: string;
+        url?: string;
+        entities?: {
+          url?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+          description?: { urls?: Array<{ expanded_url?: string; unwound_url?: string; url?: string }> };
+        };
       };
+    }>(
+      `https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}?user.fields=name,username,description,entities,url`,
+      { Authorization: `Bearer ${bearerToken}` },
+      4500
+    );
+    const u = userRes.data?.data;
+    if (userRes.ok && u) {
+      const profileUrls = [
+        ...(u.entities?.url?.urls ?? []),
+        ...(u.entities?.description?.urls ?? []),
+      ]
+        .map((item) => item.unwound_url || item.expanded_url || item.url || "")
+        .filter(Boolean);
+      return buildXPostReportFromCorpus({
+        url: canonicalUrl,
+        handle: u.username || handle,
+        tweetId: null,
+        authorName: u.name || null,
+        displayText: u.description || "",
+        extraUrls: profileUrls,
+        extraCorpus: [u.url || "", browserTextExcerpt || ""].filter(Boolean).join("\n"),
+        methodUsed: "x-api-v2",
+      });
     }
   }
 
   if (browserTextExcerpt && browserTextExcerpt.length > 40) {
-    const entities = extractEntitiesFromText(browserTextExcerpt);
-    return {
+    return buildXPostReportFromCorpus({
       url: canonicalUrl,
       handle,
       tweetId,
       authorName: handle,
-      textContent: browserTextExcerpt.slice(0, 1200),
-      extractedUrls: entities.websiteUrls,
-      extractedSolanaAddresses: entities.solanaAddresses,
-      extractedGithubRepos: entities.githubRepos,
+      displayText: browserTextExcerpt.slice(0, 1600),
       methodUsed: "browser",
-    };
+    });
   }
 
   return {
@@ -1277,6 +1571,8 @@ export async function collectXPostIntel(
     extractedUrls: [],
     extractedSolanaAddresses: [],
     extractedGithubRepos: [],
+    extractedEvmAddresses: [],
+    extractedNpmPackages: [],
     methodUsed: "unavailable",
     note: "X blocked anonymous read or required interactive session cookie on this target.",
   };

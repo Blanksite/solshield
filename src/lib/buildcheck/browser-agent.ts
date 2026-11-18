@@ -6,6 +6,7 @@ import {
   decodeHtmlEntities,
   extractEntitiesFromText,
   extractVisibleTextFromHtml,
+  isExcludedWebsiteHost,
 } from "./input-parser";
 import type {
   BrowserRunSummary,
@@ -258,10 +259,14 @@ async function captureStop(
       const anchors = sourceAnchors
         .map((a) => a.getAttribute("href") || "")
         .filter((h) => h.startsWith("http"));
+      const anchorLabels = sourceAnchors
+        .map((a) => (a.textContent || "").trim())
+        .filter((label) => label.length >= 4 && !label.startsWith("@"));
       return {
         title,
         textExcerpt: bodyText.slice(0, 3200),
         anchors: anchors.slice(0, 60),
+        anchorLabels: anchorLabels.slice(0, 60),
       };
     });
 
@@ -271,7 +276,7 @@ async function captureStop(
     });
     const screenshotBase64 = Buffer.from(screenshotRaw).toString("base64");
     const entities = extractEntitiesFromText(
-      `${domData.textExcerpt}\n${domData.anchors.join(" ")}`
+      `${domData.textExcerpt}\n${domData.anchorLabels.join(" ")}\n${domData.anchors.join(" ")}`
     );
 
     return {
@@ -604,7 +609,7 @@ async function executeStopPlan(
   }
 
   for (const s of stops) {
-    if (s.url.startsWith("http")) webSet.add(s.url);
+    if (s.url.startsWith("http") && !isExcludedWebsiteHost(s.url)) webSet.add(s.url);
   }
 
   return {

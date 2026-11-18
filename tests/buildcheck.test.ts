@@ -6,7 +6,9 @@ import {
   isPrivateOrReservedIp,
 } from "../src/lib/buildcheck/url-safety";
 import {
+  extractBareWebDomainsFromText,
   extractEntitiesFromText,
+  extractNpmPackagesFromText,
   parseBuildCheckInput,
   parseGitHubOwnerRepo,
   parseXUrl,
@@ -15,7 +17,12 @@ import {
   extractHtmlStopSignals,
   runHttpFallbackObservation,
 } from "../src/lib/buildcheck/browser-agent";
-import { collectGitHubForensics } from "../src/lib/buildcheck/collectors";
+import {
+  collectChainTokenIntel,
+  collectGitHubForensics,
+  collectXPostIntel,
+  discoverGithubRepoFromNpmPackages,
+} from "../src/lib/buildcheck/collectors";
 import {
   buildDeterministicBuildCheck,
   synthesizeWithVeniceBuildCheck,
@@ -1247,5 +1254,139 @@ describe("BuildCheck Deterministic Scoring Engine", () => {
       )
     ).toBe(false);
     expect(result.keyRedFlags.some((f) => f.includes('cluster "devnet"'))).toBe(false);
+  });
+
+  it("extracts bare domains, scheme-less github repos, and npm CLI packages while ignoring filenames", () => {
+    const sample =
+      "Check `npx archivums init` or `npm i @archivum/sdk@latest`, visit tryarchivum.com/try or github.com/tryarchivum/archivum. Ignore README.md, index.ts, e.g., v1.0, and x.com/foo.";
+    expect(extractBareWebDomainsFromText(sample)).toEqual(["https://tryarchivum.com/try"]);
+    expect(extractNpmPackagesFromText(sample)).toEqual(["archivums", "@archivum/sdk"]);
+
+    const entities = extractEntitiesFromText(sample);
+    expect(entities.githubRepos).toContain("tryarchivum/archivum");
+    expect(entities.websiteUrls).toEqual(["https://tryarchivum.com/try"]);
+  });
+
+  it("filters X video links in collectXPostIntel, upgrades truncated Note Tweets via X_BEARER_TOKEN, and resolves npm + GeckoTerminal L2 pools", async () => {
+    const prevBearer = process.env.X_BEARER_TOKEN;
+    process.env.X_BEARER_TOKEN = "test-bearer-token";
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("cdn.syndication.twimg.com")) {
+        return new Response(
+          JSON.stringify({
+            text: "Most AI agents forget... https://t.co/vid",
+            note_tweet: { id: "Tm90ZVR3ZWV0" },
+            user: { name: "Archivum", screen_name: "Use_Archivum" },
+            entities: {
+              urls: [{ expanded_url: "https://x.com/Use_Archivum/status/2123032889386496247/video/1" }],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.includes("api.x.com/2/tweets/2123032889386496247")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              text: "Short preview",
+              author_id: "8001",
+              note_tweet: {
+                text: "Get started: `npx archivums init` or tryarchivum.com/try",
+                entities: {
+                  urls: [{ expanded_url: "https://tryarchivum.com/try" }],
+                },
+              },
+            },
+            includes: {
+              users: [
+                {
+                  id: "8001",
+                  name: "Archivum",
+                  username: "Use_Archivum",
+                  description: "Memory for AI agents. 0xda4283f14b487034b90d865aac489994f2c680c4",
+                  entities: {
+                    url: { urls: [{ expanded_url: "https://tryarchivum.com" }] },
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.includes("registry.npmjs.org/archivums")) {
+        return new Response(
+          JSON.stringify({
+            name: "archivums",
+            repository: { type: "git", url: "git+https://github.com/tryarchivum/archivum.git" },
+            homepage: "https://github.com/tryarchivum/archivum#readme",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (url.includes("api.dexscreener.com")) {
+        return new Response(JSON.stringify({ pairs: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("api.geckoterminal.com/api/v2/search/pools")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "robinhood_0x9db7a7d4a7a2e737fc18d2c4eb7f7a61602bc68f",
+                attributes: {
+                  address: "0x9db7a7d4a7a2e737fc18d2c4eb7f7a61602bc68f",
+                  name: "ARCH / WETH",
+                  pool_created_at: "2026-11-18T12:07:26Z",
+                  fdv_usd: "14751.89",
+                  reserve_in_usd: "10322.64",
+                  volume_usd: { h24: "20249.96" },
+                },
+                relationships: {
+                  base_token: {
+                    data: { id: "robinhood_0xda4283f14b487034b90d865aac489994f2c680c4" },
+                  },
+                  dex: { data: { id: "pons-v2" } },
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const xPost = await collectXPostIntel("https://x.com/Use_Archivum/status/2123032889386496247");
+      expect(xPost.methodUsed).toBe("x-api-v2");
+      expect(xPost.extractedUrls).not.toContain(
+        "https://x.com/Use_Archivum/status/2123032889386496247/video/1"
+      );
+      expect(xPost.extractedUrls).toContain("https://tryarchivum.com/try");
+      expect(xPost.extractedEvmAddresses).toContain("0xda4283f14b487034b90d865aac489994f2c680c4");
+      expect(xPost.extractedNpmPackages).toEqual(["archivums"]);
+
+      const npm = await discoverGithubRepoFromNpmPackages(xPost.extractedNpmPackages || []);
+      expect(npm.githubRepos).toEqual(["tryarchivum/archivum"]);
+
+      const evmChain = await collectChainTokenIntel("0xda4283f14b487034b90d865aac489994f2c680c4");
+      expect(evmChain.dexPair?.dexId).toBe("pons-v2");
+      expect(evmChain.dexPair?.baseSymbol).toBe("ARCH");
+      expect(evmChain.dexPair?.liquidityUsd).toBe(10323);
+      expect(evmChain.networkName || evmChain.robinhood?.networkName).toMatch(/robinhood/i);
+    } finally {
+      vi.unstubAllGlobals();
+      if (prevBearer === undefined) delete process.env.X_BEARER_TOKEN;
+      else process.env.X_BEARER_TOKEN = prevBearer;
+    }
   });
 });

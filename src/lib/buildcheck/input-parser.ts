@@ -264,6 +264,220 @@ export function parseBuildCheckInput(raw: string): ParsedTargetInput {
   };
 }
 
+const EXCLUDED_WEBSITE_HOSTS = new Set([
+  "t.co",
+  "github.com",
+  "www.github.com",
+  "x.com",
+  "www.x.com",
+  "twitter.com",
+  "www.twitter.com",
+  "mobile.twitter.com",
+  "fxtwitter.com",
+  "vxtwitter.com",
+  "pic.x.com",
+  "pic.twitter.com",
+  "githubcopilot.com",
+  "githubstatus.com",
+  "github.blog",
+  "shields.io",
+  "schemas.microsoft.com",
+  "fonts.googleapis.com",
+]);
+
+const BARE_WEB_TLDS = new Set([
+  "com",
+  "org",
+  "net",
+  "io",
+  "xyz",
+  "ai",
+  "app",
+  "dev",
+  "co",
+  "so",
+  "gg",
+  "me",
+  "fun",
+  "finance",
+  "protocol",
+  "network",
+  "cloud",
+  "tech",
+  "build",
+  "club",
+  "site",
+  "online",
+  "live",
+  "info",
+  "vc",
+  "money",
+  "trade",
+  "exchange",
+  "tools",
+  "ink",
+  "bot",
+  "run",
+  "pro",
+  "id",
+  "uk",
+  "de",
+  "eu",
+  "ch",
+  "sg",
+  "jp",
+  "ca",
+  "au",
+  "cc",
+  "tv",
+  "fm",
+  "to",
+  "zone",
+  "wiki",
+  "docs",
+  "page",
+  "link",
+  "labs",
+]);
+
+const CODE_FILE_STEMS = new Set([
+  "index",
+  "main",
+  "app",
+  "server",
+  "client",
+  "config",
+  "package",
+  "tsconfig",
+  "vite",
+  "next",
+  "README",
+  "readme",
+]);
+
+/**
+ * Returns true if the URL/host points to X/Twitter, t.co, GitHub, or build/asset infra rather than a project domain.
+ */
+export function isExcludedWebsiteHost(urlOrHost: string): boolean {
+  const host = normalizeHostname(urlOrHost);
+  if (!host) return true;
+  if (EXCLUDED_WEBSITE_HOSTS.has(host)) return true;
+  return (
+    host.endsWith(".githubassets.com") ||
+    host.endsWith(".githubusercontent.com") ||
+    host.endsWith(".github.com") ||
+    host.endsWith(".githubcopilot.com") ||
+    host.endsWith(".twimg.com") ||
+    host.endsWith(".w3.org") ||
+    host.endsWith(".shields.io") ||
+    host.endsWith(".x.com") ||
+    host.endsWith(".twitter.com")
+  );
+}
+
+/**
+ * Returns true if the URL belongs to X/Twitter (or mirror/shortlink).
+ */
+export function isSocialXHost(urlOrHost: string): boolean {
+  const host = normalizeHostname(urlOrHost);
+  if (!host) return false;
+  return (
+    host === "x.com" ||
+    host === "twitter.com" ||
+    host === "mobile.twitter.com" ||
+    host === "fxtwitter.com" ||
+    host === "vxtwitter.com" ||
+    host === "t.co" ||
+    host === "pic.x.com" ||
+    host === "pic.twitter.com" ||
+    host.endsWith(".x.com") ||
+    host.endsWith(".twitter.com") ||
+    host.endsWith(".twimg.com")
+  );
+}
+
+/**
+ * Extracts scheme-less web domain references (e.g. `tryarchivum.com/try`) from X/social copy while filtering filenames and abbreviations.
+ */
+export function extractBareWebDomainsFromText(text: string): string[] {
+  if (!text) return [];
+  // Strip explicit http(s):// URLs and emails so we do not partially re-match their paths or domains.
+  const scrubbed = text
+    .replace(/https?:\/\/[^\s"'<>)\]]+/gi, " ")
+    .replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
+
+  const matches =
+    scrubbed.match(
+      /(?<![/@.\w-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.([a-z]{2,12}))(\/[^\s"'<>)\]`,;!?]*)?/gi
+    ) ?? [];
+
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of matches) {
+    const clean = raw.replace(/[.,;!?`]+$/, "");
+    const slashIdx = clean.indexOf("/");
+    const hostPart = (slashIdx >= 0 ? clean.slice(0, slashIdx) : clean).toLowerCase();
+    const pathPart = slashIdx >= 0 ? clean.slice(slashIdx) : "";
+    const labels = hostPart.split(".");
+    if (labels.length < 2) continue;
+    const tld = labels[labels.length - 1];
+    const stem = labels[labels.length - 2];
+    if (!BARE_WEB_TLDS.has(tld)) continue;
+    if (labels.length === 2 && !pathPart && CODE_FILE_STEMS.has(stem)) continue;
+    // Skip two-letter ccTLD unless paired with a path or non-common-English lookalike? All TLDs in BARE_WEB_TLDS are curated web TLDs; guard `x.to` / `v1.0` (digits-only label already fails [a-z]{2,}).
+    if (labels.some((l) => /^\d+$/.test(l)) && !pathPart) continue;
+    if (isExcludedWebsiteHost(hostPart)) continue;
+
+    try {
+      const normalized = new URL(`https://${hostPart}${pathPart}`).toString();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        found.push(normalized);
+      }
+    } catch {
+      // ignore invalid domain syntax
+    }
+  }
+  return found.slice(0, 6);
+}
+
+/**
+ * Extracts npm package names invoked via `npx`, `npm i/install/exec`, `pnpm add/dlx`, `bunx`, or `yarn add/dlx`.
+ */
+export function extractNpmPackagesFromText(text: string): string[] {
+  if (!text) return [];
+  const IGNORED_NPM_TOKENS = new Set([
+    "init",
+    "exec",
+    "install",
+    "add",
+    "dlx",
+    "global",
+    "yes",
+    "latest",
+    "canary",
+    "beta",
+    "next",
+    "create",
+    "run",
+    "help",
+  ]);
+  const pkgPattern =
+    /(?:^|[\s`"'(\[])(?:npx|bunx|npm\s+(?:i|install|exec)|pnpm\s+(?:add|dlx|i|install)|yarn\s+(?:add|dlx))\s+(?:(?:--?[a-z0-9-]+(?:=[^\s`"'()[\]]+)?)\s+)*(@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z][a-z0-9._-]{1,63})(?:@[^\s`"')[\]]+)?/gi;
+
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(pkgPattern)) {
+    const pkg = (match[1] || "").trim().replace(/[.,;!?`]+$/, "");
+    if (!pkg || IGNORED_NPM_TOKENS.has(pkg.toLowerCase())) continue;
+    if (!seen.has(pkg)) {
+      seen.add(pkg);
+      found.push(pkg);
+    }
+  }
+  return found.slice(0, 4);
+}
+
 /**
  * Extracts outbound GitHub repos, X links, and Solana addresses from arbitrary text.
  */
@@ -298,29 +512,25 @@ export function extractEntitiesFromText(text: string): {
     if (urlEvm) {
       evmSet.add(urlEvm[0]);
     }
-    const host = normalizeHostname(cleanUrl);
-    if (
-      host &&
-      host !== "t.co" &&
-      host !== "github.com" &&
-      host !== "www.github.com" &&
-      host !== "x.com" &&
-      host !== "twitter.com" &&
-      !host.endsWith(".githubassets.com") &&
-      !host.endsWith(".githubusercontent.com") &&
-      !host.endsWith(".github.com") &&
-      !host.endsWith(".githubcopilot.com") &&
-      host !== "githubcopilot.com" &&
-      host !== "githubstatus.com" &&
-      host !== "github.blog" &&
-      !host.endsWith(".twimg.com") &&
-      !host.endsWith(".w3.org") &&
-      !host.endsWith(".shields.io") &&
-      host !== "shields.io" &&
-      host !== "schemas.microsoft.com" &&
-      host !== "fonts.googleapis.com"
-    ) {
+    if (!isExcludedWebsiteHost(cleanUrl)) {
       webSet.add(cleanUrl);
+    }
+  }
+
+  // Scheme-less github.com/owner/repo references (e.g. X Note Tweets / bios)
+  const bareGhMatches =
+    text.match(/(?<![/@.\w-])(?:www\.)?github\.com\/([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)/gi) ?? [];
+  for (const bareGh of bareGhMatches) {
+    const gh = parseGitHubOwnerRepo(bareGh.replace(/[.,;!?`]+$/, ""));
+    if (gh) githubSet.add(gh);
+  }
+
+  // Scheme-less public project websites (e.g. tryarchivum.com/try)
+  for (const bareWeb of extractBareWebDomainsFromText(text)) {
+    const bareHost = normalizeHostname(bareWeb);
+    const hasSameHost = Array.from(webSet).some((existing) => normalizeHostname(existing) === bareHost);
+    if (!webSet.has(bareWeb) && (!hasSameHost || new URL(bareWeb).pathname !== "/")) {
+      webSet.add(bareWeb);
     }
   }
 

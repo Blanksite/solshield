@@ -4,7 +4,9 @@ import {
   formatSolShieldDispatchText,
   formatSolShieldThreadReplies,
   formatTelegramProofDispatchHtml,
+  resolveDisplayTarget,
 } from "../src/lib/buildcheck/proof-dispatch";
+import { buildEvidenceCardHtml } from "../worker/card-renderer";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
 import {
   XApiError,
@@ -352,5 +354,83 @@ describe("SolShield Proof Dispatch Story Formatter & X Thread Fallback", () => {
 
     const tg = formatTelegramProofDispatchHtml(report, "https://sol-shield.xyz");
     expect(tg).toContain("Claim vs Proof Call-Out:");
+  });
+
+  it("never labels an X-origin audit as bare x.com in Proof Dispatch headers or Evidence Cards", () => {
+    const base = makeSampleTokenReport();
+    const xPostWithHandleOnly: BuildCheckReport = {
+      ...base,
+      chain: null,
+      github: null,
+      domain: null,
+      browser: {
+        ...base.browser,
+        stops: [],
+        discoveredGithubRepos: [],
+        discoveredXUrls: [],
+        discoveredSolanaAddresses: [],
+        discoveredWebsiteUrls: [],
+      },
+      target: {
+        rawInput: "https://x.com/Use_Archivum/status/2123032889386496247",
+        kind: "x_post",
+        normalizedUrl: "https://x.com/Use_Archivum/status/2123032889386496247",
+        hostname: "x.com",
+        xHandle: "Use_Archivum",
+        xTweetId: "2123032889386496247",
+      },
+      xPost: {
+        url: "https://x.com/Use_Archivum/status/2123032889386496247",
+        handle: "Use_Archivum",
+        tweetId: "2123032889386496247",
+        authorName: "Archivum",
+        textContent: "Demo video",
+        extractedUrls: [],
+        extractedSolanaAddresses: [],
+        extractedGithubRepos: [],
+        methodUsed: "syndication",
+      },
+    };
+
+    const resolvedHandle = resolveDisplayTarget(xPostWithHandleOnly);
+    expect(resolvedHandle.subjectLabel).toBe("@Use_Archivum");
+    expect(resolvedHandle.targetNameForHeader).toBe("@Use_Archivum");
+    expect(resolvedHandle.cardTargetLabel).toBe("@Use_Archivum");
+    expect(formatSolShieldDispatchText(xPostWithHandleOnly)).not.toMatch(/^x\.com\b/i);
+
+    const cardHtmlHandle = buildEvidenceCardHtml(xPostWithHandleOnly, { botHandle: "usesolshield" });
+    expect(cardHtmlHandle).toContain("@Use_Archivum");
+    expect(cardHtmlHandle).not.toContain(">x.com<");
+
+    // When domain + GitHub + EVM CA were discovered from an X post, prefer real project identity
+    const xPostEnriched: BuildCheckReport = {
+      ...xPostWithHandleOnly,
+      github: {
+        ...base.github!,
+        fullName: "tryarchivum/archivum",
+      },
+      domain: {
+        hostname: "tryarchivum.com",
+        registrableDomain: "tryarchivum.com",
+        rdapCreatedAt: null,
+        domainAgeDays: 12,
+        pageTitle: "Archivum",
+        generatorHints: [],
+        domainEval: {
+          hostname: "tryarchivum.com",
+          riskScore: 10,
+          riskLevel: "LOW",
+          status: "UNVERIFIED",
+          isAllowlisted: false,
+          isPunycode: false,
+          closestVerifiedBrand: null,
+          matchedVerifiedDomain: null,
+          reasons: [],
+        },
+      },
+    };
+    const resolvedEnriched = resolveDisplayTarget(xPostEnriched);
+    expect(resolvedEnriched.subjectLabel).toBe("tryarchivum/archivum");
+    expect(resolvedEnriched.cardTargetLabel).toBe("tryarchivum/archivum");
   });
 });

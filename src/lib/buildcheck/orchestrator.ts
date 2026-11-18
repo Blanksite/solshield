@@ -5,8 +5,15 @@ import {
   collectDomainIntel,
   collectGitHubForensics,
   collectXPostIntel,
+  discoverGithubRepoFromNpmPackages,
 } from "./collectors";
-import { extractEntitiesFromText, parseBuildCheckInput } from "./input-parser";
+import {
+  extractEntitiesFromText,
+  extractNpmPackagesFromText,
+  isExcludedWebsiteHost,
+  isSocialXHost,
+  parseBuildCheckInput,
+} from "./input-parser";
 import { TOKEN_EXPLORER_URL_RE } from "../firewall-input";
 import type {
   BuildCheckReport,
@@ -39,11 +46,18 @@ import {
 } from "./war-room-metrics";
 import type { ParsedTargetInput } from "./types";
 
+export interface SupplementaryBuildCheckContext {
+  extraText?: string;
+  preferredXUrl?: string;
+  preferredHandle?: string;
+}
+
 export interface RunBuildCheckOptions extends VeniceBuildCheckOptions {
   enableBrowser?: boolean;
   enableSocial?: boolean;
   forceRefresh?: boolean;
   bypassCache?: boolean;
+  supplementaryContext?: SupplementaryBuildCheckContext;
   onEvent?: (event: BuildCheckStreamEvent) => void;
 }
 
@@ -311,7 +325,16 @@ export async function runBuildCheckInvestigation(
         !cached.value.chain?.deep?.metadata?.imageUrl &&
         !cached.value.chain?.dexPair?.imageUrl
       );
-      if (!lacksLogo) {
+      const staleXCache = Boolean(
+        (target.kind === "x_post" || target.kind === "x_profile") &&
+        ((options.supplementaryContext?.extraText &&
+          !cached.value.github &&
+          !cached.value.chain &&
+          !cached.value.domain) ||
+          cached.value.domain?.hostname === "x.com" ||
+          cached.value.domain?.hostname === "twitter.com")
+      );
+      if (!lacksLogo && !staleXCache) {
         const reusedReport: BuildCheckReport = {
           ...cached.value,
           cache: {
@@ -419,8 +442,10 @@ async function executeFreshBuildCheckInvestigation(
       target.rawInput,
   });
 
-  // Also parse extra entities if user pasted multi-token context around a link
-  const inlineEntities = extractEntitiesFromText(rawInput);
+  // Also parse extra entities if user pasted multi-token context around a link or bot mention context
+  const supplementaryText = options.supplementaryContext?.extraText || "";
+  const combinedSeedText = [rawInput, supplementaryText].filter(Boolean).join("\n");
+  const inlineEntities = extractEntitiesFromText(combinedSeedText);
 
   let githubReport: GitHubForensicReport | null = null;
   let chainReport: ChainTokenIntelReport | null = null;
@@ -435,7 +460,7 @@ async function executeFreshBuildCheckInvestigation(
   const initialXUrl =
     target.kind === "x_post" || target.kind === "x_profile"
       ? target.normalizedUrl
-      : inlineEntities.xUrls[0];
+      : inlineEntities.xUrls[0] || options.supplementaryContext?.preferredXUrl;
 
   emit({
     type: "step",
@@ -449,7 +474,9 @@ async function executeFreshBuildCheckInvestigation(
   const [chainRes, ghRes, xRes] = await Promise.all([
     initialMint ? collectChainTokenIntel(initialMint) : Promise.resolve(null),
     initialGh ? collectGitHubForensics(initialGh) : Promise.resolve(null),
-    initialXUrl ? collectXPostIntel(initialXUrl) : Promise.resolve(null),
+    initialXUrl
+      ? collectXPostIntel(initialXUrl, supplementaryText || undefined)
+      : Promise.resolve(null),
   ]);
 
   chainReport = chainRes;
@@ -529,7 +556,12 @@ async function executeFreshBuildCheckInvestigation(
       browserUrls.push({ url: target.normalizedUrl, label: "DexScreener Live Market" });
     }
   } else if ((target.kind === "x_post" || target.kind === "x_profile") && target.normalizedUrl) {
-    const linkedFromTweet = xPostReport?.extractedUrls?.[0];
+    const linkedCandidates = [
+      ...(xPostReport?.extractedUrls ?? []),
+      ...inlineEntities.websiteUrls,
+      ...(chainReport?.dexPair?.websites ?? []),
+    ].filter((u) => !isExcludedWebsiteHost(u) && !isSocialXHost(u));
+    const linkedFromTweet = linkedCandidates[0];
     if (linkedFromTweet) {
       try {
         await assertSafePublicHttpUrl(linkedFromTweet);
@@ -540,6 +572,14 @@ async function executeFreshBuildCheckInvestigation(
       } catch {
         // Ignore unsafe URL
       }
+    }
+    const seedGh =
+      xPostReport?.extractedGithubRepos?.[0] || inlineEntities.githubRepos[0];
+    if (seedGh && !linkedFromTweet) {
+      browserUrls.push({
+        url: `https://github.com/${seedGh}`,
+        label: `GitHub · ${seedGh}`,
+      });
     }
     browserUrls.push({ url: target.normalizedUrl, label: "X / Social Source" });
   }
@@ -565,6 +605,7 @@ async function executeFreshBuildCheckInvestigation(
           discoveredGithubRepos: [],
           discoveredXUrls: [],
           discoveredSolanaAddresses: [],
+          discoveredEvmAddresses: [],
           discoveredWebsiteUrls: [],
           totalXhrObserved: 0,
           notes: [],
@@ -595,6 +636,98 @@ async function executeFreshBuildCheckInvestigation(
           },
         });
 
+  // Check npm registry when CLI commands (e.g. `npx archivums init`) are present and resolve GitHub/site links
+  const detectedNpmPackages = Array.from(
+    new Set([
+      ...extractNpmPackagesFromText(combinedSeedText),
+      ...(xPostReport?.extractedNpmPackages ?? []),
+      ...browserSummary.stops.flatMap((s) => extractNpmPackagesFromText(s.textExcerpt || "")),
+    ])
+  ).slice(0, 3);
+  const npmDiscovery =
+    detectedNpmPackages.length > 0
+      ? await discoverGithubRepoFromNpmPackages(detectedNpmPackages)
+      : { githubRepos: [], websiteUrls: [], matchedPackages: [] };
+
+  // If browser only observed X (no public non-X landing page visited yet) and DOM/npm surfaced a project website or GitHub repo, visit it once
+  if (
+    options.enableBrowser !== false &&
+    !browserSummary.stops.some((s) => !isSocialXHost(s.url))
+  ) {
+    const followUpSites = [
+      ...browserSummary.discoveredWebsiteUrls,
+      ...(xPostReport?.extractedUrls ?? []),
+      ...inlineEntities.websiteUrls,
+      ...npmDiscovery.websiteUrls,
+    ].filter((u) => !isExcludedWebsiteHost(u) && !isSocialXHost(u));
+
+    const followUpSite = followUpSites[0];
+    const followUpGh =
+      browserSummary.discoveredGithubRepos[0] ||
+      xPostReport?.extractedGithubRepos?.[0] ||
+      npmDiscovery.githubRepos[0];
+
+    const followUpTargets: Array<{ url: string; label: string }> = [];
+    if (followUpSite) {
+      try {
+        await assertSafePublicHttpUrl(followUpSite);
+        followUpTargets.push({
+          url: followUpSite,
+          label: `Linked Site · ${new URL(followUpSite).hostname}`,
+        });
+      } catch {
+        // Ignore unsafe URL
+      }
+    }
+    if (followUpGh && followUpTargets.length < 2) {
+      followUpTargets.push({
+        url: `https://github.com/${followUpGh}`,
+        label: `GitHub · ${followUpGh}`,
+      });
+    }
+
+    if (followUpTargets.length > 0) {
+      const followUp = await runLiveBrowserObservation({
+        initialUrls: followUpTargets.slice(0, 2),
+        maxStops: followUpTargets.length > 1 ? 2 : 1,
+        onFrame: (stop) => {
+          emit({
+            type: "frame",
+            elapsedMs: elapsed(),
+            url: stop.url,
+            title: stop.title,
+            stepLabel: stop.stepLabel,
+            imageBase64: stop.screenshotBase64,
+            xhrCount: stop.xhrCount,
+          });
+        },
+      });
+      if (followUp.stops.length > 0) {
+        browserSummary.stops = [...followUp.stops, ...browserSummary.stops];
+        browserSummary.discoveredGithubRepos = Array.from(
+          new Set([...browserSummary.discoveredGithubRepos, ...followUp.discoveredGithubRepos])
+        );
+        browserSummary.discoveredXUrls = Array.from(
+          new Set([...browserSummary.discoveredXUrls, ...followUp.discoveredXUrls])
+        );
+        browserSummary.discoveredSolanaAddresses = Array.from(
+          new Set([...browserSummary.discoveredSolanaAddresses, ...followUp.discoveredSolanaAddresses])
+        );
+        browserSummary.discoveredEvmAddresses = Array.from(
+          new Set([
+            ...(browserSummary.discoveredEvmAddresses ?? []),
+            ...(followUp.discoveredEvmAddresses ?? []),
+          ])
+        );
+        browserSummary.discoveredWebsiteUrls = Array.from(
+          new Set([...followUp.discoveredWebsiteUrls, ...browserSummary.discoveredWebsiteUrls])
+        );
+        browserSummary.totalXhrObserved += followUp.totalXhrObserved;
+        browserSummary.notes = [...browserSummary.notes, ...followUp.notes];
+      }
+    }
+  }
+
   // Extract any GitHub repositories listed in DEX pair metadata or socials
   const dexGhCandidates: string[] = [];
   if (chainReport?.dexPair) {
@@ -610,11 +743,13 @@ async function executeFreshBuildCheckInvestigation(
     }
   }
 
-  // Follow newly discovered GitHub repo, X post, Mint CA, or Domain from live browser run & DEX links!
+  // Follow newly discovered GitHub repo, X post, Mint CA, or Domain from live browser run, npm, & DEX links!
   const allGhCandidates = Array.from(
     new Set([
       ...browserSummary.discoveredGithubRepos,
       ...(xPostReport?.extractedGithubRepos ?? []),
+      ...inlineEntities.githubRepos,
+      ...npmDiscovery.githubRepos,
       ...dexGhCandidates,
     ])
   );
@@ -622,6 +757,7 @@ async function executeFreshBuildCheckInvestigation(
     ? selectPrimaryGithubRepo(allGhCandidates, [
         target.hostname,
         target.rawInput,
+        options.supplementaryContext?.preferredHandle,
         chainReport?.tokenReport?.name,
         chainReport?.tokenReport?.symbol,
         chainReport?.dexPair?.websites?.[0],
@@ -632,16 +768,28 @@ async function executeFreshBuildCheckInvestigation(
     !chainReport
       ? browserSummary.discoveredSolanaAddresses[0] ||
         browserSummary.discoveredEvmAddresses?.[0] ||
-        xPostReport?.extractedSolanaAddresses[0]
+        xPostReport?.extractedSolanaAddresses[0] ||
+        xPostReport?.extractedEvmAddresses?.[0] ||
+        inlineEntities.solanaAddresses[0] ||
+        inlineEntities.evmAddresses[0]
       : null;
 
+  const nonXBrowserStop = browserSummary.stops.find(
+    (s) => !isExcludedWebsiteHost(s.url) && !s.url.includes("dexscreener.com")
+  );
+  const websiteCandidates = [
+    nonXBrowserStop?.url,
+    ...(chainReport?.dexPair?.websites ?? []),
+    ...(xPostReport?.extractedUrls ?? []),
+    ...inlineEntities.websiteUrls,
+    ...browserSummary.discoveredWebsiteUrls,
+    ...npmDiscovery.websiteUrls,
+  ]
+    .filter((u): u is string => Boolean(u))
+    .filter((u) => !isExcludedWebsiteHost(u) && !isSocialXHost(u));
+
   const primaryDomainHost =
-    target.kind === "website"
-      ? target.hostname
-      : browserSummary.stops.find((s) => !s.url.includes("x.com") && !s.url.includes("github.com") && !s.url.includes("dexscreener.com"))?.url ||
-        chainReport?.dexPair?.websites?.[0] ||
-        xPostReport?.extractedUrls?.[0] ||
-        null;
+    target.kind === "website" ? target.hostname : websiteCandidates[0] || null;
 
   emit({
     type: "step",
@@ -658,7 +806,7 @@ async function executeFreshBuildCheckInvestigation(
     primaryDomainHost
       ? collectDomainIntel(
           primaryDomainHost,
-          browserSummary.stops[0]?.title || null,
+          target.kind === "website" ? browserSummary.stops[0]?.title || null : nonXBrowserStop?.title || null,
           []
         )
       : Promise.resolve(null),
@@ -705,7 +853,7 @@ async function executeFreshBuildCheckInvestigation(
 
   // Enrich X post with browser excerpt if syndication/oEmbed couldn't read
   if (xPostReport && !xPostReport.textContent && browserSummary.stops.length > 0) {
-    const xStop = browserSummary.stops.find((s) => s.url.includes("x.com"));
+    const xStop = browserSummary.stops.find((s) => isSocialXHost(s.url));
     if (xStop) {
       xPostReport = await collectXPostIntel(xPostReport.url, xStop.textExcerpt);
     }

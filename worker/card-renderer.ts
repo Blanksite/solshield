@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import puppeteer, { type Browser } from "puppeteer-core";
 import { findLocalChromiumExecutable } from "../src/lib/buildcheck/browser-agent";
+import { resolveDisplayTarget } from "../src/lib/buildcheck/proof-dispatch";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
 import { assertSafePublicHttpUrl } from "../src/lib/buildcheck/url-safety";
 import { formatTokenIdentityLabel } from "./x-client";
@@ -429,11 +430,7 @@ export function buildEvidenceCardHtml(
           ? `SOLANA · ${report.chain.tokenReport?.tokenProgram?.toUpperCase() || "SPL"}`
           : "GITHUB / DAPP FORENSICS";
 
-  const targetLabel =
-    report.target.githubOwnerRepo ||
-    report.target.mintAddress ||
-    report.target.hostname ||
-    report.target.rawInput;
+  const { cardTargetLabel: targetLabel } = resolveDisplayTarget(report);
   const shortTargetDisplay =
     targetLabel.startsWith("0x") || /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(targetLabel)
       ? shortenMiddle(targetLabel, 7, 5)

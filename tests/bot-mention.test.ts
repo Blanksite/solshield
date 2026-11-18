@@ -20,7 +20,9 @@ import {
   loadTokenLogoDataUri,
 } from "../worker/card-renderer";
 import {
+  buildMentionInvestigationContext,
   fetchBotMentions,
+  fetchBotRecentRepliedMentionIds,
   fetchBotUserId,
   formatBuildCheckReplyTweet,
   maskCryptoAddresses,
@@ -1168,5 +1170,142 @@ describe("@usesolshield / @SolShieldCheck X Bot Mention Resolution & Safety", ()
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("extracts full Note Tweet, author bio CA, and bare domain targets without falling back to x.com/i/status", async () => {
+    let capturedUrl = "";
+    const mentions = await fetchBotMentions(TEST_OAUTH_CONFIG, "2120976003053023232", undefined, {
+      fetchImpl: async (url) => {
+        capturedUrl = typeof url === "string" ? url : url.toString();
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "2123037884320252322",
+                text: "@Use_Archivum @usesolshield",
+                author_id: "7001",
+                in_reply_to_user_id: "8001",
+                referenced_tweets: [
+                  { type: "replied_to", id: "2123032889386496247" },
+                ],
+              },
+            ],
+            includes: {
+              tweets: [
+                {
+                  id: "2123032889386496247",
+                  text: "Most AI agents forget everything... https://t.co/video1",
+                  author_id: "8001",
+                  note_tweet: {
+                    text: "Get started:\n`npx archivums init`\nOr try the simulation:\ntryarchivum.com/try",
+                    entities: {
+                      urls: [
+                        { expanded_url: "https://tryarchivum.com/try" },
+                      ],
+                    },
+                  },
+                },
+              ],
+              users: [
+                { id: "7001", username: "0xychllink" },
+                {
+                  id: "8001",
+                  username: "Use_Archivum",
+                  name: "Archivum",
+                  description:
+                    "Give your AI agent a memory it keeps. 0xda4283f14b487034b90d865aac489994f2c680c4",
+                  entities: {
+                    url: {
+                      urls: [{ expanded_url: "https://tryarchivum.com" }],
+                    },
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      },
+    });
+
+    expect(capturedUrl).toContain("note_tweet");
+    expect(capturedUrl).toContain("referenced_tweets.id.author_id");
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0].referencedTweets[0].authorUsername).toBe("Use_Archivum");
+    expect(mentions[0].referencedTweets[0].authorBio).toContain("0xda4283f14b487034b90d865aac489994f2c680c4");
+
+    const resolved = resolveMentionTarget(mentions[0], "usesolshield", "2120976003053023232");
+    expect(resolved).toBe("https://tryarchivum.com/try");
+
+    const ctx = buildMentionInvestigationContext(mentions[0], "2120976003053023232");
+    expect(ctx.preferredHandle).toBe("Use_Archivum");
+    expect(ctx.preferredXUrl).toBe("https://x.com/Use_Archivum/status/2123032889386496247");
+    expect(ctx.extraText).toContain("npx archivums init");
+    expect(ctx.extraText).toContain("0xda4283f14b487034b90d865aac489994f2c680c4");
+
+    // When parent tweet body has no links at all, falls back to parent author bio CA/URL
+    const bioOnlyTarget = resolveMentionTarget(
+      {
+        id: "99001",
+        authorId: "7001",
+        inReplyToUserId: "8001",
+        text: "@Use_Archivum @usesolshield",
+        expandedUrls: [],
+        referencedTweets: [
+          {
+            type: "replied_to",
+            id: "99000",
+            authorId: "8001",
+            authorUsername: "Use_Archivum",
+            text: "Look at this demo video",
+            expandedUrls: [],
+            authorBio: "0xda4283f14b487034b90d865aac489994f2c680c4",
+            authorUrls: ["https://tryarchivum.com"],
+          },
+        ],
+      },
+      "usesolshield",
+      "2120976003053023232"
+    );
+    expect(bioOnlyTarget).toBe("0xda4283f14b487034b90d865aac489994f2c680c4");
+  });
+
+  it("fetches recent replied mention IDs from bot timeline to block duplicate replies across workers", async () => {
+    const replied = await fetchBotRecentRepliedMentionIds(
+      TEST_OAUTH_CONFIG,
+      "2120976003053023232",
+      {
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "2123038175140733042",
+                  referenced_tweets: [
+                    { type: "replied_to", id: "2123037884320252322" },
+                  ],
+                },
+                {
+                  id: "2123000000000000001",
+                  referenced_tweets: [{ type: "quoted", id: "111" }],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          ),
+      }
+    );
+    expect(replied.has("2123037884320252322")).toBe(true);
+    expect(replied.has("111")).toBe(false);
+
+    // Fails open to empty set on transient network failure
+    const emptyOnErr = await fetchBotRecentRepliedMentionIds(
+      TEST_OAUTH_CONFIG,
+      "2120976003053023232",
+      {
+        fetchImpl: async () => new Response("rate limit", { status: 429 }),
+      }
+    );
+    expect(emptyOnErr.size).toBe(0);
   });
 });

@@ -1,3 +1,5 @@
+import { normalizeHostname } from "../domain-guard";
+import { isSocialXHost } from "./input-parser";
 import type { BuildCheckReport } from "./types";
 import {
   computeDualAxisSummary,
@@ -131,6 +133,86 @@ function verdictToTag(verdict: BuildCheckReport["verdict"]): string {
   return "HIGH FABRICATION RISK";
 }
 
+export function resolveDisplayTarget(report: BuildCheckReport): {
+  subjectLabel: string;
+  targetNameForHeader: string;
+  cardTargetLabel: string;
+  shortMint: string | null;
+} {
+  const rawSymbol = (
+    report.chain?.deep?.metadata?.symbol ||
+    report.chain?.tokenReport?.symbol ||
+    ""
+  )
+    .trim()
+    .replace(/^\$+/, "");
+  const tokenIdentity = formatDispatchTokenIdentity(report, 22);
+  const mint = report.target.mintAddress || report.chain?.mintAddress || null;
+  const shortMint = mint ? `${mint.slice(0, 6)}...${mint.slice(-4)}` : null;
+
+  const githubRepo =
+    report.target.githubOwnerRepo ||
+    (report.github?.exists ? report.github.fullName : null) ||
+    null;
+
+  const domainCandidates = [
+    report.domain?.registrableDomain,
+    report.domain?.hostname,
+    report.target.hostname,
+    report.chain?.dexPair?.websites?.[0],
+    report.xPost?.extractedUrls?.[0],
+    report.browser?.discoveredWebsiteUrls?.[0],
+  ];
+  let nonXDomain: string | null = null;
+  for (const cand of domainCandidates) {
+    if (!cand) continue;
+    const host = normalizeHostname(cand);
+    if (
+      !host ||
+      isSocialXHost(host) ||
+      host === "dexscreener.com" ||
+      host === "geckoterminal.com" ||
+      host === "github.com"
+    ) {
+      continue;
+    }
+    nonXDomain = host;
+    break;
+  }
+
+  const rawHandle = (report.target.xHandle || report.xPost?.handle || "").replace(/^@+/, "").trim();
+  const handleLabel = rawHandle ? `@${rawHandle}` : null;
+
+  const subjectLabel =
+    (rawSymbol ? `$${rawSymbol.slice(0, 12)}` : null) ||
+    githubRepo ||
+    nonXDomain ||
+    shortMint ||
+    handleLabel ||
+    "Audited Target";
+
+  const targetNameForHeader =
+    githubRepo ||
+    (shortMint && tokenIdentity ? `${tokenIdentity} · ${shortMint}` : shortMint) ||
+    nonXDomain ||
+    handleLabel ||
+    "target";
+
+  const cardTargetLabel =
+    githubRepo ||
+    mint ||
+    nonXDomain ||
+    handleLabel ||
+    "Audited Project";
+
+  return {
+    subjectLabel,
+    targetNameForHeader,
+    cardTargetLabel,
+    shortMint,
+  };
+}
+
 /**
  * Synthesizes an original, structured SolShield Proof Dispatch brief from any
  * completed BuildCheckReport (token CA, GitHub repo, X post, or web app).
@@ -143,30 +225,7 @@ export function buildProofDispatch(
   const appPublicUrl = options.appPublicUrl || "https://sol-shield.xyz";
   const dual = computeDualAxisSummary(report);
 
-  const rawSymbol = (
-    report.chain?.deep?.metadata?.symbol ||
-    report.chain?.tokenReport?.symbol ||
-    ""
-  )
-    .trim()
-    .replace(/^\$+/, "");
-  const tokenIdentity = formatDispatchTokenIdentity(report, 22);
-  const shortMint = report.target.mintAddress
-    ? `${report.target.mintAddress.slice(0, 6)}...${report.target.mintAddress.slice(-4)}`
-    : null;
-
-  const subjectLabel =
-    (rawSymbol ? `$${rawSymbol.slice(0, 12)}` : null) ||
-    report.target.githubOwnerRepo ||
-    report.target.hostname ||
-    shortMint ||
-    "Audited Target";
-
-  const targetNameForHeader =
-    report.target.githubOwnerRepo ||
-    (shortMint && tokenIdentity ? `${tokenIdentity} · ${shortMint}` : shortMint) ||
-    report.target.hostname ||
-    "target";
+  const { subjectLabel, targetNameForHeader, shortMint } = resolveDisplayTarget(report);
 
   const confirmedCandidates: string[] = [
     ...(report.verifiedSignals || []).map((s) =>

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
+import { getUpstashConfig, runUpstashCommand } from "../src/lib/upstash-rest";
 import {
   parseBooleanEnv,
   parsePositiveIntEnv,
@@ -20,7 +21,9 @@ import {
 import { renderEvidenceCardPng } from "./card-renderer";
 import { loadLocalEnvFiles } from "./env-loader";
 import {
+  buildMentionInvestigationContext,
   fetchBotMentions,
+  fetchBotRecentRepliedMentionIds,
   fetchBotUserId,
   formatBuildCheckReplyTweet,
   formatBuildCheckStoryThread,
@@ -132,6 +135,19 @@ async function runSingleCheckCli(rawTarget: string): Promise<void> {
   console.log("Full SolShield Proof Dispatch:\n" + "-".repeat(50) + `\n${storyText}\n` + "-".repeat(50));
 }
 
+async function tryAcquireDistributedMentionLock(mentionId: string): Promise<boolean> {
+  if (!getUpstashConfig()) return true;
+  const acquired = await runUpstashCommand<string>([
+    "SET",
+    `solshield:xbot:replylock:${mentionId}`,
+    `${process.pid}`,
+    "NX",
+    "EX",
+    300,
+  ]);
+  return acquired === "OK";
+}
+
 async function runDaemonLoop(): Promise<void> {
   const config = getAuthConfig();
   const isDryRun = parseBooleanEnv(process.env.BOT_DRY_RUN, true);
@@ -219,6 +235,7 @@ async function runDaemonLoop(): Promise<void> {
 
   let stopping = false;
   const shutdownController = new AbortController();
+  const inProcessMentionIds = new Set<string>();
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
@@ -242,8 +259,14 @@ async function runDaemonLoop(): Promise<void> {
         console.log(`[Poll] Found ${mentions.length} new mention(s).`);
       }
 
+      const preAuditRepliedIds =
+        mentions.length > 0 && !isDryRun
+          ? await fetchBotRecentRepliedMentionIds(config, state.botUserId)
+          : new Set<string>();
+
       for (const mention of mentions) {
         if (stopping) break;
+        if (inProcessMentionIds.has(mention.id)) continue;
 
         const guard = evaluateMentionGuard({
           mentionId: mention.id,
@@ -266,6 +289,27 @@ async function runDaemonLoop(): Promise<void> {
           continue;
         }
 
+        if (preAuditRepliedIds.has(mention.id)) {
+          console.log(
+            `[Skip:already_replied_on_x] Mention ${mention.id} already has a live reply from @${config.botHandle}.`
+          );
+          recordProcessedMention(state, mention.id, mention.authorId);
+          saveBotState(stateFile, state);
+          continue;
+        }
+
+        const lockAcquired = await tryAcquireDistributedMentionLock(mention.id);
+        if (!lockAcquired) {
+          console.log(
+            `[Skip:distributed_lock] Another worker holds lock for mention ${mention.id}.`
+          );
+          recordProcessedMention(state, mention.id, mention.authorId);
+          saveBotState(stateFile, state);
+          continue;
+        }
+
+        inProcessMentionIds.add(mention.id);
+
         const target = resolveMentionTarget(mention, config.botHandle, state.botUserId);
         if (!target) {
           console.log(`[Skip:no_target] No resolvable CA/link/parent target on tweet ${mention.id}`);
@@ -274,10 +318,12 @@ async function runDaemonLoop(): Promise<void> {
           continue;
         }
 
+        const supplementaryContext = buildMentionInvestigationContext(mention, state.botUserId);
         console.log(`[Audit] Mention ${mention.id} (@${mention.authorUsername || "user"}) -> ${target}`);
         const report = await runBuildCheckInvestigation(target, {
           apiKey: process.env.VENICE_API_KEY?.trim() || undefined,
           enableBrowser: true,
+          supplementaryContext,
         });
 
         const { pngBuffer, filePath } = await renderEvidenceCardPng(report, undefined, {
@@ -302,6 +348,16 @@ async function runDaemonLoop(): Promise<void> {
             `[DRY RUN] Card saved at ${filePath}\nStory draft:\n${storyText}\nThread fallback:\n${thread.primary}\n---\n${thread.followup}`
           );
         } else {
+          const freshRepliedIds = await fetchBotRecentRepliedMentionIds(config, state.botUserId);
+          if (freshRepliedIds.has(mention.id)) {
+            console.log(
+              `[Skip:already_replied_during_audit] Mention ${mention.id} received a reply on X while auditing; aborting duplicate post.`
+            );
+            recordProcessedMention(state, mention.id, mention.authorId);
+            saveBotState(stateFile, state);
+            continue;
+          }
+
           let mediaId: string | undefined;
           try {
             mediaId = await uploadEvidencePngToX(config, pngBuffer);

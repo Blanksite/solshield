@@ -286,7 +286,9 @@ export interface XPostIntelReport {
   extractedUrls: string[];
   extractedSolanaAddresses: string[];
   extractedGithubRepos: string[];
-  methodUsed: "browser" | "syndication" | "oembed" | "unavailable";
+  extractedEvmAddresses?: string[];
+  extractedNpmPackages?: string[];
+  methodUsed: "x-api-v2" | "browser" | "syndication" | "oembed" | "unavailable";
   note?: string;
 }
 
