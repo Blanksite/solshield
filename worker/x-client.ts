@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
-import { extractEntitiesFromText } from "../src/lib/buildcheck/input-parser";
+import {
+  extractEntitiesFromText,
+  parseXUrl,
+} from "../src/lib/buildcheck/input-parser";
 import {
   formatDispatchTokenIdentity,
   formatSolShieldDispatchText,
@@ -61,6 +64,7 @@ export interface XReferencedTweetContext {
   id: string;
   authorId?: string;
   authorUsername?: string;
+  authorProfileImageUrl?: string;
   authorBio?: string;
   authorUrls?: string[];
   text?: string;
@@ -303,10 +307,12 @@ export function resolveMentionTarget(
       ignoreAutoQuotedLinks?: boolean;
       ignoreTweetId?: string;
       allowNonCaTarget?: boolean;
+      allowExternalX?: boolean;
     } = {}
   ): string | null => {
     const ignoreQuoted = Boolean(opts.ignoreAutoQuotedLinks);
     const allowNonCa = opts.allowNonCaTarget ?? true;
+    const allowExternalX = opts.allowExternalX ?? true;
     const isIgnoredXUrl = (url: string): boolean => {
       const lower = url.toLowerCase();
       if (isXMediaOrInternalUrl(url, opts.ignoreTweetId)) return true;
@@ -338,19 +344,21 @@ export function resolveMentionTarget(
     if (entities.githubRepos.length > 0) {
       return `https://github.com/${entities.githubRepos[0]}`;
     }
-    const externalX = entities.xUrls.find((u) => {
-      const lower = u.toLowerCase();
-      if (botAliases.some((alias) => lower.includes(`/${alias}`))) {
-        return false;
-      }
-      return !isIgnoredXUrl(u);
-    });
-    if (externalX) return externalX;
     const externalWebsite = entities.websiteUrls.find(
       (u) => !isSolShieldOwnWebsiteUrl(u) && !isXMediaOrInternalUrl(u, opts.ignoreTweetId)
     );
     if (externalWebsite) {
       return externalWebsite;
+    }
+    if (allowExternalX) {
+      const externalX = entities.xUrls.find((u) => {
+        const lower = u.toLowerCase();
+        if (botAliases.some((alias) => lower.includes(`/${alias}`))) {
+          return false;
+        }
+        return !isIgnoredXUrl(u);
+      });
+      if (externalX) return externalX;
     }
     return null;
   };
@@ -393,6 +401,7 @@ export function resolveMentionTarget(
       const fromParent = pickBestFromSource(ref.text || "", ref.expandedUrls || [], {
         ignoreTweetId: ref.id,
         allowNonCaTarget: true,
+        allowExternalX: false,
       });
       if (fromParent) return fromParent;
     }
@@ -406,9 +415,21 @@ export function resolveMentionTarget(
         {
           ignoreTweetId: ref.id,
           allowNonCaTarget: true,
+          allowExternalX: false,
         }
       );
       if (fromAuthorProfile) return fromAuthorProfile;
+    }
+  }
+
+  for (const ref of refs) {
+    if (ref.text || (ref.expandedUrls && ref.expandedUrls.length > 0)) {
+      const fromParentExternalX = pickBestFromSource(ref.text || "", ref.expandedUrls || [], {
+        ignoreTweetId: ref.id,
+        allowNonCaTarget: true,
+        allowExternalX: true,
+      });
+      if (fromParentExternalX) return fromParentExternalX;
     }
   }
 
@@ -430,6 +451,7 @@ export function buildMentionInvestigationContext(
   extraText: string;
   preferredXUrl?: string;
   preferredHandle?: string;
+  preferredAuthorImageUrl?: string;
 } {
   const refs = mention.referencedTweets.filter((r) => {
     if (r.type !== "quoted" && r.type !== "replied_to") return false;
@@ -449,13 +471,28 @@ export function buildMentionInvestigationContext(
   }
   for (const ref of refs) {
     if (ref.text) parts.push(ref.text);
-    if (ref.expandedUrls?.length) parts.push(...ref.expandedUrls);
+    if (ref.expandedUrls?.length) {
+      for (const u of ref.expandedUrls) {
+        const parsedX = parseXUrl(u);
+        // Do not let a quote-tweeted third party status URL override the parent author's identity.
+        if (
+          parsedX?.tweetId &&
+          ref.authorUsername &&
+          parsedX.handle &&
+          parsedX.handle.toLowerCase() !== ref.authorUsername.toLowerCase()
+        ) {
+          continue;
+        }
+        parts.push(u);
+      }
+    }
     if (ref.authorBio) parts.push(ref.authorBio);
     if (ref.authorUrls?.length) parts.push(...ref.authorUrls);
   }
 
   const primaryRef = refs[0];
   const preferredHandle = primaryRef?.authorUsername;
+  const preferredAuthorImageUrl = primaryRef?.authorProfileImageUrl;
   const preferredXUrl = primaryRef?.id
     ? preferredHandle
       ? `https://x.com/${preferredHandle}/status/${primaryRef.id}`
@@ -466,6 +503,7 @@ export function buildMentionInvestigationContext(
     extraText: Array.from(new Set(parts.map((p) => p.trim()).filter(Boolean))).join("\n"),
     preferredXUrl,
     preferredHandle,
+    preferredAuthorImageUrl,
   };
 }
 
@@ -748,6 +786,7 @@ interface RawXUser {
   id: string;
   username: string;
   name?: string;
+  profile_image_url?: string;
   description?: string;
   url?: string;
   entities?: {
@@ -767,7 +806,7 @@ export async function fetchBotMentions(
     expansions: "referenced_tweets.id,author_id,referenced_tweets.id.author_id",
     "tweet.fields":
       "created_at,conversation_id,author_id,in_reply_to_user_id,entities,referenced_tweets,note_tweet",
-    "user.fields": "username,name,description,entities,url",
+    "user.fields": "username,name,description,entities,url,profile_image_url",
   });
   if (sinceId) {
     qs.set("since_id", sinceId);
@@ -849,11 +888,18 @@ export async function fetchBotMentions(
     referencedTweets: (t.referenced_tweets || []).map((ref) => {
       const resolved = refMap.get(ref.id);
       const refAuthor = resolved?.author_id ? userMap.get(resolved.author_id) : undefined;
+      const rawAvatar = refAuthor?.profile_image_url?.trim();
+      const authorProfileImageUrl = rawAvatar
+        ? rawAvatar.includes("_normal.")
+          ? rawAvatar.replace("_normal.", "_400x400.")
+          : rawAvatar
+        : undefined;
       return {
         type: ref.type,
         id: ref.id,
         authorId: resolved?.author_id,
         authorUsername: refAuthor?.username,
+        authorProfileImageUrl,
         authorBio: refAuthor?.description,
         authorUrls: extractProfileUrls(refAuthor),
         text: resolved?.note_tweet?.text || resolved?.text,

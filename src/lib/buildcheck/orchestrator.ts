@@ -13,6 +13,7 @@ import {
   isExcludedWebsiteHost,
   isSocialXHost,
   parseBuildCheckInput,
+  parseXUrl,
 } from "./input-parser";
 import { TOKEN_EXPLORER_URL_RE } from "../firewall-input";
 import type {
@@ -50,6 +51,7 @@ export interface SupplementaryBuildCheckContext {
   extraText?: string;
   preferredXUrl?: string;
   preferredHandle?: string;
+  preferredAuthorImageUrl?: string;
 }
 
 export interface RunBuildCheckOptions extends VeniceBuildCheckOptions {
@@ -878,7 +880,7 @@ async function executeFreshBuildCheckInvestigation(
   }
 
   // Reconcile verified project website, official X handle, and avatar onto chain telemetry
-  // so alert bots/third-party retweets never override the verified project's own links.
+  // so alert bots or quote-tweeted third-party commenters never override the project's own brand.
   if (chainReport) {
     const verifiedProjectSite =
       (domainReport?.registrableDomain ? `https://${domainReport.registrableDomain}` : null) ||
@@ -886,19 +888,66 @@ async function executeFreshBuildCheckInvestigation(
         (u) => !isExcludedWebsiteHost(u) && !/t\.me|telegram\.me|discord\.gg/i.test(u)
       ) ||
       null;
-    const xAuthorLinksMint = Boolean(
-      xPostReport?.handle &&
-        (target.kind === "x_post" ||
-          target.kind === "x_profile" ||
-          xPostReport.extractedEvmAddresses?.some(
-            (a) => a.toLowerCase() === chainReport!.mintAddress.toLowerCase()
-          ) ||
-          xPostReport.extractedSolanaAddresses?.includes(chainReport!.mintAddress))
+
+    // Extract official X handles linked directly from non-X website/GitHub pages (e.g. tryarchivum.com -> @Use_Archivum)
+    const officialSiteHandles = Array.from(
+      new Set(
+        browserSummary.stops
+          .filter((s) => !isSocialXHost(s.url))
+          .flatMap((s) => s.outboundX || [])
+          .map((u) => parseXUrl(u)?.handle?.trim())
+          .filter((h): h is string => Boolean(h))
+      )
     );
-    const verifiedTwitterUrl =
-      xAuthorLinksMint && xPostReport?.handle ? `https://x.com/${xPostReport.handle}` : null;
-    const verifiedAvatar =
-      xAuthorLinksMint && xPostReport?.authorImageUrl ? xPostReport.authorImageUrl : null;
+    const prefHandle = options.supplementaryContext?.preferredHandle?.trim() || null;
+    const officialHandle =
+      (prefHandle &&
+      (officialSiteHandles.length === 0 ||
+        officialSiteHandles.some((h) => h.toLowerCase() === prefHandle.toLowerCase()))
+        ? prefHandle
+        : null) ||
+      officialSiteHandles[0] ||
+      prefHandle ||
+      null;
+
+    const xPostLooksLikeThirdPartyReply = Boolean(
+      xPostReport?.textContent?.trim().startsWith("@") &&
+        target.kind === "x_post" &&
+        !officialHandle
+    );
+    const xPostMatchesOfficial = Boolean(
+      xPostReport?.handle &&
+        (officialHandle
+          ? xPostReport.handle.toLowerCase() === officialHandle.toLowerCase()
+          : !xPostLooksLikeThirdPartyReply &&
+            (target.kind === "x_post" ||
+              target.kind === "x_profile" ||
+              xPostReport.extractedEvmAddresses?.some(
+                (a) => a.toLowerCase() === chainReport!.mintAddress.toLowerCase()
+              ) ||
+              xPostReport.extractedSolanaAddresses?.includes(chainReport!.mintAddress)))
+    );
+
+    const resolvedOfficialHandle = officialHandle || (xPostMatchesOfficial ? xPostReport?.handle : null) || null;
+    const verifiedTwitterUrl = resolvedOfficialHandle ? `https://x.com/${resolvedOfficialHandle}` : null;
+
+    let verifiedAvatar: string | null = null;
+    if (xPostMatchesOfficial && xPostReport?.authorImageUrl) {
+      verifiedAvatar = xPostReport.authorImageUrl;
+    } else if (
+      options.supplementaryContext?.preferredAuthorImageUrl &&
+      prefHandle &&
+      resolvedOfficialHandle?.toLowerCase() === prefHandle.toLowerCase()
+    ) {
+      verifiedAvatar = options.supplementaryContext.preferredAuthorImageUrl;
+    } else if (resolvedOfficialHandle && (!xPostMatchesOfficial || !xPostReport?.authorImageUrl)) {
+      const officialProfile = await collectXPostIntel(`https://x.com/${resolvedOfficialHandle}`).catch(
+        () => null
+      );
+      if (officialProfile?.authorImageUrl) {
+        verifiedAvatar = officialProfile.authorImageUrl;
+      }
+    }
 
     if (chainReport.dexPair) {
       const hasOnlyTelegramSite =
@@ -913,9 +962,12 @@ async function executeFreshBuildCheckInvestigation(
           ...chainReport.dexPair.socials.filter((s) => s.type !== "twitter"),
         ];
       }
-      if (verifiedAvatar && (!chainReport.dexPair.imageUrl || !chainReport.dexPair.pairAddress)) {
-        chainReport.dexPair.imageUrl = verifiedAvatar;
-      } else if (verifiedAvatar && chainReport.dexPair.pairUrl?.includes("geckoterminal.com")) {
+      if (
+        verifiedAvatar &&
+        (!chainReport.dexPair.imageUrl ||
+          !chainReport.dexPair.pairAddress ||
+          chainReport.dexPair.pairUrl?.includes("geckoterminal.com"))
+      ) {
         chainReport.dexPair.imageUrl = verifiedAvatar;
       }
     }

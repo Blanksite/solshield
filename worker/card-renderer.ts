@@ -651,7 +651,7 @@ export function buildEvidenceCardHtml(
       ? verifiedSignals
           .map(
             (s) =>
-              `<div class="tag-item tag-green"><span class="tag-icon">✓</span><span>${escapeHtml(
+              `<div class="tag-item tag-green"><span class="tag-icon"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.2 6.3L4.8 8.9L9.8 3.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>${escapeHtml(
                 s.slice(0, 118)
               )}</span></div>`
           )
@@ -1090,6 +1090,10 @@ export function buildEvidenceCardHtml(
   .tag-icon {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
     flex-shrink: 0;
   }
   .tag-green {

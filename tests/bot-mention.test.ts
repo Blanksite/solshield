@@ -1356,4 +1356,68 @@ describe("@usesolshield / @SolShieldCheck X Bot Mention Resolution & Safety", ()
       )
     ).toBeNull();
   });
+
+  it("ignores quote-tweeted third-party commenter links when parent author has project CA/site in bio and preserves official avatar", async () => {
+    const mentions = await fetchBotMentions(TEST_OAUTH_CONFIG, "2120976003053023232", undefined, {
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "2123068197264089467",
+                text: "@Use_Archivum @usesolshield",
+                author_id: "881776365497753600",
+                in_reply_to_user_id: "2122666902484815872",
+                referenced_tweets: [{ type: "replied_to", id: "2123058483146924153" }],
+              },
+            ],
+            includes: {
+              tweets: [
+                {
+                  id: "2123058483146924153",
+                  text: "Notes are searchable right away. Dreams turn notes into a wiki. https://t.co/TaxciaooWx",
+                  author_id: "2122666902484815872",
+                  entities: {
+                    urls: [
+                      {
+                        expanded_url:
+                          "https://twitter.com/Concept_felipe/status/2123053087975690641",
+                      },
+                    ],
+                  },
+                },
+              ],
+              users: [
+                { id: "881776365497753600", username: "Rawonbening_" },
+                {
+                  id: "2122666902484815872",
+                  username: "Use_Archivum",
+                  name: "Archivum",
+                  profile_image_url:
+                    "https://pbs.twimg.com/profile_images/2123008235666075649/lcNeVkPU_normal.jpg",
+                  description:
+                    "Give your AI agent a memory it keeps. 0xda4283f14b487034b90d865aac489994f2c680c4",
+                  entities: {
+                    url: { urls: [{ expanded_url: "https://tryarchivum.com" }] },
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        ),
+    });
+
+    expect(mentions).toHaveLength(1);
+    const resolved = resolveMentionTarget(mentions[0], "usesolshield", "2120976003053023232");
+    expect(resolved).toBe("0xda4283f14b487034b90d865aac489994f2c680c4");
+
+    const ctx = buildMentionInvestigationContext(mentions[0], "2120976003053023232");
+    expect(ctx.preferredHandle).toBe("Use_Archivum");
+    expect(ctx.preferredAuthorImageUrl).toBe(
+      "https://pbs.twimg.com/profile_images/2123008235666075649/lcNeVkPU_400x400.jpg"
+    );
+    expect(ctx.extraText).not.toContain("Concept_felipe");
+    expect(ctx.extraText).toContain("https://tryarchivum.com");
+  });
 });
