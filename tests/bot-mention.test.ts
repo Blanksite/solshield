@@ -1308,4 +1308,52 @@ describe("@usesolshield / @SolShieldCheck X Bot Mention Resolution & Safety", ()
     );
     expect(emptyOnErr.size).toBe(0);
   });
+
+  it("resolves parent CA when X auto-prepends multiple @mentions in a reply header (e.g. @Use_Archivum @ponsdotfamily @usesolshield)", () => {
+    const resolved = resolveMentionTarget(
+      {
+        id: "2123064441440985566",
+        authorId: "881776365497753600",
+        inReplyToUserId: "2122666902484815872",
+        text: "@Use_Archivum @ponsdotfamily @usesolshield",
+        expandedUrls: [],
+        referencedTweets: [
+          {
+            type: "replied_to",
+            id: "2123025500930990562",
+            authorId: "2122666902484815872",
+            authorUsername: "Use_Archivum",
+            text: "Archivum officially live on @ponsdotfamily.\n\nCA: 0xda4283f14b487034b90d865aac489994f2c680c4",
+            expandedUrls: ["https://tryarchivum.com"],
+          },
+        ],
+      },
+      "usesolshield",
+      "2120976003053023232"
+    );
+    expect(resolved).toBe("0xda4283f14b487034b90d865aac489994f2c680c4");
+
+    // Still ignores multi-handle replies with casual chatter (no audit intent)
+    expect(
+      resolveMentionTarget(
+        {
+          id: "2123064441440985999",
+          authorId: "881776365497753600",
+          inReplyToUserId: "2122666902484815872",
+          text: "@Use_Archivum @ponsdotfamily @usesolshield congrats on launch!",
+          expandedUrls: [],
+          referencedTweets: [
+            {
+              type: "replied_to",
+              id: "2123025500930990562",
+              authorId: "2122666902484815872",
+              text: "CA: 0xda4283f14b487034b90d865aac489994f2c680c4",
+            },
+          ],
+        },
+        "usesolshield",
+        "2120976003053023232"
+      )
+    ).toBeNull();
+  });
 });

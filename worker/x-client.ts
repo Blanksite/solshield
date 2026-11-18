@@ -251,6 +251,10 @@ function analyzeMentionIntent(
     hasRepliedTo &&
     nonBotHandles.length === 1 &&
     Boolean(firstHandle && !botAliases.includes(firstHandle));
+  const hasLeadingReplyMentions =
+    hasRepliedTo &&
+    nonBotHandles.length >= 1 &&
+    Boolean(firstHandle && !botAliases.includes(firstHandle));
 
   // Direct URLs (website, X link, GitHub repo) inside a mention tweet only trigger a scan
   // if the user asked for an audit OR posted a clean command like `@usesolshield <url>`,
@@ -263,9 +267,8 @@ function analyzeMentionIntent(
   const isSummonedForParent =
     hasAuditIntent ||
     (isBarePoliteOnly &&
-      (nonBotHandles.length === 0
-        ? handles.some((h) => botAliases.includes(h))
-        : hasSingleLeadingReplyPrefix));
+      handles.some((h) => botAliases.includes(h)) &&
+      (nonBotHandles.length === 0 || hasLeadingReplyMentions));
 
   return {
     hasAuditIntent,

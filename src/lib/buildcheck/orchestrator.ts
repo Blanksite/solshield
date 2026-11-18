@@ -543,7 +543,17 @@ async function executeFreshBuildCheckInvestigation(
       label: `GitHub · ${target.githubOwnerRepo}`,
     });
   } else if (target.kind === "token_ca" || target.kind === "evm_contract") {
-    const linkedSite = chainReport?.dexPair?.websites?.[0];
+    const linkedCandidates = [
+      ...(chainReport?.dexPair?.websites ?? []),
+      ...(xPostReport?.extractedUrls ?? []),
+      ...inlineEntities.websiteUrls,
+    ].filter(
+      (u) =>
+        !isExcludedWebsiteHost(u) &&
+        !isSocialXHost(u) &&
+        !/t\.me|telegram\.me|discord\.gg/i.test(u)
+    );
+    const linkedSite = linkedCandidates[0];
     if (linkedSite) {
       try {
         await assertSafePublicHttpUrl(linkedSite);
@@ -551,6 +561,14 @@ async function executeFreshBuildCheckInvestigation(
       } catch {
         // Ignore unsafe URL in third-party DexScreener/metadata
       }
+    }
+    const seedGh =
+      xPostReport?.extractedGithubRepos?.[0] || inlineEntities.githubRepos[0];
+    if (seedGh && browserUrls.length < 2) {
+      browserUrls.push({
+        url: `https://github.com/${seedGh}`,
+        label: `GitHub · ${seedGh}`,
+      });
     }
     if (browserUrls.length === 0 && target.normalizedUrl) {
       browserUrls.push({ url: target.normalizedUrl, label: "DexScreener Live Market" });
