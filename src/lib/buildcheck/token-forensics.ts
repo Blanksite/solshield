@@ -14,6 +14,10 @@ import type {
   TokenDeepMetadata,
 } from "./types";
 import { assertSafePublicHttpUrl } from "./url-safety";
+import {
+  buildSolanaWalletsToWatch,
+  type SolanaWalletSwapActivityInput,
+} from "./wallet-watch";
 
 const METAPLEX_PROGRAM_ID = new PublicKey(
   "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
@@ -231,6 +235,16 @@ interface ParsedRpcTx {
     err?: unknown;
     preBalances?: number[];
     postBalances?: number[];
+    preTokenBalances?: Array<{
+      mint?: string;
+      owner?: string;
+      uiTokenAmount?: { uiAmount?: number | null };
+    }>;
+    postTokenBalances?: Array<{
+      mint?: string;
+      owner?: string;
+      uiTokenAmount?: { uiAmount?: number | null };
+    }>;
     logMessages?: string[];
     innerInstructions?: Array<{
       instructions?: Array<{
@@ -317,6 +331,82 @@ interface RpcSigRow {
   err?: unknown;
 }
 
+async function sampleSolanaPoolSwapActivity(params: {
+  poolAddress: string | null;
+  mintAddress: string;
+  poolVaultOwners: Set<string>;
+}): Promise<Record<string, SolanaWalletSwapActivityInput>> {
+  if (!params.poolAddress) return {};
+  try {
+    const sigs = await rpcCall<RpcSigRow[]>(
+      "getSignaturesForAddress",
+      [params.poolAddress, { limit: 24 }],
+      3600
+    );
+    const validSigs = (Array.isArray(sigs) ? sigs : [])
+      .filter((s) => !s.err && Boolean(s.signature))
+      .slice(0, 10);
+    if (validSigs.length === 0) return {};
+
+    const txs = await Promise.all(
+      validSigs.map((s) =>
+        rpcCall<ParsedRpcTx>(
+          "getTransaction",
+          [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1 }],
+          3600
+        )
+      )
+    );
+
+    const out: Record<string, SolanaWalletSwapActivityInput> = {};
+    const poolExclude = new Set([
+      ...KNOWN_POOL_AND_LOCK_OWNERS,
+      ...KNOWN_BURN_OWNERS,
+      ...params.poolVaultOwners,
+    ]);
+
+    for (let i = 0; i < validSigs.length; i += 1) {
+      const tx = txs[i];
+      const slot = validSigs[i].slot;
+      if (!tx?.meta || tx.meta.err) continue;
+
+      const deltaByOwner = new Map<string, number>();
+      for (const pre of tx.meta.preTokenBalances || []) {
+        if (pre.mint !== params.mintAddress || !pre.owner || poolExclude.has(pre.owner)) {
+          continue;
+        }
+        const amt = pre.uiTokenAmount?.uiAmount ?? 0;
+        deltaByOwner.set(pre.owner, (deltaByOwner.get(pre.owner) || 0) - amt);
+      }
+      for (const post of tx.meta.postTokenBalances || []) {
+        if (post.mint !== params.mintAddress || !post.owner || poolExclude.has(post.owner)) {
+          continue;
+        }
+        const amt = post.uiTokenAmount?.uiAmount ?? 0;
+        deltaByOwner.set(post.owner, (deltaByOwner.get(post.owner) || 0) + amt);
+      }
+
+      for (const [owner, delta] of deltaByOwner.entries()) {
+        if (Math.abs(delta) < 1e-6) continue;
+        const entry = out[owner] || {
+          address: owner,
+          buyCount: 0,
+          sellCount: 0,
+          earliestSlot: slot,
+        };
+        if (delta > 0) entry.buyCount += 1;
+        else entry.sellCount += 1;
+        entry.earliestSlot =
+          entry.earliestSlot != null ? Math.min(entry.earliestSlot, slot) : slot;
+        out[owner] = entry;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 async function analyzeHoldersAndCabal(params: {
   rawHolders: RawHolderRow[];
   poolVaultOwners: Set<string>;
@@ -325,6 +415,9 @@ async function analyzeHoldersAndCabal(params: {
   lpLockedPct: number | null;
   mintReport: TokenScanReport | null;
   insiderNetworksCount: number;
+  swapActivityByWallet?:
+    | Record<string, SolanaWalletSwapActivityInput>
+    | Promise<Record<string, SolanaWalletSwapActivityInput>>;
 }): Promise<HoldersDeepAnalysis> {
   const poolOwners = new Set([...KNOWN_POOL_AND_LOCK_OWNERS, ...params.poolVaultOwners]);
 
@@ -653,6 +746,21 @@ async function analyzeHoldersAndCabal(params: {
     checks.push({ label: "Liquidity pool detected", value: `${poolPct.toFixed(1)}%`, status: "watch" });
   }
 
+  const resolvedSwapActivity = await Promise.resolve(params.swapActivityByWallet || {});
+  const watchSummary = buildSolanaWalletsToWatch({
+    tracedNodes: tracedHolders,
+    devAddress: params.devAddress,
+    swapActivityByWallet: resolvedSwapActivity,
+  });
+
+  if (watchSummary.possibleMmCount > 0) {
+    checks.push({
+      label: "Possible MM / two-way traders",
+      value: `${watchSummary.possibleMmCount} wallet(s)`,
+      status: "watch",
+    });
+  }
+
   const finalScore = Math.max(5, Math.min(100, Math.round(score)));
   const verdict = finalScore >= 68 ? "OK" : finalScore >= 40 ? "SKETCHY" : "RIGGED";
 
@@ -674,6 +782,9 @@ async function analyzeHoldersAndCabal(params: {
     watchCount: checks.filter((c) => c.status === "watch").length,
     clearCount: checks.filter((c) => c.status === "clear").length,
     notes,
+    walletsToWatch: watchSummary.walletsToWatch,
+    earlyBuyersCount: watchSummary.earlyBuyersCount,
+    possibleMmCount: watchSummary.possibleMmCount,
   };
 }
 
@@ -1066,6 +1177,12 @@ export async function collectTokenDeepIntel(
           .filter((h) => devAddress && h.owner === devAddress)
           .reduce((acc, h) => acc + h.pct, 0);
 
+  const swapActivityPromise = sampleSolanaPoolSwapActivity({
+    poolAddress: market.poolAddress,
+    mintAddress,
+    poolVaultOwners,
+  });
+
   const [holders, devHistory] = await Promise.all([
     analyzeHoldersAndCabal({
       rawHolders,
@@ -1075,6 +1192,7 @@ export async function collectTokenDeepIntel(
       lpLockedPct,
       mintReport,
       insiderNetworksCount: rc?.graphInsidersDetected ?? 0,
+      swapActivityByWallet: swapActivityPromise,
     }),
     traceDevWalletHistory({
       devAddress,

@@ -1,24 +1,38 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  Eye,
   Network,
+  Plus,
   ShieldAlert,
 } from "lucide-react";
 import type {
   HolderClusterNode,
   HoldersDeepAnalysis,
 } from "@/lib/buildcheck/types";
+import {
+  addOrUpdateLocalWatchedWallet,
+  getWatchedWalletExplorerUrl,
+  makeWatchedWalletId,
+  readLocalWatchedWallets,
+  removeLocalWatchedWallet,
+  WATCHLIST_CHANGED_EVENT,
+  type WatchWalletChain,
+} from "@/lib/wallet-watch-client";
 
 interface SniperCabalGraphProps {
   mintAddress: string;
   symbol?: string | null;
+  networkName?: string | null;
   holders: HoldersDeepAnalysis;
+  onOpenWalletsToWatch?: () => void;
 }
 
 const ROLE_COLORS: Record<
@@ -66,7 +80,9 @@ const ROLE_COLORS: Record<
 export function SniperCabalGraph({
   mintAddress,
   symbol,
+  networkName,
   holders,
+  onOpenWalletsToWatch,
 }: SniperCabalGraphProps) {
   const safeNodes = Array.isArray(holders.nodes) ? holders.nodes : [];
   const safeClusters = Array.isArray(holders.clusters) ? holders.clusters : [];
@@ -82,6 +98,27 @@ export function SniperCabalGraph({
   const safeWatchCount = holders.watchCount ?? safeChecks.filter((c) => c.status === "watch").length;
   const safeClearCount = holders.clearCount ?? safeChecks.filter((c) => c.status === "clear").length;
   const isEvmMint = mintAddress.startsWith("0x");
+  const inferredChain: WatchWalletChain = (() => {
+    const raw = (holders.walletsToWatch?.[0]?.chainKey || networkName || "").toLowerCase();
+    if (raw.includes("robinhood")) return "robinhood";
+    if (raw.includes("base")) return "base";
+    if (raw.includes("arbitrum")) return "arbitrum";
+    if (raw.includes("optimism")) return "optimism";
+    if (raw.includes("polygon")) return "polygon";
+    if (raw.includes("bsc")) return "bsc";
+    if (raw.includes("eth")) return "ethereum";
+    return isEvmMint ? "robinhood" : "solana";
+  })();
+
+  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const refresh = () => {
+      setWatchedIds(new Set(readLocalWatchedWallets().map((w) => w.id)));
+    };
+    refresh();
+    window.addEventListener(WATCHLIST_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(WATCHLIST_CHANGED_EVENT, refresh);
+  }, []);
 
   const [selectedNode, setSelectedNode] = useState<HolderClusterNode | null>(
     () =>
@@ -405,18 +442,66 @@ export function SniperCabalGraph({
                 >
                   {ROLE_COLORS[selectedNode.role].label}
                 </span>
-                <a
-                  href={
-                    isEvmMint
-                      ? `https://robinhoodchain.blockscout.com/address/${selectedNode.address}`
-                      : `https://solscan.io/account/${selectedNode.address}`
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-mono text-[#84A7FF] hover:text-white"
-                >
-                  {isEvmMint ? "Explorer" : "Solscan"} <ExternalLink className="w-3 h-3" />
-                </a>
+                <div className="flex items-center gap-2.5">
+                  <a
+                    href={getWatchedWalletExplorerUrl(selectedNode.address, inferredChain)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-mono text-[#84A7FF] hover:text-white"
+                  >
+                    {isEvmMint ? "Explorer" : "Solscan"} <ExternalLink className="w-3 h-3" />
+                  </a>
+                  {selectedNode.role !== "pool" && selectedNode.role !== "burn" && (
+                    (() => {
+                      const watchId = makeWatchedWalletId(selectedNode.address, inferredChain);
+                      const isWatched = watchedIds.has(watchId);
+                      const tagMap =
+                        selectedNode.role === "cabal"
+                          ? "cabal_linked"
+                          : selectedNode.role === "sniper"
+                            ? "early_buyer"
+                            : selectedNode.role === "dev"
+                              ? "dev_linked"
+                              : "top_holder";
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isWatched) {
+                              removeLocalWatchedWallet(selectedNode.address, inferredChain);
+                            } else {
+                              addOrUpdateLocalWatchedWallet({
+                                address: selectedNode.address,
+                                chain: inferredChain,
+                                tag: tagMap,
+                                tokenSymbol: symbol,
+                                tokenAddress: mintAddress,
+                                label: `${symbol ? `$${symbol} · ` : ""}${ROLE_COLORS[selectedNode.role].label}`,
+                              });
+                            }
+                          }}
+                          className={`px-2 py-0.5 rounded border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                            isWatched
+                              ? "border-emerald-500/45 bg-emerald-500/15 text-emerald-300"
+                              : "border-[#2934FF]/50 bg-[#2934FF]/20 text-white hover:bg-[#2934FF]/35"
+                          }`}
+                        >
+                          {isWatched ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              <span>Watching</span>
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3 h-3" />
+                              <span>Watch</span>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()
+                  )}
+                </div>
               </div>
               <div className="font-mono text-xs text-white break-all">
                 {selectedNode.address}
@@ -467,10 +552,25 @@ export function SniperCabalGraph({
               ))}
             </div>
           ) : (
-            <div className="p-3.5 rounded-xl border border-emerald-500/20 bg-[#0B1410] text-xs text-emerald-200/90">
-              {isEvmMint
-                ? "EVM contract checks clear. Detailed L2 holder clustering available when indexed by explorer."
-                : "No co-funded cabal clusters detected among top 10 non-pool wallets."}
+            <div className="p-3.5 rounded-xl border border-emerald-500/20 bg-[#0B1410] text-xs text-emerald-200/90 space-y-2">
+              <p>
+                {isEvmMint
+                  ? "No same-block buyer bundles detected in recent EVM transfers."
+                  : "No co-funded cabal clusters detected among top 10 non-pool wallets."}
+              </p>
+              {onOpenWalletsToWatch && (holders.walletsToWatch?.length ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={onOpenWalletsToWatch}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[#84A7FF] hover:text-white cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>
+                    View {holders.walletsToWatch!.length} traced Wallets to Watch (
+                    {holders.possibleMmCount ?? 0} possible MM · {holders.earlyBuyersCount ?? 0} early buyers)
+                  </span>
+                </button>
+              )}
             </div>
           )}
         </div>

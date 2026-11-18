@@ -1,6 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { evaluateDomainSafety, normalizeHostname } from "../domain-guard";
-import { inspectEvmContractSecurity } from "../evm-security";
+import { inspectEvmContractSecurity, type EvmChainKey } from "../evm-security";
 import { scanSolanaTokenMint } from "../token-scanner";
 import {
   decodeHtmlEntities,
@@ -12,6 +12,7 @@ import {
   parseXUrl,
 } from "./input-parser";
 import { collectTokenDeepIntel } from "./token-forensics";
+import { collectEvmWalletsToWatch } from "./wallet-watch";
 import {
   fetchRobinhoodChainErc20Metadata,
   verifyRobinhoodChainDeployment,
@@ -923,6 +924,19 @@ export async function collectChainTokenIntel(
       inspectEvmContractSecurity(resolvedContractAddress, targetChainForSecurity),
     ]);
 
+    const evmWatch = await collectEvmWalletsToWatch({
+      chainKey: targetChainForSecurity as EvmChainKey,
+      tokenAddress: resolvedContractAddress,
+      totalSupplyRaw:
+        onChainSupply !== "0" && /^\d+$/.test(onChainSupply)
+          ? BigInt(onChainSupply)
+          : undefined,
+      pairAddress: dexPair?.pairAddress || null,
+      creatorAddress: evmSecurity.creatorAddress ?? null,
+      ownerAddress: evmSecurity.ownerAddress ?? null,
+      goPlusHolders: evmSecurity.topHolders,
+    }).catch(() => null);
+
     const combinedRisk = Math.min(
       99,
       Math.max(
@@ -985,9 +999,26 @@ export async function collectChainTokenIntel(
       permanentDelegate: null,
       transferHookProgramId: null,
       defaultAccountState: null,
-      topHolders: [],
-      top5Pct: 0,
-      top10Pct: 0,
+      topHolders: evmWatch
+        ? evmWatch.nodes
+            .filter((n) => n.role !== "pool" && n.role !== "burn")
+            .slice(0, 10)
+            .map((n) => ({
+              address: n.address,
+              uiAmount: n.uiAmount,
+              pctOfSupply: n.pct,
+            }))
+        : [],
+      top5Pct: evmWatch
+        ? Number(
+            evmWatch.nodes
+              .filter((n) => n.role !== "pool" && n.role !== "burn")
+              .slice(0, 5)
+              .reduce((acc, n) => acc + n.pct, 0)
+              .toFixed(1)
+          )
+        : 0,
+      top10Pct: evmWatch ? evmWatch.topHoldersPct : 0,
       riskScore: combinedRisk,
       classification: isHighRisk ? "CRITICAL" : isCautionRisk ? "CAUTION" : "SAFE",
       recommendedAction: isHighRisk
@@ -1032,28 +1063,48 @@ export async function collectChainTokenIntel(
       },
     ];
 
+    const mergedEvmChecks = [
+      ...evmHolderChecks,
+      ...(evmWatch?.checks || []),
+    ];
+
+    let evmHolderScore = evmSecurity.honeypotStatus === "HONEYPOT" ? 10 : 85;
+    if (evmSecurity.honeypotStatus !== "HONEYPOT" && evmWatch) {
+      if (evmWatch.clusters.length > 0) evmHolderScore -= Math.min(28, evmWatch.clusters.length * 14);
+      if (evmWatch.distribution.snipersPct >= 15) evmHolderScore -= 16;
+      if (evmWatch.topHoldersPct >= 40) evmHolderScore -= 14;
+      else if (evmWatch.topHoldersPct >= 25) evmHolderScore -= 6;
+      evmHolderScore = Math.max(20, Math.min(96, Math.round(evmHolderScore)));
+    }
+    const evmHolderVerdict: HoldersDeepAnalysis["verdict"] =
+      evmHolderScore >= 68 ? "OK" : evmHolderScore >= 40 ? "SKETCHY" : "RIGGED";
+
     const evmHoldersAnalysis: HoldersDeepAnalysis = {
       totalHolders: evmSecurity.holderCount,
-      nodes: [],
-      clusters: [],
-      score: evmSecurity.honeypotStatus === "HONEYPOT" ? 10 : 85,
-      verdict: evmSecurity.honeypotStatus === "HONEYPOT" ? "RIGGED" : "OK",
-      distribution: {
+      nodes: evmWatch?.nodes || [],
+      clusters: evmWatch?.clusters || [],
+      score: evmHolderScore,
+      verdict: evmHolderVerdict,
+      distribution: evmWatch?.distribution || {
         insidersPct: 0,
         snipersPct: 0,
         burnedOrLockedPct: 0,
         devPct: 0,
         retailPct: 100,
       },
-      checks: evmHolderChecks,
-      flagsCount: evmHolderChecks.filter((c) => c.status === "flag").length,
-      watchCount: evmHolderChecks.filter((c) => c.status === "watch").length,
-      clearCount: evmHolderChecks.filter((c) => c.status === "clear").length,
+      checks: mergedEvmChecks,
+      flagsCount: mergedEvmChecks.filter((c) => c.status === "flag").length,
+      watchCount: mergedEvmChecks.filter((c) => c.status === "watch").length,
+      clearCount: mergedEvmChecks.filter((c) => c.status === "clear").length,
       notes: [
         isDeployedOnHood
           ? "Contract audited via Robinhood Chain L2 RPC bytecode inspection."
           : "Contract audited via EVM RPC bytecode inspection.",
+        ...(evmWatch?.notes || []),
       ],
+      walletsToWatch: evmWatch?.walletsToWatch || [],
+      earlyBuyersCount: evmWatch?.earlyBuyersCount || 0,
+      possibleMmCount: evmWatch?.possibleMmCount || 0,
     };
 
     const syntheticDeep: any = {
@@ -1097,13 +1148,13 @@ export async function collectChainTokenIntel(
       },
       holders: evmHoldersAnalysis,
       devHistory: {
-        deployerAddress: null,
-        fundedBy: null,
-        totalTxs: 0,
-        firstActiveAt: null,
+        devAddress: evmSecurity.creatorAddress || evmSecurity.ownerAddress || null,
+        solBalance: null,
+        tokenHoldingPct: evmHoldersAnalysis.distribution.devPct,
+        coinsLaunchedCount: 0,
+        flaggedCoinsCount: 0,
         launchedTokens: [],
         recentTxs: [],
-        tokenHoldingPct: 0,
       },
     };
 

@@ -73,7 +73,13 @@ import { RobinhoodAuditCard } from "./RobinhoodAuditCard";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
 import { SniperCabalGraph } from "./SniperCabalGraph";
 import { TradingViewTokenChart } from "./TradingViewTokenChart";
+import { WalletsToWatchPanel } from "./WalletsToWatchPanel";
 import { WarRoomDualAxisStrip } from "./WarRoomDualAxisStrip";
+import {
+  readLocalWatchedWallets,
+  WATCHLIST_CHANGED_EVENT,
+  type WatchWalletChain,
+} from "@/lib/wallet-watch-client";
 
 interface StreamFrameItem {
   url: string;
@@ -269,11 +275,21 @@ export default function BuildCheckWorkbench({
   const [guestChecksUsed, setGuestChecksUsed] = useState(0);
   const [recentTokens, setRecentTokens] = useState<ScannedTokenSummary[]>([]);
   const [showResultLedger, setShowResultLedger] = useState(false);
+  const [watchedCount, setWatchedCount] = useState(0);
   const [forensicTab, setForensicTab] = useState<
-    "proof" | "mindshare" | "robinhood" | "holders" | "dev" | "browser" | "telemetry"
+    "proof" | "mindshare" | "robinhood" | "holders" | "wallets" | "dev" | "browser" | "telemetry"
   >("proof");
   const [isScanningMindshare, setIsScanningMindshare] = useState(false);
   const [mindshareScanError, setMindshareScanError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const refreshWatchCount = () => {
+      setWatchedCount(readLocalWatchedWallets().length);
+    };
+    refreshWatchCount();
+    window.addEventListener(WATCHLIST_CHANGED_EVENT, refreshWatchCount);
+    return () => window.removeEventListener(WATCHLIST_CHANGED_EVENT, refreshWatchCount);
+  }, []);
 
   const handleScanMindshare = async () => {
     if (!report || isScanningMindshare) return;
@@ -1180,6 +1196,27 @@ export default function BuildCheckWorkbench({
             </button>
           )}
 
+          {report.chain?.deep?.holders && (
+            <button
+              type="button"
+              data-testid="tab-wallets-to-watch"
+              onClick={() => setForensicTab("wallets")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                forensicTab === "wallets"
+                  ? "bg-[#2934FF]/22 text-white border border-[#2934FF]/50"
+                  : "text-slate-400 hover:text-white border border-transparent hover:bg-white/[0.04]"
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5 text-[#84A7FF]" />
+              <span>Wallets to Watch</span>
+              {(report.chain.deep.holders.walletsToWatch?.length ?? 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded bg-white/[0.08] border border-white/15 font-mono text-[10px] tabular-nums text-[#BFD0FF]">
+                  {report.chain.deep.holders.walletsToWatch!.length}
+                </span>
+              )}
+            </button>
+          )}
+
           {report.chain?.deep?.devHistory && (
             <button
               type="button"
@@ -1257,7 +1294,22 @@ export default function BuildCheckWorkbench({
             <SniperCabalGraph
               mintAddress={report.chain.mintAddress}
               symbol={tokenSymbol}
+              networkName={report.chain.networkName}
               holders={report.chain.deep.holders}
+              onOpenWalletsToWatch={() => setForensicTab("wallets")}
+            />
+          </div>
+        )}
+
+        {forensicTab === "wallets" && report.chain?.deep?.holders && (
+          <div className="p-5">
+            <WalletsToWatchPanel
+              mintAddress={report.chain.mintAddress}
+              symbol={tokenSymbol}
+              networkName={report.chain.networkName}
+              chainFamily={report.chain.chainFamily}
+              holders={report.chain.deep.holders}
+              devAddress={report.chain.deep.devHistory?.devAddress}
             />
           </div>
         )}
@@ -1267,6 +1319,14 @@ export default function BuildCheckWorkbench({
             <DevHistoryPanel
               devHistory={report.chain.deep.devHistory}
               symbol={tokenSymbol}
+              chainKey={
+                (report.chain.deep.holders?.walletsToWatch?.[0]?.chainKey as
+                  | WatchWalletChain
+                  | undefined) ||
+                (report.chain.evmSecurity?.chainKey as WatchWalletChain | undefined) ||
+                (report.chain.mintAddress.startsWith("0x") ? "robinhood" : "solana")
+              }
+              tokenAddress={report.chain.mintAddress}
             />
           </div>
         )}
@@ -1640,6 +1700,13 @@ export default function BuildCheckWorkbench({
                 className="hidden md:inline-flex items-center px-2.5 py-1 rounded-md text-xs text-purple-300/90 hover:text-white border border-purple-500/25 hover:border-purple-400/50 bg-purple-500/[0.06] transition-colors"
               >
                 Dev Lineage
+              </Link>
+              <Link
+                href="/wallets"
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-[#BFD0FF] hover:text-white border border-[#2934FF]/35 hover:border-[#2934FF]/60 bg-[#2934FF]/12 transition-colors"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Watchlist{watchedCount > 0 ? ` (${watchedCount})` : ""}</span>
               </Link>
             </div>
 

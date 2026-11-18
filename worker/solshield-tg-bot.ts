@@ -4,6 +4,12 @@ import path from "node:path";
 import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
 import { formatTelegramProofDispatchHtml } from "../src/lib/buildcheck/proof-dispatch";
 import {
+  fetchWatchedWalletActivity,
+  getChainDisplayName,
+  getWatchedWalletExplorerUrl,
+  normalizeWatchedAddress,
+} from "../src/lib/wallet-watch-tracker";
+import {
   parseBooleanEnv,
   parsePositiveIntEnv,
   sleepInterruptible,
@@ -37,10 +43,13 @@ import {
 import {
   evaluateTgScanGuard,
   getTgScansTodayCount,
+  listTgWatchedWallets,
   loadTgBotState,
   recordTgScanCompleted,
   recordTgUpdateSeen,
+  removeTgWatchedWallet,
   saveTgBotState,
+  upsertTgWatchedWallet,
   type TgBotPersistedState,
 } from "./tg-state";
 
@@ -389,6 +398,8 @@ async function runDaemonLoop(): Promise<void> {
       : null;
 
   let stopping = false;
+  let lastWalletWatchPollMs = 0;
+  const WALLET_WATCH_INTERVAL_MS = 90_000;
   const shutdownController = new AbortController();
   const inFlightChats = new Set<string>();
   const shutdown = () => {
@@ -511,15 +522,117 @@ async function runDaemonLoop(): Promise<void> {
                   `• Status: <b>Online</b>`,
                   `• Venice AI: <b>${process.env.VENICE_API_KEY?.trim() ? "Zero-Retention Live" : "Deterministic Mode"}</b>`,
                   `• Scans Today: <b>${getTgScansTodayCount(state)}</b>${maxScansPerDay > 0 ? ` / ${maxScansPerDay}` : ""}`,
+                  `• Watched Wallets: <b>${listTgWatchedWallets(state, msg.chat.id).length}</b> (in this chat)`,
                   `• Web Auditor: ${escapeTgHtml(appPublicUrl)}/buildcheck`,
                 ].join("\n")
-              : formatTelegramHelpText(config.botUsername);
+              : action.command === "watchlist"
+                ? (() => {
+                    const list = listTgWatchedWallets(state, msg.chat.id);
+                    if (list.length === 0) {
+                      return [
+                        "👁 <b>No wallets watched in this chat yet.</b>",
+                        "",
+                        "Usage: <code>/watch &lt;wallet_address&gt; [chain] [label]</code>",
+                        "Chains: <code>solana</code>, <code>robinhood</code>, <code>ethereum</code>, <code>base</code>, <code>arbitrum</code>",
+                      ].join("\n");
+                    }
+                    const lines = list.map((w, idx) => {
+                      const url = getWatchedWalletExplorerUrl(w.address, w.chain);
+                      const shortAddr = `${w.address.slice(0, 6)}...${w.address.slice(-4)}`;
+                      return `${idx + 1}. <b>${escapeTgHtml(getChainDisplayName(w.chain))}</b> · <a href="${escapeTgHtml(url)}"><code>${escapeTgHtml(shortAddr)}</code></a>${w.label ? ` — ${escapeTgHtml(w.label)}` : ""}${w.lastNativeBalance ? ` (${escapeTgHtml(w.lastNativeBalance)})` : ""}`;
+                    });
+                    return [
+                      `👁 <b>Watched Wallets (${list.length}/12)</b>`,
+                      ...lines,
+                      "",
+                      `Remove with <code>/unwatch &lt;address&gt;</code> · Manage on Web: ${escapeTgHtml(appPublicUrl)}/wallets`,
+                    ].join("\n");
+                  })()
+                : formatTelegramHelpText(config.botUsername);
           await sendTgTextMessage(config, {
             chatId: msg.chat.id,
             replyToMessageId: msg.message_id,
             parseMode: "HTML",
             disableWebPagePreview: true,
             text: replyText,
+          }).catch(() => {});
+          continue;
+        }
+
+        if (action.kind === "watch_wallet") {
+          const norm = normalizeWatchedAddress(action.address, action.chain);
+          if (!norm.valid) {
+            await sendTgTextMessage(config, {
+              chatId: msg.chat.id,
+              replyToMessageId: msg.message_id,
+              parseMode: "HTML",
+              disableWebPagePreview: true,
+              text: "Usage: <code>/watch &lt;Solana_or_0x_wallet&gt; [robinhood|base|eth|solana] [label]</code>",
+            }).catch(() => {});
+            continue;
+          }
+          const initialSnap = await fetchWatchedWalletActivity({
+            address: norm.address,
+            chain: norm.chain,
+          }).catch(() => null);
+          const up = upsertTgWatchedWallet(state, msg.chat.id, {
+            address: norm.address,
+            chain: norm.chain,
+            label: action.label,
+            addedAt: new Date().toISOString(),
+            lastCheckedAt: initialSnap?.checkedAt || null,
+            lastSeenTxHash: initialSnap?.latestTxHash || null,
+            lastSummary: initialSnap?.latestSummary || null,
+            lastNativeBalance: initialSnap?.nativeBalance || null,
+          });
+          saveTgBotState(stateFile, state);
+          if (up.reachedLimit) {
+            await sendTgTextMessage(config, {
+              chatId: msg.chat.id,
+              replyToMessageId: msg.message_id,
+              text: "⚠️ Chat watchlist limit reached (max 12 wallets). Remove one with /unwatch <address>.",
+            }).catch(() => {});
+            continue;
+          }
+          const explorer = getWatchedWalletExplorerUrl(norm.address, norm.chain);
+          await sendTgTextMessage(config, {
+            chatId: msg.chat.id,
+            replyToMessageId: msg.message_id,
+            parseMode: "HTML",
+            disableWebPagePreview: true,
+            text: [
+              `👁 <b>${up.added ? "Added to Watchlist" : "Updated Watchlist"}</b> (${escapeTgHtml(getChainDisplayName(norm.chain))})`,
+              `Wallet: <a href="${escapeTgHtml(explorer)}"><code>${escapeTgHtml(norm.address)}</code></a>`,
+              action.label ? `Label: <b>${escapeTgHtml(action.label)}</b>` : null,
+              initialSnap?.nativeBalance ? `Balance: <b>${escapeTgHtml(initialSnap.nativeBalance)}</b>` : null,
+              initialSnap?.latestSummary ? `Latest: <i>${escapeTgHtml(initialSnap.latestSummary)}</i>` : null,
+              "Alerts will post here when new on-chain moves occur.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          }).catch(() => {});
+          continue;
+        }
+
+        if (action.kind === "unwatch_wallet") {
+          if (!action.address) {
+            await sendTgTextMessage(config, {
+              chatId: msg.chat.id,
+              replyToMessageId: msg.message_id,
+              parseMode: "HTML",
+              text: "Usage: <code>/unwatch &lt;wallet_address&gt;</code>",
+            }).catch(() => {});
+            continue;
+          }
+          const res = removeTgWatchedWallet(state, msg.chat.id, action.address);
+          saveTgBotState(stateFile, state);
+          await sendTgTextMessage(config, {
+            chatId: msg.chat.id,
+            replyToMessageId: msg.message_id,
+            parseMode: "HTML",
+            text: res.removed
+              ? `✅ Stopped watching <code>${escapeTgHtml(action.address)}</code> (${res.count} remaining).`
+              : `ℹ️ <code>${escapeTgHtml(action.address)}</code> was not in this chat's watchlist.`,
           }).catch(() => {});
           continue;
         }
@@ -585,6 +698,57 @@ async function runDaemonLoop(): Promise<void> {
           syncEnabled,
           inFlightChats,
         });
+      }
+      // Periodic background poll for watched wallets across Telegram chats
+      const nowWatchMs = Date.now();
+      if (
+        !stopping &&
+        state.watchedWalletsByChat &&
+        nowWatchMs - lastWalletWatchPollMs >= WALLET_WATCH_INTERVAL_MS
+      ) {
+        lastWalletWatchPollMs = nowWatchMs;
+        const chatEntries = Object.entries(state.watchedWalletsByChat);
+        let checkedInRound = 0;
+        for (const [chatIdKey, walletList] of chatEntries) {
+          if (stopping || checkedInRound >= 8) break;
+          for (const w of walletList) {
+            if (stopping || checkedInRound >= 8) break;
+            checkedInRound += 1;
+            const snap = await fetchWatchedWalletActivity({
+              address: w.address,
+              chain: w.chain,
+              tokenAddress: w.tokenAddress,
+            }).catch(() => null);
+            if (!snap) continue;
+            const prevTx = w.lastSeenTxHash;
+            w.lastCheckedAt = snap.checkedAt;
+            w.lastNativeBalance = snap.nativeBalance || w.lastNativeBalance;
+            w.lastSummary = snap.latestSummary || w.lastSummary;
+            if (snap.latestTxHash && prevTx && snap.latestTxHash !== prevTx) {
+              w.lastSeenTxHash = snap.latestTxHash;
+              const latestEv = snap.events[0];
+              await sendTgTextMessage(config, {
+                chatId: chatIdKey,
+                parseMode: "HTML",
+                disableWebPagePreview: true,
+                text: [
+                  `🚨 <b>Watched Wallet Activity</b> (${escapeTgHtml(getChainDisplayName(w.chain))})`,
+                  `Wallet: <a href="${escapeTgHtml(snap.explorerUrl)}"><code>${escapeTgHtml(w.address)}</code></a>${w.label ? ` · <b>${escapeTgHtml(w.label)}</b>` : ""}`,
+                  snap.latestSummary ? `Action: <b>${escapeTgHtml(snap.latestSummary)}</b>` : null,
+                  snap.nativeBalance ? `Balance: <b>${escapeTgHtml(snap.nativeBalance)}</b>` : null,
+                  latestEv?.explorerUrl
+                    ? `Tx: <a href="${escapeTgHtml(latestEv.explorerUrl)}">${escapeTgHtml(latestEv.txHash.slice(0, 14))}...</a>`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              }).catch(() => {});
+            } else if (snap.latestTxHash && !prevTx) {
+              w.lastSeenTxHash = snap.latestTxHash;
+            }
+          }
+        }
+        saveTgBotState(stateFile, state);
       }
     } catch (err) {
       if (stopping || shutdownController.signal.aborted) {

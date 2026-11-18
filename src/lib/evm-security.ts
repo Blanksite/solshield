@@ -376,6 +376,15 @@ export interface EvmContractSecurityReport {
   sellTaxPct: number | null;
   transferTaxPct: number | null;
   holderCount: number | null;
+  creatorAddress?: string | null;
+  topHolders?: Array<{
+    address: string;
+    tag: string | null;
+    isContract: boolean;
+    balance: string | null;
+    pct: number;
+    isLocked: boolean;
+  }>;
   capabilities: EvmContractCapabilities;
   detectedSelectors: string[];
   riskScore: number;
@@ -674,7 +683,16 @@ interface GoPlusTokenRecord {
   cannot_sell_all?: string;
   slippage_modifiable?: string;
   owner_address?: string;
+  creator_address?: string;
   holder_count?: string;
+  holders?: Array<{
+    address?: string;
+    tag?: string;
+    is_contract?: number;
+    balance?: string;
+    percent?: string;
+    is_locked?: number;
+  }>;
 }
 
 interface HoneypotIsResponse {
@@ -1086,6 +1104,29 @@ export async function inspectEvmContractSecurity(
               : "no public owner() getter"
         }, ${isProxy ? `${proxyType} proxy` : "non-proxy implementation"}, Sourcify=${verifiedSource}.`;
 
+  const creatorAddress =
+    goPlusRec?.creator_address && /^0x[a-f0-9]{40}$/i.test(goPlusRec.creator_address)
+      ? goPlusRec.creator_address
+      : null;
+
+  const topHolders = Array.isArray(goPlusRec?.holders)
+    ? goPlusRec.holders
+        .filter((h) => Boolean(h?.address && /^0x[a-f0-9]{40}$/i.test(h.address)))
+        .slice(0, 15)
+        .map((h) => {
+          const pctRaw = Number(h.percent || "0");
+          const pct = Number.isFinite(pctRaw) ? Number((pctRaw * 100).toFixed(2)) : 0;
+          return {
+            address: h.address!,
+            tag: h.tag?.trim() ? h.tag.trim() : null,
+            isContract: h.is_contract === 1,
+            balance: h.balance ?? null,
+            pct,
+            isLocked: h.is_locked === 1,
+          };
+        })
+    : undefined;
+
   return {
     chainKey: chain.key,
     chainId: chain.chainId,
@@ -1098,6 +1139,7 @@ export async function inspectEvmContractSecurity(
     proxyType,
     implementationAddress,
     ownerAddress: resolvedOwner,
+    creatorAddress,
     ownershipRenounced,
     verifiedSource,
     honeypotStatus,
@@ -1105,6 +1147,7 @@ export async function inspectEvmContractSecurity(
     sellTaxPct,
     transferTaxPct,
     holderCount,
+    topHolders,
     capabilities,
     detectedSelectors: parsed.detectedSelectors,
     riskScore,

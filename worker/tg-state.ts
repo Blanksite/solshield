@@ -1,5 +1,18 @@
 import fs from "node:fs";
+import type { WatchWalletChain } from "../src/lib/wallet-watch-client";
 import { getUtcDateKey, saveJsonAtomic } from "./bot-shared";
+
+export interface TgWatchedWalletEntry {
+  address: string;
+  chain: WatchWalletChain;
+  label?: string;
+  tokenAddress?: string | null;
+  addedAt: string;
+  lastCheckedAt?: string | null;
+  lastSeenTxHash?: string | null;
+  lastSummary?: string | null;
+  lastNativeBalance?: string | null;
+}
 
 export interface TgBotPersistedState {
   botId: number | null;
@@ -8,6 +21,7 @@ export interface TgBotPersistedState {
   processedUpdateIds: number[];
   userLastRunAt: Record<string, number>;
   chatLastRunAt: Record<string, number>;
+  watchedWalletsByChat?: Record<string, TgWatchedWalletEntry[]>;
   scansTodayDate?: string;
   scansTodayCount?: number;
   lastPollAt?: string | null;
@@ -39,6 +53,7 @@ function createEmptyTgState(): TgBotPersistedState {
     processedUpdateIds: [],
     userLastRunAt: {},
     chatLastRunAt: {},
+    watchedWalletsByChat: {},
   };
 }
 
@@ -83,6 +98,10 @@ export function loadTgBotState(stateFilePath: string): TgBotPersistedState {
       chatLastRunAt:
         parsed.chatLastRunAt && typeof parsed.chatLastRunAt === "object"
           ? parsed.chatLastRunAt
+          : {},
+      watchedWalletsByChat:
+        parsed.watchedWalletsByChat && typeof parsed.watchedWalletsByChat === "object"
+          ? parsed.watchedWalletsByChat
           : {},
       scansTodayDate:
         typeof parsed.scansTodayDate === "string"
@@ -157,6 +176,57 @@ export function recordTgUpdateSeen(
   if (state.lastUpdateId === null || updateId > state.lastUpdateId) {
     state.lastUpdateId = updateId;
   }
+}
+
+export function upsertTgWatchedWallet(
+  state: TgBotPersistedState,
+  chatId: string | number,
+  entry: TgWatchedWalletEntry,
+  maxPerChat = 12
+): { added: boolean; count: number; reachedLimit: boolean } {
+  const map = (state.watchedWalletsByChat ||= {});
+  const key = String(chatId);
+  const existingList = Array.isArray(map[key]) ? map[key] : [];
+  const normAddr = entry.chain === "solana" ? entry.address : entry.address.toLowerCase();
+  const idx = existingList.findIndex(
+    (w) =>
+      w.chain === entry.chain &&
+      (w.chain === "solana" ? w.address === normAddr : w.address.toLowerCase() === normAddr)
+  );
+  if (idx >= 0) {
+    existingList[idx] = { ...existingList[idx], ...entry, address: normAddr };
+    map[key] = existingList;
+    return { added: false, count: existingList.length, reachedLimit: false };
+  }
+  if (existingList.length >= maxPerChat) {
+    return { added: false, count: existingList.length, reachedLimit: true };
+  }
+  existingList.push({ ...entry, address: normAddr });
+  map[key] = existingList;
+  return { added: true, count: existingList.length, reachedLimit: false };
+}
+
+export function removeTgWatchedWallet(
+  state: TgBotPersistedState,
+  chatId: string | number,
+  address: string
+): { removed: boolean; count: number } {
+  const map = (state.watchedWalletsByChat ||= {});
+  const key = String(chatId);
+  const list = Array.isArray(map[key]) ? map[key] : [];
+  const lower = address.trim().toLowerCase();
+  const next = list.filter((w) => w.address.toLowerCase() !== lower);
+  map[key] = next;
+  return { removed: next.length < list.length, count: next.length };
+}
+
+export function listTgWatchedWallets(
+  state: TgBotPersistedState,
+  chatId: string | number
+): TgWatchedWalletEntry[] {
+  const map = state.watchedWalletsByChat;
+  if (!map) return [];
+  return Array.isArray(map[String(chatId)]) ? map[String(chatId)] : [];
 }
 
 export type TgScanGuardDecision =

@@ -95,6 +95,7 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
             holders: {
               ...current.chain.deep.holders,
               nodes: current.chain.deep.holders.nodes.slice(0, 15),
+              walletsToWatch: (current.chain.deep.holders.walletsToWatch || []).slice(0, 16),
             },
             devHistory: {
               ...current.chain.deep.devHistory,
@@ -136,6 +137,7 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
                 holders: {
                   ...current.chain.deep.holders,
                   nodes: [],
+                  walletsToWatch: (current.chain.deep.holders.walletsToWatch || []).slice(0, 10),
                   clusters: (current.chain.deep.holders.clusters || [])
                     .slice(0, 5)
                     .map((cluster) => ({
@@ -190,6 +192,7 @@ function serializeWithinSizeBudget(report: BuildCheckReport): string {
                   ...current.chain.deep.holders,
                   nodes: [],
                   clusters: [],
+                  walletsToWatch: (current.chain.deep.holders.walletsToWatch || []).slice(0, 6),
                 },
               }
             : null,

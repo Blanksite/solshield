@@ -1302,6 +1302,14 @@ export default function SolShieldHexaCorePage() {
                   </Link>
                 </Magnet>
                 <Magnet padding={28} magnetStrength={3.2}>
+                  <Link
+                    href="/wallets"
+                    className="hover:opacity-100 transition-opacity cursor-pointer text-sky-400"
+                  >
+                    Watchlist
+                  </Link>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
                   <a
                     href="https://github.com/Blanksite/solshield"
                     target="_blank"
@@ -3973,6 +3981,12 @@ export default function SolShieldHexaCorePage() {
                   className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
                 >
                   Dev Lineage
+                </Link>
+                <Link
+                  href="/wallets"
+                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
+                >
+                  Watchlist
                 </Link>
                 <a
                   href="https://github.com/Blanksite/solshield"

@@ -20,10 +20,13 @@ import {
 import {
   evaluateTgScanGuard,
   getTgScansTodayCount,
+  listTgWatchedWallets,
   loadTgBotState,
   recordTgScanCompleted,
   recordTgUpdateSeen,
+  removeTgWatchedWallet,
   saveTgBotState,
+  upsertTgWatchedWallet,
 } from "../worker/tg-state";
 
 const TEST_TG_CONFIG: TgBotConfig = {
@@ -529,5 +532,61 @@ describe("SolShield Telegram Caption, Inline Keyboard & Safety Guards", () => {
       name: TgApiError.name,
       isConflict: true,
     });
+  });
+
+  it("parses and persists Telegram /watch, /watchlist, and /unwatch commands across Solana & EVM", () => {
+    const solAddr = "CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx";
+    const evmAddr = "0x9db7a7d4a7a2e737fc18d2c4eb7f7a61602bc68f";
+    const dmBase: Omit<TgMessage, "message_id" | "date"> = {
+      chat: { id: 9090, type: "private" },
+      from: { id: 42, is_bot: false },
+    };
+
+    expect(
+      resolveTelegramMessageAction(
+        { ...dmBase, message_id: 1, date: 1000, text: `/watch ${evmAddr} base Smart MM` },
+        "SolShieldTgBot",
+        999
+      )
+    ).toEqual({
+      kind: "watch_wallet",
+      address: evmAddr,
+      chain: "base",
+      label: "Smart MM",
+    });
+
+    expect(
+      resolveTelegramMessageAction(
+        { ...dmBase, message_id: 2, date: 1001, text: "/watchlist" },
+        "SolShieldTgBot",
+        999
+      )
+    ).toEqual({ kind: "command", command: "watchlist" });
+
+    expect(
+      resolveTelegramMessageAction(
+        { ...dmBase, message_id: 3, date: 1002, text: `/unwatch ${solAddr}` },
+        "SolShieldTgBot",
+        999
+      )
+    ).toEqual({ kind: "unwatch_wallet", address: solAddr });
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "solshield-tg-watch-"));
+    const stateFile = path.join(tmpDir, "tg-state.json");
+    const state = loadTgBotState(stateFile);
+
+    const added1 = upsertTgWatchedWallet(state, 9090, {
+      address: evmAddr,
+      chain: "base",
+      label: "Smart MM",
+      addedAt: new Date().toISOString(),
+    });
+    expect(added1).toEqual({ added: true, count: 1, reachedLimit: false });
+    saveTgBotState(stateFile, state);
+
+    const reloaded = loadTgBotState(stateFile);
+    expect(listTgWatchedWallets(reloaded, 9090)).toHaveLength(1);
+    const removed = removeTgWatchedWallet(reloaded, 9090, evmAddr);
+    expect(removed).toEqual({ removed: true, count: 0 });
   });
 });

@@ -60,6 +60,7 @@ export function compactReportForLocalCache(
                 holders: {
                   ...report.chain.deep.holders,
                   nodes: (report.chain.deep.holders.nodes || []).slice(0, 35),
+                  walletsToWatch: (report.chain.deep.holders.walletsToWatch || []).slice(0, 20),
                   clusters: (report.chain.deep.holders.clusters || [])
                     .slice(0, 8)
                     .map((cluster) => ({

@@ -1,5 +1,6 @@
 import { extractEntitiesFromText, parseBuildCheckInput } from "../src/lib/buildcheck/input-parser";
 import type { BuildCheckReport } from "../src/lib/buildcheck/types";
+import { isValidWatchedChain, type WatchWalletChain } from "../src/lib/wallet-watch-client";
 import { formatTokenIdentityLabel } from "./x-client";
 
 const TG_API_BASE = "https://api.telegram.org";
@@ -240,7 +241,14 @@ function pickBestTargetFromTextAndUrls(
 }
 
 export type TelegramMessageAction =
-  | { kind: "command"; command: "help" | "status" }
+  | { kind: "command"; command: "help" | "status" | "watchlist" }
+  | {
+      kind: "watch_wallet";
+      address: string;
+      chain?: WatchWalletChain;
+      label?: string;
+    }
+  | { kind: "unwatch_wallet"; address: string }
   | { kind: "scan"; target: string; forceRefresh?: boolean }
   | { kind: "prompt_for_target" }
   | { kind: "ignore"; reason: string };
@@ -307,6 +315,58 @@ export function resolveTelegramMessageAction(
 
     if (cmd === "status") {
       return { kind: "command", command: "status" };
+    }
+
+    if (cmd === "watchlist" || cmd === "watches") {
+      return { kind: "command", command: "watchlist" };
+    }
+
+    if (cmd === "watch") {
+      const tokens = cmdArg.split(/\s+/).filter(Boolean);
+      const addrToken = tokens[0] || "";
+      const chainAliasMap: Record<string, WatchWalletChain> = {
+        sol: "solana",
+        solana: "solana",
+        rh: "robinhood",
+        robinhood: "robinhood",
+        hood: "robinhood",
+        eth: "ethereum",
+        ethereum: "ethereum",
+        base: "base",
+        arb: "arbitrum",
+        arbitrum: "arbitrum",
+        op: "optimism",
+        optimism: "optimism",
+        poly: "polygon",
+        polygon: "polygon",
+        bsc: "bsc",
+      };
+      let parsedChain: WatchWalletChain | undefined;
+      let labelStartIdx = 1;
+      const secondLower = (tokens[1] || "").toLowerCase();
+      if (secondLower && (chainAliasMap[secondLower] || isValidWatchedChain(secondLower))) {
+        parsedChain = chainAliasMap[secondLower] || (secondLower as WatchWalletChain);
+        labelStartIdx = 2;
+      }
+      const label = tokens.slice(labelStartIdx).join(" ").trim() || undefined;
+      if (addrToken) {
+        return { kind: "watch_wallet", address: addrToken, chain: parsedChain, label };
+      }
+      if (safeReplyTo) {
+        const replyPayload = collectMessagePayloadStrings(safeReplyTo, botUsername);
+        const entities = extractEntitiesFromText(replyPayload.rawText);
+        const replyAddr =
+          entities.solanaAddresses[0] || entities.evmAddresses?.[0] || "";
+        if (replyAddr) {
+          return { kind: "watch_wallet", address: replyAddr, chain: parsedChain, label };
+        }
+      }
+      return { kind: "watch_wallet", address: "" };
+    }
+
+    if (cmd === "unwatch") {
+      const addrToken = cmdArg.split(/\s+/).filter(Boolean)[0] || "";
+      return { kind: "unwatch_wallet", address: addrToken };
     }
 
     if (
@@ -610,6 +670,8 @@ export function formatTelegramHelpText(botUsername?: string): string {
     "<b>Commands:</b>",
     "• <code>/scan &lt;target&gt;</code> — audit a token, repo, website, or X link",
     `• Reply to any message with <code>/scan</code> or <code>${escapeTgHtml(handle)}</code> to audit the target inside it`,
+    "• <code>/watch &lt;wallet&gt; [chain] [label]</code> — get live activity alerts for a Solana or EVM wallet",
+    "• <code>/watchlist</code> · <code>/unwatch &lt;wallet&gt;</code> — view or remove watched wallets",
     "• <code>/status</code> — check bot health &amp; daily stats",
     "• <code>/help</code> — show this guide",
   ].join("\n");
@@ -748,7 +810,10 @@ export async function setTgCommands(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         commands: [
-          { command: "scan", description: "Audit a Solana CA, GitHub repo, website, or X link" },
+          { command: "scan", description: "Audit a token CA, GitHub repo, website, or X link" },
+          { command: "watch", description: "Watch a Solana/EVM wallet for live on-chain moves" },
+          { command: "watchlist", description: "Show wallets currently watched in this chat" },
+          { command: "unwatch", description: "Stop watching a wallet address" },
           { command: "status", description: "Check SolShield bot readiness & daily scan count" },
           { command: "help", description: "Show usage examples and supported targets" },
         ],

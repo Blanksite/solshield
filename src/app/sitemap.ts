@@ -24,6 +24,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.85,
     },
     {
+      url: `${baseUrl}/wallets`,
+      lastModified,
+      changeFrequency: "daily",
+      priority: 0.85,
+    },
+    {
       url: `${baseUrl}/wallet-detox`,
       lastModified,
       changeFrequency: "weekly",

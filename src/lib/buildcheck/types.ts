@@ -176,6 +176,34 @@ export interface HolderAuditCheckRow {
   status: "flag" | "watch" | "clear";
 }
 
+export type WalletWatchCategory =
+  | "early_buyer"
+  | "possible_mm"
+  | "top_holder"
+  | "cabal_linked"
+  | "dev_linked";
+
+export interface WalletToWatchEntry {
+  address: string;
+  chainFamily: "solana" | "evm";
+  chainKey: string;
+  category: WalletWatchCategory;
+  tags: string[];
+  holdingPct: number;
+  acquiredPct?: number | null;
+  soldPct?: number | null;
+  buyCount?: number;
+  sellCount?: number;
+  firstSeenSlotOrBlock?: number | null;
+  entryOffset?: number | null;
+  txCount?: number;
+  isFresh?: boolean;
+  funder?: string | null;
+  confidence: "HIGH" | "MEDIUM" | "HEURISTIC";
+  reason: string;
+  explorerUrl: string;
+}
+
 export interface HoldersDeepAnalysis {
   score: number;
   verdict: "OK" | "SKETCHY" | "RIGGED";
@@ -194,6 +222,9 @@ export interface HoldersDeepAnalysis {
   watchCount: number;
   clearCount: number;
   notes: string[];
+  walletsToWatch?: WalletToWatchEntry[];
+  earlyBuyersCount?: number;
+  possibleMmCount?: number;
 }
 
 export interface DevTxEntry {

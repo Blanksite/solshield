@@ -1,21 +1,34 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   ArrowLeftRight,
   Banknote,
+  Check,
   Coins,
   ExternalLink,
   Flame,
+  Plus,
   Rocket,
   Terminal,
   Wallet,
 } from "lucide-react";
 import type { DevTxEntry, DevWalletHistory } from "@/lib/buildcheck/types";
+import {
+  addOrUpdateLocalWatchedWallet,
+  getWatchedWalletExplorerUrl,
+  makeWatchedWalletId,
+  readLocalWatchedWallets,
+  removeLocalWatchedWallet,
+  WATCHLIST_CHANGED_EVENT,
+  type WatchWalletChain,
+} from "@/lib/wallet-watch-client";
 
 interface DevHistoryPanelProps {
   devHistory: DevWalletHistory;
   symbol?: string | null;
+  chainKey?: WatchWalletChain;
+  tokenAddress?: string | null;
 }
 
 const TX_BADGE: Record<
@@ -54,7 +67,23 @@ const TX_BADGE: Record<
   },
 };
 
-export function DevHistoryPanel({ devHistory, symbol }: DevHistoryPanelProps) {
+export function DevHistoryPanel({
+  devHistory,
+  symbol,
+  chainKey,
+  tokenAddress,
+}: DevHistoryPanelProps) {
+  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const refresh = () => {
+      setWatchedIds(new Set(readLocalWatchedWallets().map((w) => w.id)));
+    };
+    refresh();
+    window.addEventListener(WATCHLIST_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(WATCHLIST_CHANGED_EVENT, refresh);
+  }, []);
+
   if (!devHistory.devAddress) {
     return (
       <div className="py-8 text-center text-xs text-slate-400">
@@ -62,6 +91,12 @@ export function DevHistoryPanel({ devHistory, symbol }: DevHistoryPanelProps) {
       </div>
     );
   }
+
+  const isEvmDev = devHistory.devAddress.startsWith("0x");
+  const resolvedChain: WatchWalletChain =
+    chainKey || (isEvmDev ? "robinhood" : "solana");
+  const devWatchId = makeWatchedWalletId(devHistory.devAddress, resolvedChain);
+  const isDevWatched = watchedIds.has(devWatchId);
 
   const burnCount = devHistory.recentTxs.filter((t) => !t.err && t.action === "burn").length;
   const claimCount = devHistory.recentTxs.filter((t) => !t.err && t.action === "claim").length;
@@ -79,19 +114,58 @@ export function DevHistoryPanel({ devHistory, symbol }: DevHistoryPanelProps) {
           <div className="font-mono text-xs sm:text-sm text-white break-all">
             {devHistory.devAddress}
           </div>
-          <a
-            href={`https://solscan.io/account/${devHistory.devAddress}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-[#84A7FF] hover:text-white transition-colors"
-          >
-            Inspect on Solscan <ExternalLink className="w-3 h-3" />
-          </a>
+          <div className="flex flex-wrap items-center gap-3 pt-0.5">
+            <a
+              href={getWatchedWalletExplorerUrl(devHistory.devAddress, resolvedChain)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-[#84A7FF] hover:text-white transition-colors"
+            >
+              {isEvmDev ? "Inspect on Explorer" : "Inspect on Solscan"}{" "}
+              <ExternalLink className="w-3 h-3" />
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                if (isDevWatched) {
+                  removeLocalWatchedWallet(devHistory.devAddress!, resolvedChain);
+                } else {
+                  addOrUpdateLocalWatchedWallet({
+                    address: devHistory.devAddress!,
+                    chain: resolvedChain,
+                    tag: "dev_linked",
+                    tokenSymbol: symbol,
+                    tokenAddress,
+                    label: `${symbol ? `$${symbol} · ` : ""}Dev / Creator`,
+                  });
+                }
+              }}
+              className={`px-2.5 py-0.5 rounded border text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors ${
+                isDevWatched
+                  ? "border-emerald-500/45 bg-emerald-500/15 text-emerald-300"
+                  : "border-[#2934FF]/50 bg-[#2934FF]/20 text-white hover:bg-[#2934FF]/35"
+              }`}
+            >
+              {isDevWatched ? (
+                <>
+                  <Check className="w-3 h-3" />
+                  <span>Watching Dev</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3 h-3" />
+                  <span>Watch Dev Wallet</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="sm:col-span-6 grid grid-cols-3 divide-x divide-white/[0.06]">
           <div className="p-4 flex flex-col justify-center">
-            <span className="text-[11px] text-slate-400">SOL Balance</span>
+            <span className="text-[11px] text-slate-400">
+              {isEvmDev ? "Native Balance" : "SOL Balance"}
+            </span>
             <span className="mt-1 font-mono tabular-nums text-sm font-semibold text-white">
               {devHistory.solBalance !== null ? `${devHistory.solBalance} SOL` : "—"}
             </span>
