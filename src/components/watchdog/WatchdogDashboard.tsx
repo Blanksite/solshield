@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import {
   Activity,
   AlertTriangle,
@@ -174,7 +175,7 @@ export default function WatchdogDashboard() {
   const ghostingCount = projects.filter((p) => p.status === "GHOSTING").length;
 
   return (
-    <div className="min-h-screen bg-[#06080E] text-slate-100">
+    <div className="solshield-subpage min-h-screen bg-[#06080E] text-slate-100">
       <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#06080E]/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -224,6 +225,7 @@ export default function WatchdogDashboard() {
               />
               <span>Re-Probe All</span>
             </button>
+            <ThemeToggleButton />
           </div>
         </div>
       </header>

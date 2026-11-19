@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import {
   Activity,
   ArrowLeft,
@@ -261,7 +262,7 @@ export default function WalletTrackerPanel() {
 
   return (
     <ClickSpark sparkColor="#2934FF" sparkSize={10} sparkRadius={18} sparkCount={8}>
-      <div className="min-h-screen bg-[#07080D] text-white selection:bg-[#2934FF] selection:text-white relative overflow-x-clip">
+      <div className="solshield-subpage min-h-screen bg-[#07080D] text-white selection:bg-[#2934FF] selection:text-white relative overflow-x-clip">
         <InteractiveDotGrid
           className="opacity-30"
           baseColor="rgba(148, 163, 184, 0.25)"
@@ -316,22 +317,25 @@ export default function WalletTrackerPanel() {
               </Link>
             </div>
 
-            <button
-              type="button"
-              onClick={() => void refreshLiveActivity()}
-              disabled={isRefreshingAll || wallets.length === 0}
-              className="px-3.5 min-h-[38px] rounded-lg bg-[#2934FF] hover:bg-[#1E28E6] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-45 shrink-0 transition-colors shadow-[0_6px_18px_rgba(41,52,255,0.28)]"
-            >
-              {isRefreshingAll ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3.5 h-3.5" />
-              )}
-              <span>
-                <span className="hidden sm:inline">Refresh Live Activity</span>
-                <span className="sm:hidden">Refresh</span>
-              </span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void refreshLiveActivity()}
+                disabled={isRefreshingAll || wallets.length === 0}
+                className="px-3.5 min-h-[38px] rounded-lg bg-[#2934FF] hover:bg-[#1E28E6] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-45 shrink-0 transition-colors shadow-[0_6px_18px_rgba(41,52,255,0.28)]"
+              >
+                {isRefreshingAll ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  <span className="hidden sm:inline">Refresh Live Activity</span>
+                  <span className="sm:hidden">Refresh</span>
+                </span>
+              </button>
+              <ThemeToggleButton className="h-[38px] w-[38px]" />
+            </div>
           </div>
         </header>
 

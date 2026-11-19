@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import {
   Activity,
   AlertTriangle,
@@ -1658,7 +1659,7 @@ export default function BuildCheckWorkbench({
 
   return (
     <ClickSpark sparkColor="#60A5FA" sparkRadius={24} sparkCount={8} sparkSize={9}>
-      <div className="relative min-h-screen bg-[#07080D] text-[#F8F8FA] selection:bg-[#2934FF] selection:text-white overflow-x-hidden">
+      <div className="solshield-subpage relative min-h-screen bg-[#07080D] text-[#F8F8FA] selection:bg-[#2934FF] selection:text-white overflow-x-hidden">
         {/* Subtle Backdrop DotGrid — isolated behind opaque panels */}
         <div className="pointer-events-none fixed inset-0 z-0 opacity-40">
           <InteractiveDotGrid />
@@ -1784,6 +1785,8 @@ export default function BuildCheckWorkbench({
                   {veniceApiKey.trim() ? "Venice Key Active" : "Venice BYOK"}
                 </span>
               </button>
+
+              <ThemeToggleButton />
             </div>
           </div>
 

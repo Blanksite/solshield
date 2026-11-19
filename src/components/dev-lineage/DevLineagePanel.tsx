@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -299,7 +300,7 @@ export default function DevLineagePanel({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 relative overflow-hidden">
+    <div className="solshield-subpage min-h-screen bg-zinc-950 text-zinc-100 relative overflow-hidden">
       {/* Background Grid */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.03]">
         <InteractiveDotGrid
@@ -328,9 +329,12 @@ export default function DevLineagePanel({
               />
             </h1>
           </div>
-          <span className="ml-auto text-[10px] text-zinc-500 font-mono">
-            SolShield® × Venice AI
-          </span>
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden sm:inline text-[10px] text-zinc-500 font-mono">
+              SolShield® × Venice AI
+            </span>
+            <ThemeToggleButton />
+          </div>
         </div>
       </header>
 

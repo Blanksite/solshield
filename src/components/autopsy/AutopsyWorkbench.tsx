@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import {
   ArrowLeft,
   FileWarning,
@@ -89,7 +90,7 @@ export default function AutopsyWorkbench() {
   }
 
   return (
-    <div className="min-h-screen bg-[#06080E] text-slate-100">
+    <div className="solshield-subpage min-h-screen bg-[#06080E] text-slate-100">
       <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#06080E]/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
@@ -109,26 +110,29 @@ export default function AutopsyWorkbench() {
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-2">
-            <Link
-              href="/wallets"
-              className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05]"
-            >
-              Wallets
-            </Link>
-            <Link
-              href="/watchdog"
-              className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05]"
-            >
-              Watchdog
-            </Link>
-            <Link
-              href="/agent-firewall"
-              className="px-2.5 py-1 rounded-md text-xs text-sky-300 hover:bg-sky-500/10 border border-sky-500/25"
-            >
-              Agent MCP
-            </Link>
-          </nav>
+          <div className="flex items-center gap-2 shrink-0">
+            <nav className="hidden md:flex items-center gap-2">
+              <Link
+                href="/wallets"
+                className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05]"
+              >
+                Wallets
+              </Link>
+              <Link
+                href="/watchdog"
+                className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05]"
+              >
+                Watchdog
+              </Link>
+              <Link
+                href="/agent-firewall"
+                className="px-2.5 py-1 rounded-md text-xs text-sky-300 hover:bg-sky-500/10 border border-sky-500/25"
+              >
+                Agent MCP
+              </Link>
+            </nav>
+            <ThemeToggleButton />
+          </div>
         </div>
       </header>
 

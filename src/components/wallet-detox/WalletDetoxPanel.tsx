@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import { Transaction } from "@solana/web3.js";
 import {
   AlertTriangle,
@@ -516,7 +517,7 @@ export default function WalletDetoxPanel({
 
   return (
     <ClickSpark sparkColor="#2934FF" sparkSize={10} sparkRadius={18} sparkCount={8}>
-      <div className="min-h-screen bg-[#0A0A0C] text-[#F4F6FB] selection:bg-[#2934FF] selection:text-white relative overflow-x-clip">
+      <div className="solshield-subpage min-h-screen bg-[#0A0A0C] text-[#F4F6FB] selection:bg-[#2934FF] selection:text-white relative overflow-x-clip">
         <InteractiveDotGrid
           className="opacity-35"
           baseColor="rgba(148, 163, 184, 0.28)"
@@ -593,6 +594,8 @@ export default function WalletDetoxPanel({
                   {veniceApiKey.trim() ? "Venice Active" : "Venice BYOK"}
                 </span>
               </button>
+
+              <ThemeToggleButton />
             </div>
           </div>
 

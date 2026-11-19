@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -162,7 +163,7 @@ export default function AgentFirewallPanel() {
   }
 
   return (
-    <div className="min-h-screen bg-[#06080E] text-slate-100">
+    <div className="solshield-subpage min-h-screen bg-[#06080E] text-slate-100">
       {/* Top Bar */}
       <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#06080E]/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
@@ -183,32 +184,35 @@ export default function AgentFirewallPanel() {
             </div>
           </div>
 
-          <nav className="hidden md:flex items-center gap-2">
-            <Link
-              href="/wallets"
-              className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05] transition-colors"
-            >
-              Wallets
-            </Link>
-            <Link
-              href="/watchdog"
-              className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05] transition-colors"
-            >
-              Watchdog
-            </Link>
-            <Link
-              href="/autopsy"
-              className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05] transition-colors"
-            >
-              Rug Autopsy
-            </Link>
-            <Link
-              href="/wallet-detox"
-              className="px-2.5 py-1 rounded-md text-xs text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/25 transition-colors"
-            >
-              Wallet Detox
-            </Link>
-          </nav>
+          <div className="flex items-center gap-2 shrink-0">
+            <nav className="hidden md:flex items-center gap-2">
+              <Link
+                href="/wallets"
+                className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05] transition-colors"
+              >
+                Wallets
+              </Link>
+              <Link
+                href="/watchdog"
+                className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05] transition-colors"
+              >
+                Watchdog
+              </Link>
+              <Link
+                href="/autopsy"
+                className="px-2.5 py-1 rounded-md text-xs text-slate-300 hover:text-white hover:bg-white/[0.05] transition-colors"
+              >
+                Rug Autopsy
+              </Link>
+              <Link
+                href="/wallet-detox"
+                className="px-2.5 py-1 rounded-md text-xs text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/25 transition-colors"
+              >
+                Wallet Detox
+              </Link>
+            </nav>
+            <ThemeToggleButton />
+          </div>
         </div>
       </header>
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Shield, Lock, ArrowLeft, Download, ExternalLink } from "lucide-react";
+import ThemeToggleButton from "@/components/ThemeToggleButton";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — SolShield Browser Guard & Protocol",
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPolicyPage() {
   return (
-    <main className="min-h-screen bg-[#07090F] text-[#F1F5F9] px-5 sm:px-8 py-12 selection:bg-[#2934FF] selection:text-white">
+    <main className="solshield-subpage min-h-screen bg-[#07090F] text-[#F1F5F9] px-5 sm:px-8 py-12 selection:bg-[#2934FF] selection:text-white">
       <div className="max-w-3xl mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-8 border-b border-white/10">
           <Link
@@ -23,9 +24,12 @@ export default function PrivacyPolicyPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>Back to sol-shield.xyz</span>
           </Link>
-          <span className="text-[12px] font-mono uppercase tracking-[0.08em] px-3 py-1 border border-white/15 text-slate-300">
-            Last Updated: Nov 14, 2026
-          </span>
+          <div className="flex items-center gap-2.5">
+            <span className="text-[12px] font-mono uppercase tracking-[0.08em] px-3 py-1 border border-white/15 text-slate-300">
+              Last Updated: Nov 14, 2026
+            </span>
+            <ThemeToggleButton />
+          </div>
         </div>
 
         <header className="mt-8 mb-10">

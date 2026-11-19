@@ -31,23 +31,23 @@ import {
   SerializedInstructionArtifact,
   submitPolicyArtifactWithWallet,
 } from "@/lib/anchor-vault";
-import FooterWordmark from "@/components/FooterWordmark";
+import SolShieldNavbar from "@/components/landing/SolShieldNavbar";
+import UltraModernBento from "@/components/landing/UltraModernBento";
+import ArchitecturalProofStrip from "@/components/landing/ArchitecturalProofStrip";
+import SiteFooter from "@/components/landing/SiteFooter";
 import {
   DecryptedText,
   BlurText,
   Magnet,
   TiltedCard,
-  SpotlightCard,
   ClickSpark,
   CobaltSphere3D,
   DitherVeil,
 } from "@/components/reactbits";
 import {
   Search,
-  Menu,
+  ArrowRight,
   ArrowUpRight,
-  Sun,
-  Moon,
   Key,
   Check,
   Copy,
@@ -67,7 +67,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Layers,
-  ArrowUp,
   Shield,
 } from "lucide-react";
 
@@ -201,36 +200,6 @@ function VeniceAiLogo({ className = "w-5 h-5" }: { className?: string }) {
   );
 }
 
-function HexaCoreLogoMark() {
-  return (
-    <div className="relative group">
-      <img
-        src="/logo.jpg"
-        alt="SolShield Logo"
-        className="w-9 h-9 rounded-xl object-cover shrink-0 border border-white/20 shadow-md group-hover:scale-105 transition-transform"
-      />
-      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-[#0A0A0C] animate-pulse" />
-    </div>
-  );
-}
-
-function BuiltInVeniceBadge({ className = "" }: { className?: string }) {
-  return (
-    <a
-      href="https://github.com/veniceai/builtinvenice/pull/194"
-      target="_blank"
-      rel="noreferrer"
-      title="Official Built in Venice Directory"
-      className={`inline-flex items-center gap-2 bg-[#0A0E18] hover:bg-[#0F172A] border border-[#1E293B] hover:border-[#E05A2D]/70 rounded-full px-3 sm:px-3.5 py-1.5 transition-all select-none shadow-[0_2px_12px_rgba(0,0,0,0.5)] group shrink-0 whitespace-nowrap ${className}`}
-    >
-      <VeniceAiLogo className="w-4 h-4 text-[#E05A2D] group-hover:scale-110 transition-transform shrink-0" />
-      <span className="text-[11.5px] sm:text-[12px] font-mono uppercase tracking-[0.08em] text-white/90 group-hover:text-white transition-colors">
-        BUILT IN <span className="text-[#E05A2D] font-semibold">VENICE</span>
-      </span>
-    </a>
-  );
-}
-
 function CobaltPixelCluster() {
   return (
     <svg
@@ -324,10 +293,10 @@ export default function SolShieldHexaCorePage() {
   const [copiedBlinkUrl, setCopiedBlinkUrl] = useState<boolean>(false);
   const [revokeStatus, setRevokeStatus] = useState<"IDLE" | "BUILT">("IDLE");
 
-  // Workbench Mode: Tx Firewall & Token Auditor
-  const [technicalMode, setTechnicalMode] = useState<"payload" | "token">(
-    "payload"
-  );
+  // Unified Command Studio Mode: Tx Firewall, Token Audit, Intent, Vault & Blinks
+  const [technicalMode, setTechnicalMode] = useState<
+    "payload" | "token" | "intent" | "vault" | "blinks"
+  >("payload");
   const [tokenMintInput, setTokenMintInput] = useState<string>("");
   const [tokenScanLoading, setTokenScanLoading] = useState<boolean>(false);
   const [tokenScanError, setTokenScanError] = useState<string | null>(null);
@@ -348,7 +317,7 @@ export default function SolShieldHexaCorePage() {
     {
       role: "assistant",
       content:
-        "SolShield Adaptive AI Guard online. Paste any Solana Mainnet address (Token Mint, Program ID, Wallet) or an 88-char Transaction Signature (txHash) below for a live Mainnet RPC & zero-retention Venice AI inspection.",
+        "SolShield Adaptive AI Guard online. Paste any Solana address (Token Mint, Program ID, Wallet) or an 88-char Transaction Signature (txHash) below for live RPC & zero-retention Venice AI inspection.",
       privacyProof: {
         provider: "Venice AI (Zero-Retention)",
         model: "llama-3.3-70b",
@@ -575,13 +544,12 @@ export default function SolShieldHexaCorePage() {
   const toggleTheme = () => {
     const nextDark = !darkMode;
     setDarkMode(nextDark);
-    if (nextDark) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("solshield_theme_v3", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("solshield_theme_v3", "light");
-    }
+    document.documentElement.classList.toggle("dark", nextDark);
+    document.documentElement.dataset.theme = nextDark ? "dark" : "light";
+    localStorage.setItem("solshield_theme_v3", nextDark ? "dark" : "light");
+    window.dispatchEvent(
+      new CustomEvent("solshield-theme-change", { detail: { darkMode: nextDark } })
+    );
   };
 
   const connectBrowserWallet = async () => {
@@ -963,17 +931,20 @@ export default function SolShieldHexaCorePage() {
   };
 
   const scrollToVaultSide = () => {
-    const el = document.getElementById("policy-vault") || document.getElementById("vault-side");
+    setTechnicalMode("vault");
+    const el = document.getElementById("technical-side");
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
   const scrollToBlinksSide = () => {
-    const el = document.getElementById("blinks-studio") || document.getElementById("vault-side");
+    setTechnicalMode("blinks");
+    const el = document.getElementById("technical-side");
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
   const scrollToIntentSide = () => {
-    const el = document.getElementById("intent-copilot") || document.getElementById("vault-side");
+    setTechnicalMode("intent");
+    const el = document.getElementById("technical-side");
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
@@ -989,178 +960,153 @@ export default function SolShieldHexaCorePage() {
     <ClickSpark sparkColor="#2934FF" sparkRadius={26} sparkCount={8} className="min-h-screen">
       <div id="top" className="hexacore-canvas min-h-screen font-sans">
         {/* ====================================================================
-            PROTOCOL LAUNCH STRIP — Official CA & Verified Ecosystem Links
+            PROTOCOL LAUNCH STRIP — Official CA & Verified On-Chain Links
             ==================================================================== */}
-        <div className="border-b border-current/15 px-6 sm:px-10 xl:px-14 py-2.5 text-[12px] font-mono">
-          {TOKEN_CONFIG.isLive ? (
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <span className="inline-flex items-center gap-2 font-semibold tracking-[0.08em] uppercase">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        <div
+          className={`w-full border-b transition-colors ${
+            darkMode
+              ? "bg-[#06080E] border-white/10 text-[#D7DCE8]"
+              : "bg-[#FAF9F6] border-black/10 text-[#262624]"
+          }`}
+        >
+          <div className="max-w-[1440px] mx-auto px-5 sm:px-8 xl:px-12 py-2 text-[11.5px] font-mono">
+            {TOKEN_CONFIG.isLive ? (
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="inline-flex items-center gap-2 font-semibold tracking-[0.08em] uppercase">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                    </span>
+                    {TOKEN_CONFIG.symbol} OFFICIAL CA
                   </span>
-                  {TOKEN_CONFIG.symbol} OFFICIAL CA:
-                </span>
-                <span
-                  title={TOKEN_CONFIG.ca}
-                  className="px-2 py-0.5 border border-current/20 bg-current/[0.04] tracking-[0.04em]"
-                >
-                  {TOKEN_CONFIG.shortCa ?? TOKEN_CONFIG.ca}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(TOKEN_CONFIG.ca);
-                    setCopiedLaunchCa(true);
-                    window.setTimeout(() => setCopiedLaunchCa(false), 2000);
-                  }}
-                  className="px-2 py-0.5 border border-current/20 hover:border-[#2934FF] hover:text-[#2934FF] transition-colors uppercase tracking-[0.06em]"
-                >
-                  {copiedLaunchCa ? "Copied ✓" : "Copy CA"}
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
-                {TOKEN_CONFIG.links.pumpfun && (
-                  <a
-                    href={TOKEN_CONFIG.links.pumpfun}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="hover:text-[#2934FF] transition-colors"
+                  <span
+                    title={TOKEN_CONFIG.ca}
+                    className={`px-2 py-0.5 rounded-md border tracking-[0.04em] ${
+                      darkMode
+                        ? "border-white/15 bg-white/[0.04] text-white/90"
+                        : "border-black/15 bg-white text-[#141413]"
+                    }`}
                   >
-                    Pump.fun ↗
-                  </a>
-                )}
-                {TOKEN_CONFIG.links.dexscreener && (
-                  <a
-                    href={TOKEN_CONFIG.links.dexscreener}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="hover:text-[#2934FF] transition-colors"
-                  >
-                    DexScreener ↗
-                  </a>
-                )}
-                {TOKEN_CONFIG.links.solscan && (
-                  <a
-                    href={TOKEN_CONFIG.links.solscan}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="hover:text-[#2934FF] transition-colors"
-                  >
-                    Solscan ↗
-                  </a>
-                )}
-                <a
-                  href="/downloads/solshield-browser-guard-v0.3.0.zip"
-                  download
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Extension ZIP
-                </a>
-                <a
-                  href="/privacy"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Privacy Policy
-                </a>
-                <a
-                  href={TOKEN_CONFIG.links.x}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  {TOKEN_CONFIG.xHandle} ↗
-                </a>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="inline-flex items-center gap-2 font-semibold tracking-[0.08em] uppercase">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2934FF] opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2934FF]" />
+                    {TOKEN_CONFIG.shortCa ?? TOKEN_CONFIG.ca}
                   </span>
-                  {TOKEN_CONFIG.symbol}
-                </span>
-                <span className="opacity-75 tracking-[0.05em]">
-                  PRE-LAUNCH // OFFICIAL CA PUBLISHED HERE UPON RELEASE · PRA-RILIS // CA RESMI AKAN DIPASANG DI SINI
-                </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(TOKEN_CONFIG.ca);
+                      setCopiedLaunchCa(true);
+                      window.setTimeout(() => setCopiedLaunchCa(false), 2000);
+                    }}
+                    className={`px-2 py-0.5 rounded-md border transition-colors uppercase tracking-[0.06em] cursor-pointer ${
+                      darkMode
+                        ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF] hover:text-white"
+                        : "border-black/15 bg-white hover:border-[#2934FF] hover:text-[#2934FF]"
+                    }`}
+                  >
+                    {copiedLaunchCa ? "Copied ✓" : "Copy CA"}
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
+                  <a
+                    href="https://www.geckoterminal.com/solana/pools/GNGFarHeFPxxmtACQxF52YGWV5z6qC5eyG7p6LEoFx6W"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    GeckoTerminal ↗
+                  </a>
+                  <a
+                    href="https://rugcheck.xyz/tokens/CMYb1BRKQyJBVRkrFdATB14PM62JbULzHsgbozGs2Sqx"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    RugCheck ↗
+                  </a>
+                  {TOKEN_CONFIG.links.solscan && (
+                    <a
+                      href={TOKEN_CONFIG.links.solscan}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="hover:text-[#2934FF] transition-colors"
+                    >
+                      Solscan ↗
+                    </a>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
-                <a
-                  href="#technical-side"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Mainnet Firewall Live ↗
-                </a>
-                <a
-                  href="/downloads/solshield-browser-guard-v0.3.0.zip"
-                  download
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Extension ZIP
-                </a>
-                <a
-                  href="/privacy"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Privacy Policy
-                </a>
-                <a
-                  href={TOKEN_CONFIG.links.x}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  {TOKEN_CONFIG.xHandle} ↗
-                </a>
-                <a
-                  href={TOKEN_CONFIG.links.github}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  GitHub ↗
-                </a>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="inline-flex items-center gap-2 font-semibold tracking-[0.08em] uppercase">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2934FF] opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2934FF]" />
+                    </span>
+                    {TOKEN_CONFIG.symbol}
+                  </span>
+                  <span className="opacity-75 tracking-[0.05em]">
+                    PRE-LAUNCH // OFFICIAL CA PUBLISHED HERE UPON RELEASE
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 opacity-85">
+                  <a
+                    href="#technical-side"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    Firewall Live ↗
+                  </a>
+                  <a
+                    href={TOKEN_CONFIG.links.github}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#2934FF] transition-colors"
+                  >
+                    GitHub ↗
+                  </a>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
+
+        {/* ====================================================================
+            GLOBAL STICKY HEADER — Single-Row 4-Item Nav + Products Mega-Menu
+            ==================================================================== */}
+        <SolShieldNavbar
+          lang={lang}
+          onToggleLang={() => setLang(lang === "en" ? "id" : "en")}
+          darkMode={darkMode}
+          onToggleTheme={toggleTheme}
+          connectedWallet={connectedWallet}
+          isRealWalletConnected={isRealWalletConnected}
+          onConnectWallet={connectBrowserWallet}
+          walletNotice={walletNotice}
+          onOpenKeyModal={() => setShowKeyModal(true)}
+          onOpenTxFirewall={() => {
+            setTechnicalMode("payload");
+            scrollToTechnicalSide();
+          }}
+          onOpenTokenAudit={() => {
+            setTechnicalMode("token");
+            scrollToTechnicalSide();
+          }}
+          onOpenVault={scrollToVaultSide}
+          onOpenBlinks={scrollToBlinksSide}
+        />
 
         {/* ====================================================================
             SECTION 01 — HERO (1:1 HALO LAB "HEXACORE — ADAPTIVE AI GUARD" GRID)
             3 Full-Height Architectural Columns separated by crisp hairlines
             ==================================================================== */}
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] min-h-screen hexacore-hairline-b">
+        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] min-h-[calc(100vh-4rem)] hexacore-hairline-b">
           {/* ------------------------------------------------------------------
-              COLUMN 1 (LEFT) — Brand Mark + "Adaptive AI [●] Guard" + Social Proof
+              COLUMN 1 (LEFT) — "Adaptive AI [●] Guard" + Social Proof
               ------------------------------------------------------------------ */}
           <div className="flex flex-col justify-between hexacore-hairline-r px-8 sm:px-12 xl:px-14 py-9">
-            {/* Top Brand Header */}
-            <div className="flex items-center justify-between gap-3">
-              <a
-                href="#top"
-                onClick={(e) => {
-                  e.preventDefault();
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="inline-flex items-center gap-2.5 group focus:outline-none"
-              >
-                <HexaCoreLogoMark />
-                <span className="text-[21px] font-medium tracking-[-0.03em]">
-                  SolShield
-                  <sup className="text-[11px] font-normal ml-0.5 opacity-75">
-                    ®
-                  </sup>
-                </span>
-              </a>
-              <BuiltInVeniceBadge />
-            </div>
-
             {/* Center Editorial Headline: "Adaptive / AI [Orb] / Guard" */}
-            <div className="my-auto py-14">
+            <div className="my-auto py-10">
               <h1 className="text-[54px] sm:text-[64px] xl:text-[74px] font-normal leading-[1.03] tracking-[-0.04em] select-none">
                 <span className="block">
                   <BlurText text="Adaptive" delay={60} />
@@ -1225,127 +1171,9 @@ export default function SolShieldHexaCorePage() {
           </div>
 
           {/* ------------------------------------------------------------------
-              COLUMN 2 (CENTER MONOLITH) — Top Nav + Dither Veil + Call To Action
+              COLUMN 2 (CENTER MONOLITH) — Interactive Dither Veil + Call To Action
               ------------------------------------------------------------------ */}
           <div className="flex flex-col justify-between hexacore-hairline-r hexacore-canvas text-current relative overflow-hidden">
-            {/* Top Navigation Band */}
-            <div className="px-6 sm:px-8 pt-9 pb-5 z-20">
-              <nav className="flex flex-wrap items-center justify-center gap-x-5 sm:gap-x-6 gap-y-2 text-[15px] font-medium tracking-[-0.01em] opacity-85">
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <button
-                    onClick={() => {
-                      setTechnicalMode("payload");
-                      scrollToTechnicalSide();
-                    }}
-                    className="hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    {lang === "en" ? "Tx Firewall" : "Firewall Tx"}
-                  </button>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <button
-                    onClick={scrollToVaultSide}
-                    className="hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    Vault
-                  </button>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <button
-                    onClick={scrollToBlinksSide}
-                    className="hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    Blinks
-                  </button>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <button
-                    onClick={() => {
-                      setTechnicalMode("token");
-                      scrollToTechnicalSide();
-                    }}
-                    className="hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    {lang === "en" ? "Token Audit" : "Cek Token"}
-                  </button>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <a
-                    href="#browser-guard"
-                    className="hover:opacity-100 transition-opacity cursor-pointer"
-                  >
-                    Extension
-                  </a>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/buildcheck"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-[#60a5fa]"
-                  >
-                    BuildCheck
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/wallet-detox"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-emerald-400"
-                  >
-                    Wallet Detox
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/dev-lineage"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-purple-400"
-                  >
-                    Dev Lineage
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/wallets"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-sky-400"
-                  >
-                    Watchlist
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/watchdog"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-emerald-300"
-                  >
-                    Watchdog
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/autopsy"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-rose-300"
-                  >
-                    Autopsy
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <Link
-                    href="/agent-firewall"
-                    className="hover:opacity-100 transition-opacity cursor-pointer text-sky-300"
-                  >
-                    Agent MCP
-                  </Link>
-                </Magnet>
-                <Magnet padding={28} magnetStrength={3.2}>
-                  <a
-                    href="https://github.com/Blanksite/solshield"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="hover:opacity-100 transition-opacity"
-                  >
-                    GitHub
-                  </a>
-                </Magnet>
-              </nav>
-            </div>
-
             {/* Center Interactive Dither Veil */}
             <div className="relative w-full flex-1 flex flex-col items-center">
               <div className="relative w-full h-[64vh] sm:h-[68vh] xl:h-[72vh] min-h-[520px] overflow-hidden select-none bg-[#0A0A0C]">
@@ -1394,33 +1222,52 @@ export default function SolShieldHexaCorePage() {
             </div>
 
             {/* Lower Monolith Section */}
-            <div className="px-8 sm:px-12 pb-10 pt-1 flex flex-col items-center text-center mt-auto relative z-20">
-              <div className="relative w-full flex items-center justify-center my-3">
-                <div className="absolute inset-x-0 h-px bg-current/15" />
-                <Magnet padding={48} magnetStrength={2.5}>
+            <div className="px-6 sm:px-10 pb-8 pt-3 flex flex-col items-center text-center mt-auto relative z-20">
+              <div className="relative w-full flex flex-wrap items-center justify-center gap-2.5 my-1">
+                <Magnet padding={36} magnetStrength={2.2}>
                   <button
+                    type="button"
                     onClick={() => {
                       setTechnicalMode("payload");
                       scrollToTechnicalSide();
                     }}
-                    className="relative z-10 bg-[#2934FF] hover:bg-[#1E27E6] active:scale-[0.99] text-white px-10 py-4 text-[16px] font-semibold tracking-[-0.01em] transition-all shadow-[0_12px_28px_rgba(41,52,255,0.35)] cursor-pointer"
+                    className="relative z-10 rounded-xl bg-[#2934FF] hover:bg-[#1E27E6] active:scale-[0.99] text-white px-7 py-3.5 text-[14.5px] font-semibold tracking-[-0.01em] transition-all shadow-[0_10px_26px_rgba(41,52,255,0.34)] cursor-pointer whitespace-nowrap"
                   >
                     {lang === "en" ? "Launch Tx Firewall" : "Buka Tx Firewall"}
                   </button>
                 </Magnet>
+                <Link
+                  href="/buildcheck"
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-5 py-3.5 text-[14px] font-medium transition-colors whitespace-nowrap ${
+                    darkMode
+                      ? "border-white/15 bg-white/[0.03] text-[#E4E7EE] hover:border-[#2934FF] hover:text-white"
+                      : "border-black/15 bg-white text-[#141413] hover:border-[#2934FF] hover:text-[#2934FF]"
+                  }`}
+                >
+                  <span>BuildCheck</span>
+                  <ArrowUpRight className="w-4 h-4 opacity-70" />
+                </Link>
               </div>
 
-              <div className="mt-5">
-                <span className="inline-block border border-current/30 rounded-full px-4 py-1 text-[12px] font-semibold uppercase tracking-[0.08em] opacity-85">
-                  {lang === "en" ? "BUILT IN VENICE · ZERO-LOG AI" : "BUILT IN VENICE · AI TANPA RETENSI"}
+              <div className="mt-4">
+                <span
+                  className={`inline-block border rounded-full px-3.5 py-1 text-[11px] font-mono font-semibold uppercase tracking-[0.08em] ${
+                    darkMode
+                      ? "border-white/15 bg-white/[0.03] text-[#A8B0BC]"
+                      : "border-black/15 bg-white text-[#4D4C49]"
+                  }`}
+                >
+                  {lang === "en"
+                    ? "BUILT IN VENICE · ZERO-LOG AI"
+                    : "BUILT IN VENICE · AI TANPA RETENSI"}
                 </span>
               </div>
 
-              <div className="mt-3.5">
+              <div className="mt-3">
                 <CobaltPixelCluster />
               </div>
 
-              <h2 className="mt-3 text-[26px] sm:text-[30px] xl:text-[34px] font-normal leading-[1.15] tracking-[-0.03em] max-w-[380px]">
+              <h2 className="mt-2.5 text-[22px] sm:text-[25px] xl:text-[28px] font-medium leading-[1.18] tracking-[-0.025em] max-w-[390px]">
                 <DecryptedText
                   text={activeStage.statement}
                   speed={18}
@@ -1432,74 +1279,11 @@ export default function SolShieldHexaCorePage() {
           </div>
 
           {/* ------------------------------------------------------------------
-              COLUMN 3 (RIGHT) — Top Controls + 5-Stage Wheel + 3D Hardware Card
+              COLUMN 3 (RIGHT) — 5-Stage Wheel + Live Security Radar Card
               ------------------------------------------------------------------ */}
           <div className="flex flex-col justify-between px-8 sm:px-12 xl:px-14 py-9">
-            {/* Top Right Utility Controls */}
-            <div>
-              <div className="flex items-center justify-end gap-3">
-                {/* Connect Wallet Button */}
-                <button
-                  onClick={connectBrowserWallet}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-current/20 hover:border-[#2934FF] text-[12.5px] font-medium uppercase tracking-[0.06em] transition-colors cursor-pointer"
-                  title="Connect Phantom / Solflare (Read-Only)"
-                >
-                  <Wallet className="w-4 h-4 text-[#2934FF]" />
-                  <span>
-                    {isRealWalletConnected
-                      ? `${connectedWallet.slice(0, 4)}..${connectedWallet.slice(
-                          -4
-                        )}`
-                      : "Connect"}
-                  </span>
-                </button>
-
-                {/* Language Switch */}
-                <button
-                  onClick={() => setLang(lang === "en" ? "id" : "en")}
-                  className="text-[12.5px] font-mono uppercase tracking-[0.1em] opacity-80 hover:opacity-100 transition-opacity px-2.5 py-1.5 cursor-pointer"
-                  title="Switch Language (EN / ID)"
-                >
-                  {lang.toUpperCase()}
-                </button>
-
-                {/* Light / Dark Mode Toggle */}
-                <button
-                  onClick={toggleTheme}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-current/20 text-[12.5px] font-medium uppercase tracking-[0.06em] opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
-                  title="Toggle Dark / Light Mode"
-                >
-                  {darkMode ? (
-                    <>
-                      <Sun className="w-4 h-4 text-amber-400" />
-                      <span>Light</span>
-                    </>
-                  ) : (
-                    <>
-                      <Moon className="w-4 h-4 text-[#2934FF]" />
-                      <span>Dark</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Menu Icon -> Opens Venice AI Key Modal */}
-                <button
-                  onClick={() => setShowKeyModal(true)}
-                  className="p-1.5 opacity-85 hover:opacity-100 transition-opacity cursor-pointer"
-                  title="Configure Venice AI Key"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-              </div>
-              {walletNotice && (
-                <p className="mt-2 text-right text-[13px] font-sans text-amber-400">
-                  {walletNotice}
-                </p>
-              )}
-            </div>
-
             {/* Center 5-Stage Vertical Typographic Wheel */}
-            <div className="my-auto py-14 flex flex-col items-center justify-center select-none">
+            <div className="my-auto py-10 flex flex-col items-center justify-center select-none">
               <ul className="flex flex-col items-center space-y-1.5 sm:space-y-2">
                 {GUARD_STAGES.map((stage, idx) => {
                   const distance = Math.abs(idx - activeStageIdx);
@@ -1548,7 +1332,7 @@ export default function SolShieldHexaCorePage() {
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                       </span>
                       <span className="text-[12px] font-mono uppercase tracking-[0.08em] text-emerald-400 font-semibold">
-                        MAINNET LIVE
+                        FIREWALL ACTIVE
                       </span>
                     </div>
                     <span className="text-[12px] font-mono text-white/70">
@@ -1602,7 +1386,7 @@ export default function SolShieldHexaCorePage() {
                   <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-white/10 relative z-10">
                     <div>
                       <span className="text-[11px] font-mono text-white/65 block">
-                        SLOT TELEMETRY
+                        RPC TELEMETRY
                       </span>
                       <span className="text-[13.5px] font-mono text-white font-medium">
                         {liveSlot !== null
@@ -1634,1173 +1418,455 @@ export default function SolShieldHexaCorePage() {
         </section>
 
         {/* ====================================================================
-            BUILT IN VENICE REGISTERED CAPABILITIES STRIP
-            Spotlights the exact 4 pillars registered at veniceai/builtinvenice
+            ACT I — ASYMMETRIC SMOKED-GLASS SECURITY SUITE BENTO
             ==================================================================== */}
-        <section
-          aria-label="Built in Venice Registered Architecture"
-          className="hexacore-hairline-b"
-        >
-          <div className="px-8 sm:px-12 xl:px-14 py-4 border-b border-current/10 flex flex-wrap items-center justify-between gap-3 text-[12.5px] font-mono uppercase tracking-[0.1em]">
-            <div className="flex items-center gap-2">
-              <VeniceAiLogo className="w-4 h-4 text-[#E05A2D]" />
-              <span className="opacity-85">
-                {lang === "en"
-                  ? "BUILT IN VENICE // REGISTERED PROTOCOL ARCHITECTURE"
-                  : "BUILT IN VENICE // ARSITEKTUR PROTOKOL TERDAFTAR"}
-              </span>
-            </div>
-            <a
-              href="https://github.com/veniceai/builtinvenice/pull/194"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-[#2934FF] hover:underline font-semibold"
-            >
-              <span>veniceai/builtinvenice #194</span>
-              <ArrowUpRight className="w-4 h-4" />
-            </a>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-current/10">
-            <button
-              type="button"
-              onClick={() => {
-                setTechnicalMode("payload");
-                scrollToTechnicalSide();
-              }}
-              className="text-left px-8 sm:px-10 py-8 hover:bg-current/[0.03] transition-colors group cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    01 // TX FIREWALL
-                  </span>
-                  <ArrowUpRight className="w-4 h-4 opacity-55 group-hover:opacity-100 group-hover:text-[#2934FF] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
-                </div>
-                <h3 className="text-[20px] font-medium tracking-[-0.02em] mb-2">
-                  Pre-Sign Bytecode Decompiler
-                </h3>
-                <p className="text-[14.5px] opacity-80 leading-[1.6]">
-                  Decodes Legacy &amp; V0 Solana payloads to catch{" "}
-                  <code className="font-mono text-[13.5px]">SetAuthority</code> hijacks,
-                  unlimited approvals &amp; Token-2022 hooks.
-                </p>
-              </div>
-              <span className="mt-5 text-[12px] font-sans font-semibold uppercase tracking-[0.06em] opacity-75 group-hover:text-[#2934FF] group-hover:opacity-100">
-                OPEN FIREWALL SANDBOX →
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={scrollToIntentSide}
-              className="text-left px-8 sm:px-10 py-8 hover:bg-current/[0.03] transition-colors group cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    02 // VENICE ZERO-LOG AI
-                  </span>
-                  <ArrowUpRight className="w-4 h-4 opacity-55 group-hover:opacity-100 group-hover:text-[#2934FF] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
-                </div>
-                <h3 className="text-[20px] font-medium tracking-[-0.02em] mb-2">
-                  Private Reasoning &amp; Intent Copilot
-                </h3>
-                <p className="text-[14.5px] opacity-80 leading-[1.6]">
-                  Zero-data-retention <code className="font-mono text-[13.5px]">llama-3.3-70b</code>{" "}
-                  audits, BYOK privacy &amp; plain-English DeFi swap compiler.
-                </p>
-              </div>
-              <span className="mt-5 text-[12px] font-sans font-semibold uppercase tracking-[0.06em] opacity-75 group-hover:text-[#2934FF] group-hover:opacity-100">
-                TRY INTENT COPILOT →
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={scrollToVaultSide}
-              className="text-left px-8 sm:px-10 py-8 hover:bg-current/[0.03] transition-colors group cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    03 // POLICY VAULT (DEVNET BETA)
-                  </span>
-                  <ArrowUpRight className="w-4 h-4 opacity-55 group-hover:opacity-100 group-hover:text-[#2934FF] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
-                </div>
-                <h3 className="text-[20px] font-medium tracking-[-0.02em] mb-2">
-                  On-Chain SecurityPolicy PDA
-                </h3>
-                <p className="text-[14.5px] opacity-80 leading-[1.6]">
-                  Optional Devnet Beta Anchor module paired with our Mainnet Tx
-                  Firewall — enforces 24h spend caps &amp; 1-click Emergency Freeze.
-                </p>
-              </div>
-              <span className="mt-5 text-[12px] font-sans font-semibold uppercase tracking-[0.06em] opacity-75 group-hover:text-[#2934FF] group-hover:opacity-100">
-                CONFIGURE PDA VAULT →
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={scrollToBlinksSide}
-              className="text-left px-8 sm:px-10 py-8 hover:bg-current/[0.03] transition-colors group cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    04 // BLINKS &amp; REVOKER
-                  </span>
-                  <ArrowUpRight className="w-4 h-4 opacity-55 group-hover:opacity-100 group-hover:text-[#2934FF] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
-                </div>
-                <h3 className="text-[20px] font-medium tracking-[-0.02em] mb-2">
-                  Blinks Inspector &amp; Tag 5 Revoke
-                </h3>
-                <p className="text-[14.5px] opacity-80 leading-[1.6]">
-                  Spec-compliant <code className="font-mono text-[13.5px]">/api/actions/audit-swap</code>{" "}
-                  pre-flight check &amp; 1-click SPL Delegate Authority revoker.
-                </p>
-              </div>
-              <span className="mt-5 text-[12px] font-sans font-semibold uppercase tracking-[0.06em] opacity-75 group-hover:text-[#2934FF] group-hover:opacity-100">
-                OPEN BLINKS STUDIO →
-              </span>
-            </button>
-          </div>
-        </section>
+        <UltraModernBento
+          lang={lang}
+          darkMode={darkMode}
+          onOpenTxFirewall={() => {
+            setTechnicalMode("payload");
+            scrollToTechnicalSide();
+          }}
+          onOpenIntent={scrollToIntentSide}
+          onOpenVault={scrollToVaultSide}
+        />
 
         {/* ====================================================================
-            SECTION 02 — TECHNICAL SIDE (INTERACTIVE SOLANA FIREWALL & VENICE AI)
+            ACT II — FLOATING SMOKED-GLASS COMMAND STUDIO WORKBENCH
+            Unified 5-Tab Cohesive Dark/Light 2-Pane Pro Security Terminal
             ==================================================================== */}
         <section
           id="technical-side"
-          className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] min-h-screen hexacore-hairline-b"
+          aria-label="SolShield Live Security Command Studio"
+          className={`relative w-full transition-colors overflow-x-clip ${
+            darkMode
+              ? "bg-[#06080E] text-[#F4F6FA]"
+              : "bg-[#FAF9F6] text-[#141413]"
+          }`}
         >
-          {/* COLUMN 1 (LEFT) — 01 // PAYLOAD SCENARIOS & LIVE RPC ACCOUNT/TX SCANNER */}
-          <SpotlightCard
-            spotlightColor="rgba(41, 52, 255, 0.14)"
-            className="hexacore-hairline-r px-8 sm:px-12 xl:px-14 py-12 flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-6">
-                <span className="text-[12.5px] font-mono uppercase tracking-[0.09em] text-[#2934FF] font-semibold">
-                  {technicalMode === "token"
-                    ? "01 // SPL & TOKEN-2022"
-                    : "01 // PRE-SIGN TX FIREWALL"}
-                </span>
-                <span className="text-[12px] font-mono opacity-70 whitespace-nowrap shrink-0">
-                  SOLANA MAINNET
-                </span>
-              </div>
+          {/* Subtle Electric Cobalt studio backlight behind floating frame */}
+          {darkMode && (
+            <div
+              className="pointer-events-none absolute top-16 left-1/2 -translate-x-1/2 w-[780px] max-w-[92vw] h-[320px] rounded-full opacity-[0.14] blur-[110px]"
+              style={{ background: "#2934FF" }}
+            />
+          )}
 
-              {/* Clean Segmented Mode Switcher (Tx Firewall Primary, Token Audit Secondary) */}
-              <div className="grid grid-cols-2 border border-current/20 mb-7 p-1 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setTechnicalMode("payload")}
-                  className={`py-2.5 px-3 text-[13px] font-sans font-semibold uppercase tracking-[0.04em] transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-                    technicalMode === "payload"
-                      ? "bg-[#2934FF] text-white"
-                      : "opacity-75 hover:opacity-100"
+          <div className="relative z-10 max-w-[1440px] mx-auto px-5 sm:px-8 xl:px-12 py-10 sm:py-12">
+            {/* Section Eyebrow */}
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">
+              <div>
+                <div className="inline-flex items-center gap-2 text-[11.5px] font-mono uppercase tracking-[0.12em] text-[#2934FF] font-semibold mb-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>
+                    {lang === "en"
+                      ? "INTERACTIVE COMMAND STUDIO · LIVE RPC ENGINE"
+                      : "STUDIO KOMANDO INTERAKTIF · MESIN RPC LIVE"}
+                  </span>
+                </div>
+                <h2 className="text-[26px] sm:text-[32px] font-semibold tracking-[-0.03em] leading-tight">
+                  {lang === "en"
+                    ? "Simulate, decode, and verify before signing."
+                    : "Simulasi, decode, dan verifikasi sebelum sign."}
+                </h2>
+              </div>
+              <p
+                className={`text-[13.5px] max-w-md ${
+                  darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                }`}
+              >
+                {lang === "en"
+                  ? "Every pre-sign tool in one cohesive workspace — zero data retention powered by Venice AI."
+                  : "Seluruh alat keamanan pra-sign dalam satu ruang kerja terpadu — zero data retention oleh Venice AI."}
+              </p>
+            </div>
+
+            {/* Floating Smoked-Glass Application Window */}
+            <div
+              className={`relative rounded-2xl border overflow-hidden ${
+                darkMode
+                  ? "bg-[#0B0E17] border-white/15 shadow-[0_28px_80px_rgba(0,0,0,0.68)]"
+                  : "bg-[#FFFFFF] border-black/15 shadow-[0_20px_56px_rgba(10,10,12,0.08)]"
+              }`}
+            >
+              {/* Luminous 1px top specular highlight */}
+              {darkMode && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#2934FF]/75 to-transparent" />
+              )}
+
+              {/* Studio Top Bar: Frosted Segmented Pill Switcher + Live Slot + BYOK */}
+              <div
+                className={`px-5 sm:px-7 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${
+                  darkMode
+                    ? "border-white/10 bg-[#080B13]"
+                    : "border-black/10 bg-[#F4F3EF]"
+                }`}
+              >
+                {/* 5 Frosted Workspace Tabs */}
+                <div
+                  role="tablist"
+                  aria-label="Security Workbench Modes"
+                  className={`inline-flex flex-wrap items-center gap-1 p-1 rounded-xl border ${
+                    darkMode
+                      ? "bg-white/[0.03] border-white/10"
+                      : "bg-black/[0.03] border-black/10"
                   }`}
                 >
-                  <Layers className="w-4 h-4" />
-                  <span>Tx Firewall</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTechnicalMode("token")}
-                  className={`py-2.5 px-3 text-[13px] font-sans font-semibold uppercase tracking-[0.04em] transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
-                    technicalMode === "token"
-                      ? "bg-[#2934FF] text-white"
-                      : "opacity-75 hover:opacity-100"
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Token Audit</span>
-                </button>
-              </div>
-
-              {technicalMode === "token" ? (
-                <>
-                  <h3 className="text-[32px] sm:text-[38px] font-normal tracking-[-0.035em] leading-[1.08] mb-3">
-                    {lang === "en" ? "Scan Token CA" : "Cek CA Token"}
-                  </h3>
-                  <p className="text-[15px] opacity-80 leading-[1.6] mb-6">
-                    {lang === "en"
-                      ? "Paste any Solana Token Mint CA to verify Mint/Freeze authorities, Token-2022 hooks, and top holder concentration live on Mainnet."
-                      : "Tempel CA token Solana mana pun untuk memeriksa otoritas Mint/Freeze, hook Token-2022, dan konsentrasi top holder langsung dari Mainnet."}
-                  </p>
-
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      runTokenScan();
-                    }}
-                    className="space-y-3 mb-6"
-                  >
-                    <input
-                      type="text"
-                      value={tokenMintInput}
-                      onChange={(e) => setTokenMintInput(e.target.value)}
-                      placeholder="Paste Solana Token Mint CA (SPL / Token-2022)"
-                      className="w-full px-3.5 py-3 text-[14px] font-mono bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={tokenScanLoading}
-                      className="w-full bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-50 text-white py-3.5 text-[13.5px] font-sans font-semibold uppercase tracking-[0.06em] transition-colors cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <Search className="w-4 h-4" />
-                      <span>
-                        {tokenScanLoading
-                          ? "QUERYING MAINNET MINT..."
-                          : "SCAN TOKEN CA ↗"}
-                      </span>
-                    </button>
-                  </form>
-
-                  {tokenScanError && (
-                    <div className="mb-6 p-3.5 border border-red-500/40 bg-red-500/10 text-red-400 text-[13.5px] leading-relaxed">
-                      {tokenScanError}
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2.5">
-                      <span className="text-[12px] font-mono uppercase tracking-[0.1em] opacity-75">
-                        {lang === "en"
-                          ? `RECENTLY SCANNED TOKENS (${scannedTokens.length})`
-                          : `TOKEN BARU DI-SCAN (${scannedTokens.length})`}
-                      </span>
-                      {scannedTokens.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleClearLocalScannedTokens}
-                          className="text-[11px] font-mono uppercase text-[#6B78FF] hover:underline cursor-pointer"
-                        >
-                          CLEAR LOCAL
-                        </button>
-                      )}
-                    </div>
-
-                    {scannedTokens.length > 0 ? (
-                      <div className="max-h-[300px] overflow-y-auto divide-y divide-current/15 border border-current/15">
-                        {scannedTokens.slice(0, 12).map((tok) => {
-                          const isSelected =
-                            tokenScanReport?.mintAddress === tok.mintAddress ||
-                            tokenMintInput.trim() === tok.mintAddress;
-                          const badgeClass = isSelected
-                            ? "border-white/50 text-white"
-                            : tok.classification === "CRITICAL"
-                              ? "border-red-500/50 text-red-400"
-                              : tok.classification === "CAUTION"
-                                ? "border-amber-500/50 text-amber-300"
-                                : "border-emerald-500/50 text-emerald-400";
-                          return (
-                            <button
-                              key={tok.mintAddress}
-                              type="button"
-                              onClick={() => runTokenScan(tok.mintAddress)}
-                              className={`w-full p-3 text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
-                                isSelected
-                                  ? "bg-[#2934FF] text-white"
-                                  : "hover:bg-current/5"
-                              }`}
-                            >
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[14.5px] font-mono font-semibold truncate">
-                                    {tok.symbol
-                                      ? `$${tok.symbol}`
-                                      : `${tok.mintAddress.slice(0, 5)}...${tok.mintAddress.slice(-4)}`}
-                                  </span>
-                                  {tok.verifiedIssuer && (
-                                    <span
-                                      className={`text-[10.5px] font-mono uppercase px-1.5 py-0.5 border ${
-                                        isSelected
-                                          ? "border-white/40 text-white"
-                                          : "border-emerald-500/40 text-emerald-400"
-                                      }`}
-                                    >
-                                      {tok.verifiedIssuer}
-                                    </span>
-                                  )}
-                                  {tok.scanCount > 1 && (
-                                    <span
-                                      className={`text-[10.5px] font-mono ${
-                                        isSelected ? "text-white/80" : "opacity-65"
-                                      }`}
-                                    >
-                                      ×{tok.scanCount}
-                                    </span>
-                                  )}
-                                </div>
-                                <div
-                                  className={`text-[11.5px] font-mono mt-1 truncate ${
-                                    isSelected ? "text-white/80" : "opacity-70"
-                                  }`}
-                                >
-                                  {tok.mintAddress.slice(0, 6)}...
-                                  {tok.mintAddress.slice(-4)} · {tok.tokenProgram} ·{" "}
-                                  {tok.source}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span
-                                  className={`text-[11px] font-mono font-semibold uppercase px-2 py-0.5 border ${badgeClass}`}
-                                >
-                                  {tok.classification} {tok.riskScore}/100
-                                </span>
-                                <ArrowUpRight className="w-3.5 h-3.5 opacity-75" />
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="p-4 border border-dashed border-current/25 text-[13px] font-sans leading-relaxed opacity-80 space-y-2.5">
-                        <p>
-                          {scannedTokensLoading
-                            ? lang === "id"
-                              ? "Memuat riwayat token yang sudah pernah diaudit..."
-                              : "Loading previously audited tokens..."
-                            : lang === "id"
-                              ? "Belum ada token yang di-scan. Tempel Mint CA di atas untuk menjalankan audit Mainnet pertama Anda."
-                              : "No tokens scanned yet. Paste a Solana Token Mint CA above to run your first live Mainnet audit."}
-                        </p>
-                        <Link
-                          href="/buildcheck"
-                          className="inline-flex items-center gap-1 text-[12px] font-mono text-[#6B78FF] hover:underline"
-                        >
-                          <span>
-                            {lang === "id"
-                              ? "Atau buka BuildCheck AI Forensics ↗"
-                              : "Or open BuildCheck AI Forensics ↗"}
-                          </span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h3 className="text-[32px] sm:text-[38px] font-normal tracking-[-0.035em] leading-[1.08] mb-3">
-                    {lang === "en" ? "Inspect Tx or Blink" : "Periksa Tx atau Blink"}
-                  </h3>
-                  <p className="text-[15px] opacity-80 leading-[1.6] mb-5">
-                    {lang === "en"
-                      ? "Paste a Base64 Solana transaction, Solana Action (Blink) URL, or Token Mint CA to decode instructions, simulate Mainnet RPC balance deltas, and run zero-retention Venice AI risk scoring."
-                      : "Tempel transaksi Solana Base64, URL Solana Action (Blink), atau Mint CA token untuk mendecode instruksi, simulasi saldo Mainnet RPC, dan skor risiko Venice AI."}
-                  </p>
-
-                  {/* Input Type Selector: Base64 Tx vs Blink URL */}
-                  <div className="grid grid-cols-2 border border-current/20 mb-4 p-1 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayloadInputMode("base64");
-                        setAuditError(null);
-                      }}
-                      className={`py-2 px-2.5 text-[12px] font-mono uppercase tracking-[0.05em] transition-colors cursor-pointer ${
-                        payloadInputMode === "base64"
-                          ? "bg-[#2934FF] text-white font-semibold"
-                          : "opacity-75 hover:opacity-100"
-                      }`}
-                    >
-                      Base64 Tx
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayloadInputMode("blink");
-                        setAuditError(null);
-                      }}
-                      className={`py-2 px-2.5 text-[12px] font-mono uppercase tracking-[0.05em] transition-colors cursor-pointer ${
-                        payloadInputMode === "blink"
-                          ? "bg-[#2934FF] text-white font-semibold"
-                          : "opacity-75 hover:opacity-100"
-                      }`}
-                    >
-                      Blink Action URL
-                    </button>
-                  </div>
-
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      runPayloadAudit();
-                    }}
-                    className="space-y-3"
-                  >
-                    {payloadInputMode === "base64" ? (
-                      <textarea
-                        rows={4}
-                        value={txPayloadInput}
-                        onChange={(e) => setTxPayloadInput(e.target.value)}
-                        placeholder={
-                          lang === "en"
-                            ? "Paste serialized Legacy or Versioned (V0) Base64 transaction..."
-                            : "Tempel transaksi Base64 Legacy atau Versioned (V0)..."
-                        }
-                        className="w-full p-3.5 text-[13.5px] font-mono bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none leading-relaxed"
-                      />
-                    ) : (
-                      <input
-                        type="url"
-                        value={txPayloadInput}
-                        onChange={(e) => setTxPayloadInput(e.target.value)}
-                        placeholder="https://... or solana-action:https://..."
-                        className="w-full px-3.5 py-3 text-[14px] font-mono bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none"
-                      />
-                    )}
-
-                    <input
-                      type="text"
-                      value={txSignerInput}
-                      onChange={(e) => setTxSignerInput(e.target.value)}
-                      placeholder={
-                        lang === "en"
-                          ? "Optional Signer / Account Pubkey (uses connected wallet if blank)"
-                          : "Opsional: Pubkey Penanda Tangan (pakai wallet terhubung jika kosong)"
-                      }
-                      className="w-full px-3.5 py-2.5 text-[13px] font-mono bg-transparent border border-current/20 focus:border-[#2934FF] focus:outline-none"
-                    />
-
-                    <label className="flex items-center gap-2.5 text-[12.5px] font-mono opacity-85 cursor-pointer select-none pt-0.5">
-                      <input
-                        type="checkbox"
-                        checked={simulateRpc}
-                        onChange={(e) => setSimulateRpc(e.target.checked)}
-                        className="accent-[#2934FF] w-4 h-4 cursor-pointer"
-                      />
-                      <span>
-                        {lang === "en"
-                          ? "Simulate on Solana Mainnet RPC (balance deltas & token audit)"
-                          : "Simulasi di Solana Mainnet RPC (perubahan saldo & audit token)"}
-                      </span>
-                    </label>
-
-                    <div className="flex gap-2">
+                  {(
+                    [
+                      { id: "payload", label: "Tx Firewall", icon: Layers },
+                      { id: "token", label: "Token Audit", icon: ShieldCheck },
+                      { id: "intent", label: "Intent Copilot", icon: Sparkles },
+                      { id: "vault", label: "Policy Vault", icon: Lock },
+                      { id: "blinks", label: "Blinks", icon: Share2 },
+                    ] as const
+                  ).map((tab) => {
+                    const Icon = tab.icon;
+                    const active = technicalMode === tab.id;
+                    return (
                       <button
-                        type="submit"
-                        disabled={isAuditing || !txPayloadInput.trim()}
-                        className="flex-1 bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-50 text-white py-3.5 px-4 text-[13.5px] font-sans font-semibold uppercase tracking-[0.06em] transition-colors cursor-pointer flex items-center justify-center gap-2"
+                        key={tab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setTechnicalMode(tab.id)}
+                        className={`inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-lg text-[13px] font-medium transition-all cursor-pointer whitespace-nowrap ${
+                          active
+                            ? darkMode
+                              ? "bg-[#182038] text-white border border-white/15 shadow-[0_2px_10px_rgba(41,52,255,0.22)]"
+                              : "bg-[#2934FF] text-white shadow-sm"
+                            : darkMode
+                              ? "text-[#8E98AD] hover:text-white border border-transparent"
+                              : "text-[#575653] hover:text-[#141413] border border-transparent"
+                        }`}
                       >
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>
-                          {isAuditing
-                            ? "AUDITING PAYLOAD..."
-                            : lang === "en"
-                              ? "INSPECT & AUDIT TX ↗"
-                              : "PERIKSA & AUDIT TX ↗"}
-                        </span>
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span>{tab.label}</span>
                       </button>
-                      {(txPayloadInput || hasActiveTxAudit || auditError) && (
+                    );
+                  })}
+                </div>
+
+                {/* Live Telemetry & BYOK Controls */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11.5px] font-mono whitespace-nowrap ${
+                      darkMode
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                        : "border-emerald-600/30 bg-emerald-50 text-emerald-800"
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>
+                      {liveSlot !== null
+                        ? `SLOT #${liveSlot.toLocaleString("en-US")}`
+                        : "RPC SYNC"}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowKeyModal(true)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11.5px] font-mono transition-colors cursor-pointer whitespace-nowrap ${
+                      darkMode
+                        ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF] text-[#E4E7EE]"
+                        : "border-black/15 bg-white hover:border-[#2934FF] text-[#141413]"
+                    }`}
+                  >
+                    <Key className="w-3.5 h-3.5 text-[#2934FF]" />
+                    <span>{veniceApiKey ? "Key Active" : "BYOK Key"}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ==============================================================
+                  UNIFIED 2-PANE WORKSPACE INTERIOR (COHESIVE OBSIDIAN / PAPER)
+                  ============================================================== */}
+              <div
+                className={`grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x ${
+                  darkMode ? "divide-white/10" : "divide-black/10"
+                }`}
+              >
+                {/* ------------------------------------------------------------
+                    LEFT PANE (5 COLS) — INPUTS, CONTROLS & PRESETS
+                    ------------------------------------------------------------ */}
+                <div
+                  className={`lg:col-span-5 p-5 sm:p-6 flex flex-col justify-between gap-5 ${
+                    darkMode ? "bg-[#0A0D16]" : "bg-[#FFFFFF]"
+                  }`}
+                >
+                  {/* TAB 1: TX FIREWALL INPUTS */}
+                  {technicalMode === "payload" && (
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="text-[22px] sm:text-[24px] font-semibold tracking-[-0.025em]">
+                          {lang === "en"
+                            ? "Pre-Sign Sandbox"
+                            : "Sandbox Pra-Sign"}
+                        </h3>
+                        <p
+                          className={`text-[13.5px] mt-1 leading-relaxed ${
+                            darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                          }`}
+                        >
+                          {lang === "en"
+                            ? "Decode Legacy or V0 Solana transactions, inspect Blink URLs, and simulate real on-chain balance deltas before signing."
+                            : "Decode transaksi Legacy/V0 Solana, cek URL Blink, dan simulasi perubahan saldo on-chain sebelum sign."}
+                        </p>
+                      </div>
+
+                      {/* Segmented Input Mode Pill */}
+                      <div
+                        className={`inline-grid grid-cols-2 w-full p-1 rounded-xl border gap-1 ${
+                          darkMode
+                            ? "bg-white/[0.03] border-white/10"
+                            : "bg-black/[0.03] border-black/10"
+                        }`}
+                      >
                         <button
                           type="button"
                           onClick={() => {
-                            setTxPayloadInput("");
+                            setPayloadInputMode("base64");
                             setAuditError(null);
-                            setSimulationReport(null);
-                            setRpcSimulationReport(null);
-                            setBlinkInspectionMeta(null);
-                            setAuditResult(null);
-                            setLastAuditedTarget("");
-                            setWalletStatus("PENDING");
                           }}
-                          className="px-4 py-3.5 border border-current/25 hover:border-[#2934FF] text-[12.5px] font-mono uppercase cursor-pointer"
+                          className={`py-2 px-3 rounded-lg text-[12px] font-mono uppercase tracking-[0.05em] transition-colors cursor-pointer ${
+                            payloadInputMode === "base64"
+                              ? "bg-[#2934FF] text-white font-semibold"
+                              : darkMode
+                                ? "text-[#8E98AD] hover:text-white"
+                                : "text-[#575653] hover:text-black"
+                          }`}
                         >
-                          CLEAR
+                          Base64 Tx
                         </button>
-                      )}
-                    </div>
-                  </form>
-
-                  {auditError && (
-                    <div className="mt-4 p-3.5 border border-red-500/40 bg-red-500/10 text-red-400 text-[13.5px] leading-relaxed">
-                      {auditError}
-                    </div>
-                  )}
-
-                  <div className="mt-4 pt-4 border-t border-current/15 flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11.5px] font-mono uppercase tracking-[0.06em] opacity-70">
-                      {lang === "en" ? "LIVE MAINNET TEST" : "UJI LANGSUNG MAINNET"}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={isAuditing}
-                      onClick={() => {
-                        const actionUrl = getLiveAuditSwapBlinkUrl("0.5");
-                        setPayloadInputMode("blink");
-                        setTxPayloadInput(actionUrl);
-                        void runPayloadAudit({ mode: "blink", payload: actionUrl });
-                      }}
-                      className="px-3 py-1.5 border border-[#2934FF]/55 bg-[#2934FF]/10 hover:bg-[#2934FF] hover:text-white text-[#6B78FF] text-[11.5px] font-mono font-semibold uppercase tracking-[0.04em] transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {isAuditing
-                        ? "AUDITING BLINK..."
-                        : "Inspect Live 0.5 SOL Jupiter Blink ↗"}
-                    </button>
-                  </div>
-
-                  {scannedTokens.length > 0 && (
-                    <div className="mt-6 pt-5 border-t border-current/15">
-                      <div className="flex items-center justify-between gap-2 mb-2.5">
-                        <span className="text-[11.5px] font-mono uppercase tracking-[0.08em] opacity-75">
-                          RECENTLY SCANNED TOKENS ({scannedTokens.length})
-                        </span>
                         <button
                           type="button"
-                          onClick={() => setTechnicalMode("token")}
-                          className="text-[11.5px] font-mono text-[#6B78FF] hover:underline cursor-pointer"
+                          onClick={() => {
+                            setPayloadInputMode("blink");
+                            setAuditError(null);
+                          }}
+                          className={`py-2 px-3 rounded-lg text-[12px] font-mono uppercase tracking-[0.05em] transition-colors cursor-pointer ${
+                            payloadInputMode === "blink"
+                              ? "bg-[#2934FF] text-white font-semibold"
+                              : darkMode
+                                ? "text-[#8E98AD] hover:text-white"
+                                : "text-[#575653] hover:text-black"
+                          }`}
                         >
-                          VIEW ALL ↗
+                          Blink Action URL
                         </button>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {scannedTokens.slice(0, 4).map((tok) => (
-                          <button
-                            key={tok.mintAddress}
-                            type="button"
-                            onClick={() => {
-                              setTechnicalMode("token");
-                              runTokenScan(tok.mintAddress);
-                            }}
-                            className="px-2.5 py-1.5 border border-current/20 hover:border-[#2934FF] text-[11.5px] font-mono flex items-center gap-1.5 cursor-pointer transition-colors"
-                          >
-                            <span className="font-semibold">
-                              {tok.symbol
-                                ? `$${tok.symbol}`
-                                : `${tok.mintAddress.slice(0, 4)}..${tok.mintAddress.slice(-3)}`}
-                            </span>
-                            <span
-                              className={
-                                tok.classification === "CRITICAL"
-                                  ? "text-red-400"
-                                  : tok.classification === "CAUTION"
-                                    ? "text-amber-300"
-                                    : "text-emerald-400"
-                              }
-                            >
-                              {tok.riskScore}/100
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
 
-            {/* Bottom: Live Solana Mainnet RPC Address OR Transaction Signature X-Ray */}
-            <div className="mt-12 pt-8 hexacore-hairline-t">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <span className="text-[12.5px] font-mono uppercase tracking-[0.07em] opacity-80 font-medium">
-                  ADDRESS / TX X-RAY
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-[12px] font-mono text-emerald-500 whitespace-nowrap shrink-0">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  {liveSlot !== null
-                    ? `SLOT #${liveSlot.toLocaleString("en-US")}`
-                    : "SYNCING RPC..."}
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-2.5">
-                <input
-                  type="text"
-                  value={agentAddress}
-                  onChange={(e) => setAgentAddress(e.target.value)}
-                  placeholder="Paste Solana Address or 88-char Tx Signature..."
-                  className="w-full px-3.5 py-3 text-[14px] font-mono bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none"
-                />
-                <button
-                  onClick={() =>
-                    sendAgentQuery(
-                      `Inspect ${agentAddress.trim()} on Solana Mainnet and verify its owner program, transaction status, and safety.`
-                    )
-                  }
-                  disabled={agentLoading || !agentAddress.trim()}
-                  className="w-full bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-50 text-white py-3.5 text-[13.5px] font-sans font-semibold uppercase tracking-[0.06em] transition-colors cursor-pointer"
-                >
-                  {agentLoading
-                    ? "QUERYING SOLANA RPC..."
-                    : "SCAN MAINNET ADDRESS / TX ↗"}
-                </button>
-              </div>
-            </div>
-          </SpotlightCard>
-
-          {/* COLUMN 2 (CENTER MONOLITH) — 02 // TOKEN X-RAY OR PRE-SIGN SANDBOX */}
-          {technicalMode === "token" ? (
-            <div className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between min-w-0">
-              <div>
-                <div className="flex items-center justify-between gap-3 pb-6 border-b border-[#0A0A0C]/15">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                        02 // ON-CHAIN TOKEN X-RAY
-                      </span>
-                    </div>
-                    <h3 className="text-[26px] sm:text-[30px] font-normal tracking-[-0.03em] leading-tight mt-1 truncate">
-                      {tokenScanLoading && !tokenScanReport
-                        ? "Inspecting Mint..."
-                        : tokenScanReport?.symbol
-                        ? `$${tokenScanReport.symbol}${
-                            tokenScanReport.name
-                              ? ` · ${tokenScanReport.name}`
-                              : ""
-                          }`
-                        : tokenScanReport
-                        ? `${tokenScanReport.mintAddress.slice(
-                            0,
-                            6
-                          )}...${tokenScanReport.mintAddress.slice(-6)}`
-                        : "Awaiting Token CA"}
-                    </h3>
-                  </div>
-
-                  <span
-                    className={`px-3 py-1.5 text-[12px] font-mono uppercase tracking-[0.06em] font-semibold shrink-0 ${
-                      tokenScanLoading
-                        ? "bg-[#0A0A0C] text-[#6B78FF]"
-                        : !tokenScanReport
-                        ? "bg-[#0A0A0C] text-white/75"
-                        : tokenScanReport.classification === "CRITICAL"
-                        ? "bg-[#0A0A0C] text-red-400"
-                        : tokenScanReport.classification === "CAUTION"
-                        ? "bg-[#0A0A0C] text-amber-300"
-                        : "bg-[#0A0A0C] text-emerald-400"
-                    }`}
-                  >
-                    {tokenScanLoading
-                      ? "SCANNING..."
-                      : !tokenScanReport
-                      ? "STANDBY"
-                      : tokenScanReport.classification === "CRITICAL"
-                      ? "HIGH RUG RISK"
-                      : tokenScanReport.classification === "CAUTION"
-                      ? "DYOR CAUTION"
-                      : "VERIFIED SAFE"}
-                  </span>
-                </div>
-
-                {!tokenScanReport ? (
-                  <div className="mt-8 space-y-5">
-                    <div className="p-5 bg-white/75 border border-[#0A0A0C]/15 space-y-3">
-                      <span className="text-[11.5px] font-mono uppercase tracking-[0.08em] text-[#2934FF] font-semibold block">
-                        {tokenScanLoading
-                          ? "QUERYING SOLANA MAINNET RPC..."
-                          : "LIVE ON-CHAIN TELEMETRY STANDBY"}
-                      </span>
-                      <p className="text-[14.5px] font-sans text-[#0A0A0C]/85 leading-relaxed">
-                        {tokenScanLoading
-                          ? "Fetching live Mint Account state, Token-2022 TLV extensions, top holder distribution, and Venice AI risk scoring..."
-                          : "No token audited in this panel yet. Enter any Solana SPL or Token-2022 Mint address on the left (or select a recently scanned token) to inspect real on-chain telemetry."}
-                      </p>
-                    </div>
-
-                    <div className="divide-y divide-[#0A0A0C]/15 border-y border-[#0A0A0C]/15 bg-white/50 text-[13.5px] font-sans text-[#0A0A0C]/80">
-                      <div className="p-3.5 flex items-center justify-between">
-                        <span>Mint &amp; Freeze Authority Check</span>
-                        <span className="font-mono text-[11.5px] opacity-65">ON SUBMIT</span>
-                      </div>
-                      <div className="p-3.5 flex items-center justify-between">
-                        <span>Token-2022 PermanentDelegate &amp; Hooks</span>
-                        <span className="font-mono text-[11.5px] opacity-65">ON SUBMIT</span>
-                      </div>
-                      <div className="p-3.5 flex items-center justify-between">
-                        <span>Top Holder Supply Concentration</span>
-                        <span className="font-mono text-[11.5px] opacity-65">ON SUBMIT</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {/* Mint Metadata Strip */}
-                    <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-[12.5px] font-mono text-[#0A0A0C]/80">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2 py-0.5 border border-[#0A0A0C]/20 bg-white/60">
-                          {tokenScanReport.tokenProgram}
-                        </span>
-                        {tokenScanReport.verifiedAsset && (
-                          <span className="px-2 py-0.5 border border-emerald-700/30 bg-emerald-50 text-emerald-800 font-semibold">
-                            VERIFIED · {tokenScanReport.verifiedAsset.issuer}
-                          </span>
-                        )}
-                        <span>DECIMALS: {tokenScanReport.decimals}</span>
-                        <span>
-                          SUPPLY:{" "}
-                          {Intl.NumberFormat("en-US", {
-                            notation: "compact",
-                            maximumFractionDigits: 2,
-                          }).format(tokenScanReport.supplyUi)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            tokenScanReport.mintAddress
-                          );
-                          setCopiedMint(true);
-                          setTimeout(() => setCopiedMint(false), 1800);
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          runPayloadAudit();
                         }}
-                        className="inline-flex items-center gap-1 text-[#2934FF] hover:underline cursor-pointer"
+                        className="space-y-3"
                       >
-                        {copiedMint ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-700" />
+                        {payloadInputMode === "base64" ? (
+                          <textarea
+                            rows={3}
+                            value={txPayloadInput}
+                            onChange={(e) => setTxPayloadInput(e.target.value)}
+                            placeholder={
+                              lang === "en"
+                                ? "Paste serialized Legacy or Versioned (V0) Base64 transaction, or a Solana Mint CA..."
+                                : "Tempel transaksi Base64 Legacy/V0, atau Mint CA Solana..."
+                            }
+                            className={`w-full rounded-xl p-3.5 text-[13px] font-mono border focus:border-[#2934FF] focus:outline-none leading-relaxed ${
+                              darkMode
+                                ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                                : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                            }`}
+                          />
                         ) : (
-                          <Copy className="w-3.5 h-3.5" />
+                          <input
+                            type="url"
+                            value={txPayloadInput}
+                            onChange={(e) => setTxPayloadInput(e.target.value)}
+                            placeholder="https://... or solana-action:https://..."
+                            className={`w-full rounded-xl px-3.5 py-3 text-[13px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                              darkMode
+                                ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                                : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                            }`}
+                          />
                         )}
-                        <span>
-                          {copiedMint
-                            ? "COPIED CA"
-                            : `${tokenScanReport.mintAddress.slice(
-                                0,
-                                6
-                              )}...${tokenScanReport.mintAddress.slice(-4)}`}
-                        </span>
-                      </button>
-                    </div>
 
-                    {/* Authority & Token-2022 Extensions Matrix */}
-                    <div className="mt-6">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-[12px] font-mono uppercase tracking-[0.08em] text-[#0A0A0C]/75 font-medium">
-                          ON-CHAIN AUTHORITY &amp; HOOK CHECKS
-                        </span>
-                        <div className="flex items-center gap-3">
+                        <input
+                          type="text"
+                          value={txSignerInput}
+                          onChange={(e) => setTxSignerInput(e.target.value)}
+                          placeholder={
+                            lang === "en"
+                              ? "Optional Signer Pubkey (defaults to connected wallet)"
+                              : "Opsional: Pubkey Signer (pakai wallet terhubung)"
+                          }
+                          className={`w-full rounded-xl px-3.5 py-2.5 text-[12.5px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                            darkMode
+                              ? "bg-[#06080E] border-white/10 text-white placeholder:text-white/35"
+                              : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                          }`}
+                        />
+
+                        <label
+                          className={`flex items-center gap-2.5 text-[12.5px] cursor-pointer select-none ${
+                            darkMode ? "text-[#9EA8BA]" : "text-[#575653]"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={simulateRpc}
+                            onChange={(e) => setSimulateRpc(e.target.checked)}
+                            className="accent-[#2934FF] w-4 h-4 rounded cursor-pointer"
+                          />
+                          <span>
+                            {lang === "en"
+                              ? "Simulate live via Solana RPC"
+                              : "Simulasi langsung via Solana RPC"}
+                          </span>
+                        </label>
+
+                        {/* Quick-Test Preset Chips */}
+                        <div className="flex flex-wrap gap-2 pt-1">
                           <button
                             type="button"
-                            onClick={handleExportTokenProof}
-                            className="inline-flex items-center gap-1 text-[12px] font-mono font-medium text-[#2934FF] hover:underline cursor-pointer"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>EXPORT PROOF (.JSON)</span>
-                          </button>
-                          <button
-                            type="button"
+                            disabled={isAuditing}
                             onClick={() => {
-                              setTokenScanReport(null);
-                              setTokenScanError(null);
+                              const actionUrl = getLiveAuditSwapBlinkUrl("0.5");
+                              setPayloadInputMode("blink");
+                              setTxPayloadInput(actionUrl);
+                              void runPayloadAudit({
+                                mode: "blink",
+                                payload: actionUrl,
+                              });
                             }}
-                            className="text-[12px] font-mono text-[#0A0A0C]/65 hover:text-[#0A0A0C] cursor-pointer"
-                          >
-                            CLEAR
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="divide-y divide-[#0A0A0C]/15 border-y border-[#0A0A0C]/15 bg-white/60">
-                        {[
-                          {
-                            label: "Mint Authority",
-                            authority: tokenScanReport.mintAuthority,
-                            revokedDesc: "Fixed supply — cannot mint new tokens",
-                            custodialTag: "ISSUER",
-                          },
-                          {
-                            label: "Freeze Authority",
-                            authority: tokenScanReport.freezeAuthority,
-                            revokedDesc: "Holders cannot be blacklisted or frozen",
-                            custodialTag: "COMPLIANCE",
-                          },
-                        ].map((row) => {
-                          const verifiedIssuer = tokenScanReport.verifiedAsset?.custodialIssuerAuthorities
-                            ? tokenScanReport.verifiedAsset.issuer
-                            : null;
-                          const desc = row.authority
-                            ? `${verifiedIssuer ? `${verifiedIssuer} custody` : "Active"}: ${row.authority.slice(
-                                0,
-                                8
-                              )}...${row.authority.slice(-6)}`
-                            : row.revokedDesc;
-                          const badgeClass = !row.authority
-                            ? "text-emerald-700"
-                            : verifiedIssuer
-                              ? "text-amber-700"
-                              : "text-red-600";
-                          return (
-                            <div key={row.label} className="p-3.5 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-[16px] font-medium text-[#0A0A0C]">{row.label}</p>
-                                <p className="text-[13px] font-sans text-[#0A0A0C]/75">{desc}</p>
-                              </div>
-                              <span
-                                className={`inline-flex items-center gap-1.5 text-[12.5px] font-mono font-semibold shrink-0 ${badgeClass}`}
-                              >
-                                {!row.authority ? (
-                                  <>
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    <span>REVOKED</span>
-                                  </>
-                                ) : verifiedIssuer ? (
-                                  <>
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    <span>{row.custodialTag}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ShieldAlert className="w-4 h-4" />
-                                    <span>ACTIVE</span>
-                                  </>
-                                )}
-                              </span>
-                            </div>
-                          );
-                        })}
-
-                        <div className="p-3.5 flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-[16px] font-medium text-[#0A0A0C]">
-                              Token-2022 Extensions
-                            </p>
-                            <p className="text-[13px] font-sans text-[#0A0A0C]/75 break-words leading-snug">
-                              {!tokenScanReport.isToken2022
-                                ? "Standard SPL Token (no custom transfer hooks)"
-                                : tokenScanReport.extensions.length > 0
-                                ? tokenScanReport.extensions.join(", ")
-                                : "Token-2022 base mint"}
-                            </p>
-                          </div>
-                          <span
-                            className={`inline-flex items-center gap-1 text-[12.5px] font-mono font-semibold shrink-0 ${
-                              tokenScanReport.permanentDelegate ||
-                              tokenScanReport.transferHookProgramId
-                                ? "text-red-600"
-                                : tokenScanReport.transferFeeBps
-                                ? "text-amber-700"
-                                : "text-emerald-700"
+                            className={`px-3 py-1.5 rounded-lg border text-[11.5px] font-mono transition-colors cursor-pointer disabled:opacity-50 ${
+                              darkMode
+                                ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF] text-[#CBD5E1]"
+                                : "border-black/15 bg-black/[0.02] hover:border-[#2934FF] text-[#141413]"
                             }`}
                           >
-                            {tokenScanReport.permanentDelegate ? (
-                              <>
-                                <AlertTriangle className="w-4 h-4" />
-                                <span>PERM DELEGATE</span>
-                              </>
-                            ) : tokenScanReport.transferFeeBps ? (
-                              <span>
-                                FEE{" "}
-                                {(tokenScanReport.transferFeeBps / 100).toFixed(2)}%
-                              </span>
-                            ) : (
-                              <span>
-                                {tokenScanReport.isToken2022
-                                  ? "EXT CHECKED"
-                                  : "CLEAN SPL"}
-                              </span>
-                            )}
-                          </span>
+                            Live 0.5 SOL Jupiter Blink ↗
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTechnicalMode("token")}
+                            className={`px-3 py-1.5 rounded-lg border text-[11.5px] font-mono transition-colors cursor-pointer ${
+                              darkMode
+                                ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF] text-[#CBD5E1]"
+                                : "border-black/15 bg-black/[0.02] hover:border-[#2934FF] text-[#141413]"
+                            }`}
+                          >
+                            Switch to Token CA
+                          </button>
                         </div>
-                      </div>
-                    </div>
 
-                    {/* Top Holders Distribution */}
-                    <div className="mt-6">
-                      <div className="flex items-center justify-between mb-2.5">
-                        <span className="text-[12px] font-mono uppercase tracking-[0.08em] text-[#0A0A0C]/75 font-medium">
-                          TOP HOLDERS CONCENTRATION
-                        </span>
-                        {tokenScanReport.topHolders.length > 0 && (
-                          <span className="text-[12px] font-mono font-semibold text-[#0A0A0C]">
-                            TOP 5: {tokenScanReport.top5Pct}% · TOP 10:{" "}
-                            {tokenScanReport.top10Pct}%
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="p-4 bg-[#0A0A0C] text-white font-mono text-[13px] space-y-2.5">
-                        {tokenScanReport.topHolders.length > 0 ? (
-                          <>
-                            <div className="w-full h-1.5 bg-white/15 overflow-hidden">
-                              <div
-                                className={`h-full transition-all ${
-                                  tokenScanReport.top5Pct >= 80
-                                    ? "bg-red-500"
-                                    : tokenScanReport.top5Pct >= 55
-                                    ? "bg-amber-400"
-                                    : "bg-emerald-400"
-                                }`}
-                                style={{
-                                  width: `${Math.min(100, tokenScanReport.top5Pct)}%`,
-                                }}
-                              />
-                            </div>
-                            <div className="divide-y divide-white/10">
-                              {tokenScanReport.topHolders.slice(0, 5).map((h, i) => (
-                                <div
-                                  key={h.address}
-                                  className="py-1.5 flex items-center justify-between gap-2"
-                                >
-                                  <a
-                                    href={`https://solscan.io/account/${h.address}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-white/85 hover:text-[#6B78FF] truncate"
-                                  >
-                                    #{i + 1} {h.address.slice(0, 6)}...
-                                    {h.address.slice(-4)}
-                                  </a>
-                                  <span className="text-white/75 shrink-0">
-                                    {Intl.NumberFormat("en-US", {
-                                      notation: "compact",
-                                      maximumFractionDigits: 1,
-                                    }).format(h.uiAmount)}{" "}
-                                    ·{" "}
-                                    <strong className="text-white">
-                                      {h.pctOfSupply}%
-                                    </strong>
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="space-y-2 text-white/80 leading-relaxed font-sans text-[13.5px]">
-                            <p>
-                              {tokenScanLoading
-                                ? "Querying live Mint telemetry from Solana Mainnet RPC..."
-                                : `Authority, supply, and Token-2022 extension checks verified${
-                                    tokenScanReport.slot || liveSlot
-                                      ? ` at Slot #${(
-                                          tokenScanReport.slot ??
-                                          liveSlot ??
-                                          0
-                                        ).toLocaleString("en-US")}`
-                                      : " via Mainnet RPC"
-                                  }. Largest-account queries are throttled on free shared RPC; inspect live holder distribution on Solscan:`}
-                            </p>
-                            {!tokenScanLoading && (
-                              <a
-                                href={`https://solscan.io/token/${tokenScanReport.mintAddress}#holders`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[#6B78FF] font-mono text-[12.5px] hover:underline"
-                              >
-                                <span>OPEN LIVE HOLDER DISTRIBUTION ON SOLSCAN</span>
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Bottom Explorer Links */}
-              {tokenScanReport && (
-                <div className="mt-8 pt-6 border-t border-[#0A0A0C]/15 grid grid-cols-3 gap-2">
-                  <a
-                    href={`https://solscan.io/token/${tokenScanReport.mintAddress}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="py-3 px-2 bg-[#0A0A0C] hover:bg-neutral-800 text-white text-[12.5px] font-sans font-semibold uppercase text-center transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <span>Solscan</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                  <a
-                    href={`https://jup.ag/tokens/${tokenScanReport.mintAddress}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="py-3 px-2 bg-[#2934FF] hover:bg-[#1E28E6] text-white text-[12.5px] font-sans font-semibold uppercase text-center transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <span>Jupiter</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                  <a
-                    href={`https://dexscreener.com/solana/${tokenScanReport.mintAddress}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="py-3 px-2 border border-[#0A0A0C]/25 hover:bg-[#0A0A0C] hover:text-white text-[#0A0A0C] text-[12.5px] font-sans font-semibold uppercase text-center transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <span>DexScreener</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                  <Link
-                    href={`/buildcheck?target=${encodeURIComponent(tokenScanReport.mintAddress)}`}
-                    className="col-span-2 py-2.5 px-3 bg-[#0A0A0C] hover:bg-[#2934FF] text-white text-[12px] font-mono uppercase tracking-[0.06em] text-center transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <span>Deep BuildCheck AI Audit (Site + GitHub + Cabal)</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between min-w-0">
-              <div>
-                <div className="flex items-center justify-between gap-3 pb-6 border-b border-[#0A0A0C]/15">
-                  <div className="min-w-0">
-                    <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                      02 // PRE-SIGN SANDBOX
-                    </span>
-                    <h3 className="text-[26px] sm:text-[30px] font-normal tracking-[-0.03em] leading-tight mt-1 truncate">
-                      {isAuditing && !hasActiveTxAudit
-                        ? "Inspecting Payload..."
-                        : hasActiveTxAudit
-                        ? blinkInspectionMeta?.title ||
-                          (payloadInputMode === "blink"
-                            ? "Solana Blink Inspection"
-                            : "Decoded Transaction Payload")
-                        : "Awaiting Tx / Blink"}
-                    </h3>
-                  </div>
-                  <span
-                    className={`px-3 py-1.5 text-[12px] font-mono uppercase tracking-[0.06em] font-semibold shrink-0 ${
-                      emergencyLocked
-                        ? "bg-[#0A0A0C] text-red-400"
-                        : isAuditing
-                        ? "bg-[#0A0A0C] text-[#6B78FF]"
-                        : !hasActiveTxAudit
-                        ? "bg-[#0A0A0C] text-white/75"
-                        : isCritical
-                        ? "bg-[#0A0A0C] text-red-400"
-                        : "bg-[#0A0A0C] text-emerald-400"
-                    }`}
-                  >
-                    {emergencyLocked
-                      ? "VAULT LOCKED"
-                      : isAuditing
-                      ? "AUDITING..."
-                      : !hasActiveTxAudit
-                      ? "STANDBY"
-                      : isCritical
-                      ? "THREAT DETECTED"
-                      : "VERIFIED ROUTE"}
-                  </span>
-                </div>
-
-                {!hasActiveTxAudit ? (
-                  <div className="mt-8 space-y-5">
-                    <div className="p-5 bg-white/75 border border-[#0A0A0C]/15 space-y-3">
-                      <span className="text-[11.5px] font-mono uppercase tracking-[0.08em] text-[#2934FF] font-semibold block">
-                        {isAuditing
-                          ? "RUNNING PRE-SIGN FIREWALL..."
-                          : "PRE-SIGN BYTECODE FIREWALL STANDBY"}
-                      </span>
-                      <p className="text-[14.5px] font-sans text-[#0A0A0C]/85 leading-relaxed">
-                        {isAuditing
-                          ? "Decompiling instructions, simulating Solana Mainnet RPC balance deltas, and running Venice AI zero-retention inspection..."
-                          : "No transaction or Blink payload loaded. Paste a Base64 serialized Solana transaction or a Solana Action URL in Column 01 to inspect instructions, token authorities, and Anchor PDA rules before signing."}
-                      </p>
-                    </div>
-
-                    <div className="divide-y divide-[#0A0A0C]/15 border-y border-[#0A0A0C]/15 bg-white/50 text-[13.5px] font-sans text-[#0A0A0C]/80">
-                      <div className="p-3.5 flex items-center justify-between">
-                        <span>Legacy / Versioned (V0) Instruction Decoder</span>
-                        <span className="font-mono text-[11.5px] opacity-65">ON SUBMIT</span>
-                      </div>
-                      <div className="p-3.5 flex items-center justify-between">
-                        <span>Live Mainnet Balance Diffs &amp; Token Discovery</span>
-                        <span className="font-mono text-[11.5px] opacity-65">ON SUBMIT</span>
-                      </div>
-                      <div className="p-3.5 flex items-center justify-between">
-                        <span>Zero-Retention Venice AI Threat Classification</span>
-                        <span className="font-mono text-[11.5px] opacity-65">ON SUBMIT</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {/* Real Simulated Balance Deltas */}
-                    <div className="mt-7">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-[12px] font-mono uppercase tracking-[0.08em] text-[#0A0A0C]/75 font-medium">
-                          SIMULATED BALANCE DELTAS
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleExportAuditProof}
-                          className="inline-flex items-center gap-1 text-[12px] font-mono font-medium text-[#2934FF] hover:underline cursor-pointer"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>EXPORT PROOF (.JSON)</span>
-                        </button>
-                      </div>
-
-                      {rpcSimulationReport?.status === "SIMULATED_OK" &&
-                      rpcSimulationReport.balanceDiffs.length > 0 ? (
-                        <div className="divide-y divide-[#0A0A0C]/15 border-y border-[#0A0A0C]/15 bg-white/60">
-                          {rpcSimulationReport.balanceDiffs.map((change, i) => (
-                            <div
-                              key={`${change.address}-${i}`}
-                              className="p-3.5 flex items-center justify-between gap-3"
+                        <div className="flex gap-2 pt-0.5">
+                          <button
+                            type="submit"
+                            disabled={isAuditing || !txPayloadInput.trim()}
+                            className={`flex-1 rounded-xl py-2.5 px-4 text-[13.5px] font-semibold tracking-[-0.01em] transition-colors flex items-center justify-center gap-2 ${
+                              isAuditing || !txPayloadInput.trim()
+                                ? darkMode
+                                  ? "bg-white/10 text-white/50 border border-white/10 cursor-not-allowed"
+                                  : "bg-[#EAE8E2] text-[#4D4C49] border border-black/10 cursor-not-allowed"
+                                : "bg-[#2934FF] hover:bg-[#1E27E6] text-white cursor-pointer shadow-[0_8px_24px_rgba(41,52,255,0.28)]"
+                            }`}
+                          >
+                            <ShieldCheck className="w-4 h-4" />
+                            <span>
+                              {isAuditing
+                                ? "Auditing Payload..."
+                                : lang === "en"
+                                  ? "Run Pre-Sign Audit"
+                                  : "Jalankan Audit Pra-Sign"}
+                            </span>
+                          </button>
+                          {(txPayloadInput || hasActiveTxAudit || auditError) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTxPayloadInput("");
+                                setAuditError(null);
+                                setSimulationReport(null);
+                                setRpcSimulationReport(null);
+                                setBlinkInspectionMeta(null);
+                                setAuditResult(null);
+                                setLastAuditedTarget("");
+                                setWalletStatus("PENDING");
+                              }}
+                              className={`px-3.5 py-3 rounded-xl border text-[12px] font-mono uppercase cursor-pointer ${
+                                darkMode
+                                  ? "border-white/15 hover:border-[#2934FF]"
+                                  : "border-black/15 hover:border-[#2934FF]"
+                              }`}
                             >
-                              <div className="min-w-0">
-                                <p className="text-[15.5px] font-medium text-[#0A0A0C] truncate">
-                                  {change.asset}
-                                  {change.isToken2022 ? " (Token-2022)" : ""}
-                                </p>
-                                <p className="text-[12.5px] font-mono text-[#0A0A0C]/75">
-                                  {change.mint.slice(0, 8)}...{change.mint.slice(-6)}
-                                </p>
-                              </div>
-                              <span
-                                className={`text-[16px] font-mono font-semibold shrink-0 ${
-                                  change.direction === "OUT"
-                                    ? "text-red-600"
-                                    : "text-emerald-700"
-                                }`}
-                              >
-                                {change.direction === "IN" ? "+" : ""}
-                                {change.deltaUiAmount}
-                              </span>
-                            </div>
-                          ))}
+                              Clear
+                            </button>
+                          )}
                         </div>
-                      ) : (
-                        <div className="p-4 border border-[#0A0A0C]/15 bg-white/60 text-[13px] font-sans text-[#0A0A0C]/80 leading-relaxed">
-                          {rpcSimulationReport?.status === "SIMULATED_ERROR"
-                            ? `RPC Simulation Reverted: ${rpcSimulationReport.rpcError ?? "Unknown execution error"}`
-                            : rpcSimulationReport?.status === "RPC_UNAVAILABLE"
-                            ? `Mainnet RPC simulation unavailable: ${rpcSimulationReport.rpcError ?? "Node timeout"}`
-                            : rpcSimulationReport?.status === "SIMULATED_OK"
-                            ? "RPC simulation succeeded with zero pre/post token or SOL balance deltas on inspected accounts."
-                            : "Mainnet RPC simulation disabled — showing static instruction & Blink inspection below."}
+                      </form>
+
+                      {auditError && (
+                        <div className="rounded-xl p-3.5 border border-red-500/40 bg-red-500/10 text-red-400 text-[13px] leading-relaxed">
+                          {auditError}
                         </div>
                       )}
-                    </div>
 
-                    {/* Discovered Token Mints in Tx */}
-                    {rpcSimulationReport?.tokenAudits &&
-                      rpcSimulationReport.tokenAudits.length > 0 && (
-                        <div className="mt-5">
-                          <span className="text-[11.5px] font-mono uppercase tracking-[0.08em] text-[#0A0A0C]/75 font-medium block mb-2">
-                            TOKENS DETECTED IN PAYLOAD ({rpcSimulationReport.tokenAudits.length})
-                          </span>
+                      {/* Recently Scanned Strip */}
+                      {scannedTokens.length > 0 && (
+                        <div
+                          className={`pt-4 border-t ${
+                            darkMode ? "border-white/10" : "border-black/10"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span
+                              className={`text-[11px] font-mono uppercase tracking-[0.08em] ${
+                                darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                              }`}
+                            >
+                              Recently Scanned ({scannedTokens.length})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setTechnicalMode("token")}
+                              className="text-[11px] font-mono text-[#2934FF] hover:underline cursor-pointer"
+                            >
+                              View All ↗
+                            </button>
+                          </div>
                           <div className="flex flex-wrap gap-1.5">
-                            {rpcSimulationReport.tokenAudits.map((ta) => (
+                            {scannedTokens.slice(0, 4).map((tok) => (
                               <button
-                                key={ta.mintAddress}
+                                key={tok.mintAddress}
                                 type="button"
                                 onClick={() => {
-                                  setTokenScanReport(ta);
-                                  setTokenMintInput(ta.mintAddress);
                                   setTechnicalMode("token");
+                                  runTokenScan(tok.mintAddress);
                                 }}
-                                className="px-2.5 py-1.5 bg-white/80 border border-[#0A0A0C]/20 hover:border-[#2934FF] text-[12px] font-mono flex items-center gap-1.5 cursor-pointer"
+                                className={`px-2.5 py-1 rounded-lg border text-[11.5px] font-mono flex items-center gap-1.5 cursor-pointer transition-colors ${
+                                  darkMode
+                                    ? "border-white/10 bg-white/[0.03] hover:border-[#2934FF]"
+                                    : "border-black/10 bg-black/[0.02] hover:border-[#2934FF]"
+                                }`}
                               >
                                 <span className="font-semibold">
-                                  {ta.symbol
-                                    ? `$${ta.symbol}`
-                                    : `${ta.mintAddress.slice(0, 5)}..${ta.mintAddress.slice(-4)}`}
+                                  {tok.symbol
+                                    ? `$${tok.symbol}`
+                                    : `${tok.mintAddress.slice(0, 4)}..${tok.mintAddress.slice(-3)}`}
                                 </span>
                                 <span
                                   className={
-                                    ta.classification === "CRITICAL"
-                                      ? "text-red-600 font-semibold"
-                                      : ta.classification === "CAUTION"
-                                        ? "text-amber-700 font-semibold"
-                                        : "text-emerald-700 font-semibold"
+                                    tok.classification === "CRITICAL"
+                                      ? "text-red-400"
+                                      : tok.classification === "CAUTION"
+                                        ? "text-amber-400"
+                                        : "text-emerald-500"
                                   }
                                 >
-                                  {ta.riskScore}/100
+                                  {tok.riskScore}/100
                                 </span>
                               </button>
                             ))}
@@ -2808,1374 +1874,1611 @@ export default function SolShieldHexaCorePage() {
                         </div>
                       )}
 
-                    {/* Decoded Instruction & Threat Telemetry */}
-                    <div className="mt-6">
-                      <span className="text-[12px] font-mono uppercase tracking-[0.08em] text-[#0A0A0C]/75 font-medium block mb-2.5">
-                        DECODED INSTRUCTION AST &amp; HOOKS
-                      </span>
-                      <div className="p-4 bg-[#0A0A0C] text-white font-mono text-[13px] space-y-2.5">
-                        <div className="flex items-center justify-between gap-2 text-white/75">
-                          <span>PAYLOAD_SOURCE</span>
-                          <span className="text-white truncate max-w-[220px]">
-                            {blinkInspectionMeta?.actionUrl ||
-                              (lastAuditedTarget.length > 28
-                                ? `${lastAuditedTarget.slice(0, 14)}...${lastAuditedTarget.slice(-8)}`
-                                : lastAuditedTarget)}
+                      {/* Compact Address / Tx Signature X-Ray */}
+                      <div
+                        className={`pt-4 border-t ${
+                          darkMode ? "border-white/10" : "border-black/10"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span
+                            className={`text-[11px] font-mono uppercase tracking-[0.08em] ${
+                              darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                            }`}
+                          >
+                            On-Chain Address / Tx X-Ray
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-white/75">
-                          <span>INSTRUCTIONS_COUNT</span>
-                          <span className="text-[#6B78FF] font-semibold">
-                            {simulationReport?.instructions.length ?? 0} IX CALLS
-                          </span>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={agentAddress}
+                            onChange={(e) => setAgentAddress(e.target.value)}
+                            placeholder="Solana Address or 88-char txHash..."
+                            className={`flex-1 min-w-0 rounded-xl px-3 py-2 text-[12.5px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                              darkMode
+                                ? "bg-[#06080E] border-white/10 text-white placeholder:text-white/35"
+                                : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              sendAgentQuery(
+                                `Inspect ${agentAddress.trim()} on Solana Mainnet and verify its owner program, transaction status, and safety.`
+                              )
+                            }
+                            disabled={agentLoading || !agentAddress.trim()}
+                            className={`px-3.5 py-2 rounded-xl border text-[12px] font-mono font-semibold transition-colors cursor-pointer disabled:opacity-45 shrink-0 ${
+                              darkMode
+                                ? "border-white/15 bg-white/[0.04] hover:border-[#2934FF] hover:text-white"
+                                : "border-black/15 bg-black/[0.03] hover:border-[#2934FF]"
+                            }`}
+                          >
+                            {agentLoading ? "..." : "Scan ↗"}
+                          </button>
                         </div>
-                        {simulationReport && simulationReport.instructions.length > 0 && (
-                          <div className="flex items-center justify-between gap-2 text-white/75">
-                            <span className="shrink-0">PROGRAMS</span>
-                            <span className="text-white/90 truncate text-right">
-                              {Array.from(
-                                new Set(
-                                  simulationReport.instructions.map(
-                                    (ix) => ix.programName || ix.programId.slice(0, 8)
-                                  )
-                                )
-                              ).join(", ")}
-                            </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: TOKEN AUDIT INPUTS */}
+                  {technicalMode === "token" && (
+                    <div className="space-y-5">
+                      <div>
+                        <h3 className="text-[22px] sm:text-[24px] font-semibold tracking-[-0.025em]">
+                          {lang === "en" ? "Scan Token CA" : "Cek CA Token"}
+                        </h3>
+                        <p
+                          className={`text-[13.5px] mt-1 leading-relaxed ${
+                            darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                          }`}
+                        >
+                          {lang === "en"
+                            ? "Verify Mint & Freeze authorities, Token-2022 transfer hooks, and top holder concentration live on-chain."
+                            : "Verifikasi otoritas Mint & Freeze, hook Token-2022, dan konsentrasi top holder langsung on-chain."}
+                        </p>
+                      </div>
+
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          runTokenScan();
+                        }}
+                        className="space-y-3"
+                      >
+                        <input
+                          type="text"
+                          value={tokenMintInput}
+                          onChange={(e) => setTokenMintInput(e.target.value)}
+                          placeholder="Paste Solana Token Mint CA (SPL / Token-2022)"
+                          className={`w-full rounded-xl px-3.5 py-3 text-[13px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                            darkMode
+                              ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                              : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                          }`}
+                        />
+                        <button
+                          type="submit"
+                          disabled={tokenScanLoading}
+                          className="w-full rounded-xl bg-[#2934FF] hover:bg-[#1E27E6] disabled:opacity-50 text-white py-3 px-4 text-[13.5px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-[0_8px_24px_rgba(41,52,255,0.28)]"
+                        >
+                          <Search className="w-4 h-4" />
+                          <span>
+                            {tokenScanLoading
+                              ? "Querying On-Chain Mint..."
+                              : "Scan Token CA"}
+                          </span>
+                        </button>
+                      </form>
+
+                      {tokenScanError && (
+                        <div className="rounded-xl p-3.5 border border-red-500/40 bg-red-500/10 text-red-400 text-[13px] leading-relaxed">
+                          {tokenScanError}
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                          <span
+                            className={`text-[11px] font-mono uppercase tracking-[0.08em] ${
+                              darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                            }`}
+                          >
+                            {lang === "en"
+                              ? `Recently Scanned (${scannedTokens.length})`
+                              : `Baru Di-Scan (${scannedTokens.length})`}
+                          </span>
+                          {scannedTokens.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={handleClearLocalScannedTokens}
+                              className="text-[11px] font-mono text-[#2934FF] hover:underline cursor-pointer"
+                            >
+                              Clear Local
+                            </button>
+                          )}
+                        </div>
+
+                        {scannedTokens.length > 0 ? (
+                          <div
+                            className={`max-h-[300px] overflow-y-auto divide-y rounded-xl border ${
+                              darkMode
+                                ? "border-white/10 divide-white/10 bg-[#070910]"
+                                : "border-black/10 divide-black/10 bg-[#FAF9F6]"
+                            }`}
+                          >
+                            {scannedTokens.slice(0, 12).map((tok) => {
+                              const isSelected =
+                                tokenScanReport?.mintAddress ===
+                                  tok.mintAddress ||
+                                tokenMintInput.trim() === tok.mintAddress;
+                              return (
+                                <button
+                                  key={tok.mintAddress}
+                                  type="button"
+                                  onClick={() => runTokenScan(tok.mintAddress)}
+                                  className={`w-full px-3.5 py-2.5 text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
+                                    isSelected
+                                      ? "bg-[#2934FF] text-white"
+                                      : darkMode
+                                        ? "hover:bg-white/[0.04]"
+                                        : "hover:bg-black/[0.04]"
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[13.5px] font-mono font-semibold truncate">
+                                        {tok.symbol
+                                          ? `$${tok.symbol}`
+                                          : `${tok.mintAddress.slice(0, 5)}...${tok.mintAddress.slice(-4)}`}
+                                      </span>
+                                      {tok.verifiedIssuer && (
+                                        <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border border-emerald-500/40 text-emerald-400">
+                                          {tok.verifiedIssuer}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div
+                                      className={`text-[11px] font-mono truncate ${
+                                        isSelected ? "text-white/80" : "opacity-60"
+                                      }`}
+                                    >
+                                      {tok.mintAddress.slice(0, 6)}...
+                                      {tok.mintAddress.slice(-4)} ·{" "}
+                                      {tok.tokenProgram}
+                                    </div>
+                                  </div>
+                                  <span
+                                    className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md border shrink-0 ${
+                                      isSelected
+                                        ? "border-white/40 text-white"
+                                        : tok.classification === "CRITICAL"
+                                          ? "border-red-500/40 text-red-400"
+                                          : tok.classification === "CAUTION"
+                                            ? "border-amber-500/40 text-amber-400"
+                                            : "border-emerald-500/40 text-emerald-500"
+                                    }`}
+                                  >
+                                    {tok.riskScore}/100
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div
+                            className={`rounded-xl p-4 border border-dashed text-[13px] space-y-2 ${
+                              darkMode
+                                ? "border-white/15 text-[#8E98AD]"
+                                : "border-black/15 text-[#575653]"
+                            }`}
+                          >
+                            <p>
+                              {scannedTokensLoading
+                                ? "Loading audited tokens..."
+                                : "Paste any Solana Token Mint CA above to run a live on-chain audit."}
+                            </p>
+                            <Link
+                              href="/buildcheck"
+                              className="inline-flex items-center gap-1 text-[12px] font-mono text-[#2934FF] hover:underline"
+                            >
+                              <span>Open Full BuildCheck AI Forensics ↗</span>
+                            </Link>
                           </div>
                         )}
-                        <div className="flex items-center justify-between gap-3 text-white/75">
-                          <span className="shrink-0">ANCHOR_PDA_GUARD</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: INTENT COPILOT INPUTS */}
+                  {technicalMode === "intent" && (
+                    <div id="intent-copilot" className="space-y-5">
+                      <div>
+                        <div className="inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold mb-1.5">
+                          <span>/API/INTENT · VENICE AI + JUPITER V1</span>
+                        </div>
+                        <h3 className="text-[22px] sm:text-[24px] font-semibold tracking-[-0.025em]">
+                          Plain-English to Guarded Tx
+                        </h3>
+                        <p
+                          className={`text-[13.5px] mt-1 leading-relaxed ${
+                            darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                          }`}
+                        >
+                          Describe your swap in plain English. Venice AI parses
+                          your intent and validates it against your Anchor{" "}
+                          <code className="font-mono text-[12.5px]">
+                            SecurityPolicy
+                          </code>{" "}
+                          PDA before routing via Jupiter.
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        <textarea
+                          value={intentPrompt}
+                          onChange={(e) => setIntentPrompt(e.target.value)}
+                          rows={4}
+                          className={`w-full rounded-xl p-3.5 text-[13.5px] font-mono border focus:border-[#2934FF] focus:outline-none leading-relaxed ${
+                            darkMode
+                              ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                              : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                          }`}
+                          placeholder="e.g. Swap 0.5 SOL to USDC on Jupiter with max 0.5% slippage..."
+                        />
+
+                        {!connectedWallet && (
+                          <input
+                            type="text"
+                            value={manualVaultOwner}
+                            onChange={(e) => setManualVaultOwner(e.target.value)}
+                            placeholder="Optional Wallet Pubkey (read-only unsigned preview)"
+                            className={`w-full rounded-xl px-3.5 py-2.5 text-[12.5px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                              darkMode
+                                ? "bg-[#06080E] border-white/10 text-white placeholder:text-white/35"
+                                : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                            }`}
+                          />
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => runIntentCopilot()}
+                          disabled={intentLoading || !intentPrompt.trim()}
+                          className="w-full rounded-xl bg-[#2934FF] hover:bg-[#1E27E6] disabled:opacity-50 text-white py-3 px-4 text-[13.5px] font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-[0_8px_24px_rgba(41,52,255,0.28)]"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>
+                            {intentLoading
+                              ? "Building Guarded Swap..."
+                              : "Compile Guarded Intent"}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: ANCHOR POLICY VAULT CONTROLS */}
+                  {technicalMode === "vault" && (
+                    <div id="policy-vault" className="space-y-5">
+                      <div>
+                        <div className="inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold mb-1.5">
+                          <span>
+                            {vaultStatus?.programDeployedOnMainnet
+                              ? "SOLANA MAINNET · ANCHOR V0.30.1"
+                              : "DEVNET BETA · ANCHOR V0.30.1"}
+                          </span>
+                        </div>
+                        <h3 className="text-[22px] sm:text-[24px] font-semibold tracking-[-0.025em]">
+                          On-Chain Spending Guardrails
+                        </h3>
+                        <p
+                          className={`text-[13.5px] mt-1 leading-relaxed ${
+                            darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                          }`}
+                        >
+                          Configure rolling 24h spend caps, maximum Venice risk
+                          thresholds, and a 1-click Emergency Circuit Breaker on
+                          your per-wallet{" "}
+                          <code className="font-mono text-[12.5px]">
+                            SecurityPolicy
+                          </code>{" "}
+                          PDA.
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        {!connectedWallet && (
+                          <input
+                            type="text"
+                            value={manualVaultOwner}
+                            onChange={(e) => setManualVaultOwner(e.target.value)}
+                            placeholder="Optional Owner Pubkey (if wallet not connected)"
+                            className={`w-full rounded-xl px-3.5 py-2.5 text-[12.5px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                              darkMode
+                                ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                                : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                            }`}
+                          />
+                        )}
+                        <input
+                          type="text"
+                          value={revokeMintInput}
+                          onChange={(e) => setRevokeMintInput(e.target.value)}
+                          placeholder="Optional Token Mint CA for Tag-5 Delegate Revoke (defaults to USDC)"
+                          className={`w-full rounded-xl px-3.5 py-2.5 text-[12.5px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                            darkMode
+                              ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                              : "bg-[#FAF9F6] border-black/15 text-[#141413] placeholder:text-black/40"
+                          }`}
+                        />
+
+                        {/* Max Daily Spend Slider */}
+                        <div
+                          className={`rounded-xl p-4 border ${
+                            darkMode
+                              ? "bg-[#070910] border-white/10"
+                              : "bg-[#FAF9F6] border-black/10"
+                          }`}
+                        >
+                          <div className="flex justify-between gap-2 text-[12px] font-mono mb-2.5">
+                            <span className="opacity-75">
+                              MAX DAILY SPEND (24H)
+                            </span>
+                            <span className="font-semibold text-[#2934FF]">
+                              {maxDailySol.toFixed(1)} SOL
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.5}
+                            max={20}
+                            step={0.5}
+                            value={maxDailySol}
+                            onChange={(e) =>
+                              setMaxDailySol(Number(e.target.value))
+                            }
+                            className="w-full accent-[#2934FF] cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Max Risk Score Slider */}
+                        <div
+                          className={`rounded-xl p-4 border ${
+                            darkMode
+                              ? "bg-[#070910] border-white/10"
+                              : "bg-[#FAF9F6] border-black/10"
+                          }`}
+                        >
+                          <div className="flex justify-between gap-2 text-[12px] font-mono mb-2.5">
+                            <span className="opacity-75">
+                              MAX VENICE RISK SCORE
+                            </span>
+                            <span className="font-semibold text-[#2934FF]">
+                              {maxAllowedRisk} / 100
+                            </span>
+                          </div>
+                          <input
+                            type="range"
+                            min={10}
+                            max={80}
+                            step={5}
+                            value={maxAllowedRisk}
+                            onChange={(e) =>
+                              setMaxAllowedRisk(Number(e.target.value))
+                            }
+                            className="w-full accent-[#2934FF] cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 5: BLINKS STUDIO INPUTS */}
+                  {technicalMode === "blinks" && (
+                    <div id="blinks-studio" className="space-y-5">
+                      <div>
+                        <div className="inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.1em] text-emerald-500 font-semibold mb-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span>ACTIONS.JSON READY · /API/ACTIONS/AUDIT-SWAP</span>
+                        </div>
+                        <h3 className="text-[22px] sm:text-[24px] font-semibold tracking-[-0.025em]">
+                          Shareable Guarded Blink
+                        </h3>
+                        <p
+                          className={`text-[13.5px] mt-1 leading-relaxed ${
+                            darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                          }`}
+                        >
+                          Generate a spec-compliant Solana Action URL that runs
+                          a Venice AI pre-flight security check before returning
+                          a swap payload to X/Twitter Blinks.
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <label
+                            className={`text-[11px] font-mono uppercase tracking-[0.08em] block mb-1.5 ${
+                              darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                            }`}
+                          >
+                            Custom Swap Amount (SOL)
+                          </label>
+                          <input
+                            type="number"
+                            min="0.001"
+                            step="0.1"
+                            value={selectedBlinkSol}
+                            onChange={(e) =>
+                              setSelectedBlinkSol(e.target.value)
+                            }
+                            placeholder="0.5"
+                            className={`w-full rounded-xl px-3.5 py-3 text-[14px] font-mono border focus:border-[#2934FF] focus:outline-none ${
+                              darkMode
+                                ? "bg-[#06080E] border-white/15 text-white"
+                                : "bg-[#FAF9F6] border-black/15 text-[#141413]"
+                            }`}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={!selectedBlinkSol.trim()}
+                          onClick={() => {
+                            const actionUrl =
+                              getLiveAuditSwapBlinkUrl(selectedBlinkSol);
+                            setTechnicalMode("payload");
+                            setPayloadInputMode("blink");
+                            setTxPayloadInput(actionUrl);
+                            runPayloadAudit({
+                              mode: "blink",
+                              payload: actionUrl,
+                            });
+                          }}
+                          className="w-full rounded-xl py-3 px-4 bg-[#2934FF] hover:bg-[#1E27E6] disabled:opacity-50 text-white text-[13.5px] font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-[0_8px_24px_rgba(41,52,255,0.28)]"
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                          <span>Inspect Blink in Firewall ↗</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={!selectedBlinkSol.trim()}
+                          onClick={() => {
+                            const amt = encodeURIComponent(
+                              selectedBlinkSol.trim()
+                            );
+                            const actionUrl = `solana-action:${window.location.origin}/api/actions/audit-swap?amount=${amt}`;
+                            navigator.clipboard.writeText(actionUrl);
+                            setCopiedBlinkUrl(true);
+                            setTimeout(() => setCopiedBlinkUrl(false), 2000);
+                          }}
+                          className={`w-full rounded-xl py-3 px-4 border text-[13px] font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors ${
+                            darkMode
+                              ? "border-white/15 hover:border-[#2934FF] text-[#E4E7EE]"
+                              : "border-black/15 hover:border-[#2934FF] text-[#141413]"
+                          }`}
+                        >
+                          {copiedBlinkUrl ? (
+                            <>
+                              <Check className="w-4 h-4 text-emerald-500" />
+                              <span>Copied solana-action: URL</span>
+                            </>
+                          ) : (
+                            <>
+                              <Share2 className="w-4 h-4" />
+                              <span>Copy Blink Action URL</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ------------------------------------------------------------
+                    RIGHT PANE (7 COLS) — COHESIVE LIVE VERDICT & AI BAR
+                    ------------------------------------------------------------ */}
+                <div
+                  className={`lg:col-span-7 p-5 sm:p-6 flex flex-col justify-between gap-4 ${
+                    darkMode ? "bg-[#0D111C]" : "bg-[#F7F6F2]"
+                  }`}
+                >
+                  {/* RIGHT PANE: TX FIREWALL VERDICT */}
+                  {technicalMode === "payload" && (
+                    <div className="space-y-4">
+                      {/* Sculptural Verdict Header + Actions (Zero Overlap) */}
+                      <div
+                        className={`pb-4 border-b flex flex-wrap items-center justify-between gap-3 ${
+                          darkMode ? "border-white/10" : "border-black/10"
+                        }`}
+                      >
+                        <div className="flex items-baseline gap-4 flex-wrap">
+                          <div>
+                            <div
+                              className={`text-[11px] font-mono uppercase tracking-[0.1em] ${
+                                darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                              }`}
+                            >
+                              Pre-Sign Risk Score
+                            </div>
+                            <div className="text-[44px] sm:text-[52px] font-semibold tracking-[-0.04em] leading-none mt-1 font-mono">
+                              {isAuditing ? (
+                                <span className="opacity-40">··</span>
+                              ) : auditResult ? (
+                                auditResult.riskScore
+                              ) : (
+                                <span className="opacity-30">—</span>
+                              )}
+                              <span
+                                className={`text-[18px] font-normal ml-1 ${
+                                  darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                                }`}
+                              >
+                                /100
+                              </span>
+                            </div>
+                          </div>
+
                           <span
-                            className={`truncate max-w-[230px] text-right ${
-                              auditResult?.policyGuardVerdict?.passesPolicy ===
-                                false || emergencyLocked
-                                ? "text-red-400 font-semibold"
-                                : "text-emerald-400"
+                            className={`px-3 py-1.5 rounded-full border text-[11.5px] font-mono font-semibold uppercase tracking-[0.06em] ${
+                              emergencyLocked
+                                ? "border-red-500/50 bg-red-500/15 text-red-400"
+                                : isAuditing
+                                  ? "border-[#2934FF]/50 bg-[#2934FF]/15 text-[#6B78FF]"
+                                  : !hasActiveTxAudit
+                                    ? darkMode
+                                      ? "border-white/15 bg-white/[0.04] text-[#9EA8BA]"
+                                      : "border-black/15 bg-black/[0.04] text-[#575653]"
+                                    : isCritical
+                                      ? "border-red-500/50 bg-red-500/15 text-red-400"
+                                      : "border-emerald-500/45 bg-emerald-500/15 text-emerald-500"
                             }`}
                           >
                             {emergencyLocked
-                              ? "REVERT (EmergencyLocked)"
-                              : auditResult?.policyGuardVerdict?.passesPolicy ===
-                                false
-                              ? `REVERT (${auditResult.policyGuardVerdict.reason?.slice(
-                                  0,
-                                  26
-                                )}...)`
-                              : "PASS (Within Policy)"}
+                              ? "Vault Locked"
+                              : isAuditing
+                                ? "Auditing..."
+                                : !hasActiveTxAudit
+                                  ? "Standby"
+                                  : isCritical
+                                    ? "Threat Detected"
+                                    : "Safe to Sign"}
                           </span>
                         </div>
-                        <div className="pt-2.5 border-t border-white/15 font-sans text-[13px] text-white/80 leading-relaxed break-words">
-                          {blinkInspectionMeta?.failureReason
-                            ? `Blink Inspection Note: ${blinkInspectionMeta.failureReason}`
-                            : simulationReport?.threatFlags?.length
-                              ? `Detected Flags: ${simulationReport.threatFlags.map((f) => f.title).join(" · ")}`
-                              : "Zero deterministic exploit flags matched in instruction bytecode."}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
 
-              {/* Bottom Action Bar in Center Monolith */}
-              <div className="mt-8 pt-6 border-t border-[#0A0A0C]/15 space-y-3">
-                {hasActiveTxAudit &&
-                  (walletStatus === "PENDING" ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setWalletStatus("BLOCKED")}
-                        className="py-4 px-5 bg-[#0A0A0C] hover:bg-neutral-800 text-white text-[14px] font-sans font-semibold uppercase tracking-[0.06em] transition-colors cursor-pointer"
-                      >
-                        {isCritical ? "BLOCK PAYLOAD" : "REJECT"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setWalletStatus(emergencyLocked ? "BLOCKED" : "SIGNED")
-                        }
-                        className={`py-4 px-5 text-white text-[14px] font-sans font-semibold uppercase tracking-[0.06em] transition-colors cursor-pointer ${
-                          isCritical
-                            ? "bg-red-600 hover:bg-red-700"
-                            : "bg-[#2934FF] hover:bg-[#1E28E6]"
-                        }`}
-                      >
-                        {emergencyLocked
-                          ? "LOCKED BY PDA"
-                          : isCritical
-                          ? "SIMULATE OVERRIDE"
-                          : "APPROVE PAYLOAD"}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-[#0A0A0C] text-white flex items-center justify-between">
-                      <div className="flex items-center gap-2.5 text-[14px] font-mono">
-                        {walletStatus === "BLOCKED" ? (
-                          <>
-                            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                            <span>PAYLOAD INTERCEPTED & BLOCKED</span>
-                          </>
-                        ) : walletStatus === "REVOKED" ? (
-                          <>
-                            <RotateCcw className="w-4 h-4 text-emerald-400" />
-                            <span>SPL DELEGATE AUTHORITY REVOKED (TAG 5)</span>
-                          </>
-                        ) : (
-                          <>
-                            <ShieldAlert className="w-4 h-4 text-amber-400" />
-                            <span>SANDBOX DECISION LOGGED</span>
-                          </>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setWalletStatus("PENDING")}
-                        className="text-[12.5px] font-mono uppercase underline text-[#6B78FF] cursor-pointer"
-                      >
-                        RESET
-                      </button>
-                    </div>
-                  ))}
-
-                {/* 1-Click SPL Token Delegate Revoke Button */}
-                <button
-                  type="button"
-                  onClick={handleRevokeSplDelegate}
-                  className="w-full py-3 px-4 border border-[#0A0A0C]/25 hover:bg-[#0A0A0C] hover:text-white text-[#0A0A0C] text-[12.5px] font-sans font-semibold uppercase tracking-[0.05em] transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>
-                    BUILD SPL TOKEN DELEGATE REVOKE TX (TAG 5)
-                  </span>
-                </button>
-                {policyActionNotice && !hasActiveTxAudit && (
-                  <p className="text-[12.5px] font-sans text-amber-900">
-                    {policyActionNotice}
-                  </p>
-                )}
-                {walletStatus === "REVOKED" && revokeArtifact && (
-                  <div className="p-3 bg-[#0A0A0C] text-emerald-300 font-mono text-[11.5px] leading-relaxed break-all border border-emerald-500/30">
-                    <div>
-                      TAG_5_REVOKE_IX (0x{revokeArtifact.discriminatorHex}) ·{" "}
-                      {revokeArtifact.accountCount} accounts
-                    </div>
-                    <div className="text-white/75 mt-1">
-                      TX_B64: {revokeArtifact.transactionBase64.slice(0, 72)}...
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* COLUMN 3 (RIGHT) — 03 // VENICE AI ZERO-RETENTION VERDICT & AGENT */}
-          <SpotlightCard
-            spotlightColor="rgba(41, 52, 255, 0.14)"
-            className="px-8 sm:px-12 xl:px-14 py-12 flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
-                  <VeniceAiLogo className="w-4 h-4 text-[#E05A2D]" />
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    {technicalMode === "token"
-                      ? "03 // TOKEN AUDIT VERDICT"
-                      : "03 // VENICE AI VERDICT"}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={
-                    technicalMode === "token"
-                      ? tokenScanLoading || !tokenMintInput.trim()
-                      : isAuditing || !txPayloadInput.trim()
-                  }
-                  onClick={() =>
-                    technicalMode === "token"
-                      ? runTokenScan()
-                      : runPayloadAudit()
-                  }
-                  className="inline-flex items-center gap-1.5 text-[12.5px] font-mono uppercase opacity-80 hover:opacity-100 disabled:opacity-35 cursor-pointer"
-                >
-                  <RefreshCw
-                    className={`w-3.5 h-3.5 ${
-                      (technicalMode === "token" ? tokenScanLoading : isAuditing)
-                        ? "animate-spin"
-                        : ""
-                    }`}
-                  />
-                  <span>{technicalMode === "token" ? "RE-SCAN" : "RE-AUDIT"}</span>
-                </button>
-              </div>
-
-              {technicalMode === "token" ? (
-                <>
-                  <div className="flex items-baseline justify-between pb-6 hexacore-hairline-b">
-                    <div>
-                      <span className="text-[12px] font-mono uppercase opacity-75 block">
-                        TOKEN AUDIT RISK SCORE
-                      </span>
-                      <div className="text-[52px] sm:text-[60px] font-normal tracking-[-0.04em] leading-none mt-1">
-                        {tokenScanLoading ? (
-                          <span className="opacity-40">··</span>
-                        ) : tokenScanReport ? (
-                          tokenScanReport.riskScore
-                        ) : (
-                          <span className="opacity-35">—</span>
-                        )}
-                        <span className="text-[20px] opacity-50 font-mono ml-1">
-                          /100
-                        </span>
-                      </div>
-                    </div>
-
-                    <span
-                      className={`px-3 py-1.5 text-[12px] font-mono uppercase border ${
-                        tokenScanLoading
-                          ? "border-[#2934FF]/50 text-[#6B78FF] bg-[#2934FF]/10"
-                          : !tokenScanReport
-                          ? "border-current/25 opacity-75"
-                          : tokenScanReport.classification === "CRITICAL"
-                          ? "border-red-500/50 text-red-500 bg-red-500/10"
-                          : tokenScanReport.classification === "CAUTION"
-                          ? "border-amber-500/50 text-amber-400 bg-amber-500/10"
-                          : "border-emerald-500/50 text-emerald-500 bg-emerald-500/10"
-                      }`}
-                    >
-                      {tokenScanLoading
-                        ? "AUDITING..."
-                        : tokenScanReport?.recommendedAction || "AWAITING_INPUT"}
-                    </span>
-                  </div>
-
-                  <div className="py-6 hexacore-hairline-b space-y-3">
-                    <h4 className="text-[18px] font-medium tracking-[-0.01em] leading-[1.45]">
-                      {tokenScanLoading
-                        ? "Querying Solana Mainnet Mint state & authority flags..."
-                        : tokenScanReport?.executiveSummary ||
-                          "Paste any Solana SPL or Token-2022 Mint CA in Column 01 (or pick a recently scanned token) to evaluate on-chain risk."}
-                    </h4>
-                    {tokenScanReport?.flags &&
-                    tokenScanReport.flags.length > 0 ? (
-                      <ul className="space-y-2 pt-1">
-                        {tokenScanReport.flags.slice(0, 3).map((flag, idx) => (
-                          <li
-                            key={idx}
-                            className={`text-[14px] leading-relaxed font-sans ${
-                              flag.severity === "CRITICAL"
-                                ? "text-red-400"
-                                : flag.severity === "HIGH"
-                                ? "text-amber-300"
-                                : "opacity-85"
-                            }`}
-                          >
-                            → <span className="font-mono font-semibold text-[12.5px]">[{flag.severity}]</span>{" "}
-                            <strong className="font-medium">{flag.title}:</strong>{" "}
-                            {flag.description}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      tokenScanReport && (
-                        <p className="text-[14px] font-sans text-emerald-400 pt-1 leading-relaxed">
-                          → Zero active mint/freeze authority or malicious hook flags found at Slot #{tokenScanReport.slot.toLocaleString("en-US")}.
-                        </p>
-                      )
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-baseline justify-between pb-6 hexacore-hairline-b">
-                    <div>
-                      <span className="text-[12px] font-mono uppercase opacity-75 block">
-                        BEHAVIORAL RISK SCORE
-                      </span>
-                      <div className="text-[52px] sm:text-[60px] font-normal tracking-[-0.04em] leading-none mt-1">
-                        {isAuditing ? (
-                          <span className="opacity-40">··</span>
-                        ) : auditResult ? (
-                          auditResult.riskScore
-                        ) : (
-                          <span className="opacity-35">—</span>
-                        )}
-                        <span className="text-[20px] opacity-50 font-mono ml-1">
-                          /100
-                        </span>
-                      </div>
-                    </div>
-
-                    <span
-                      className={`px-3 py-1.5 text-[12px] font-mono uppercase border ${
-                        isAuditing
-                          ? "border-[#2934FF]/50 text-[#6B78FF] bg-[#2934FF]/10"
-                          : !auditResult
-                          ? "border-current/25 opacity-75"
-                          : isCritical
-                          ? "border-red-500/50 text-red-500 bg-red-500/10"
-                          : "border-emerald-500/50 text-emerald-500 bg-emerald-500/10"
-                      }`}
-                    >
-                      {isAuditing
-                        ? "AUDITING..."
-                        : auditResult?.recommendedAction || "AWAITING_PAYLOAD"}
-                    </span>
-                  </div>
-
-                  <div className="py-6 hexacore-hairline-b space-y-3">
-                    <h4 className="text-[18px] font-medium tracking-[-0.01em] leading-[1.45]">
-                      {isAuditing
-                        ? "Auditing instruction graph via zero-retention Venice AI..."
-                        : auditResult?.executiveSummary ||
-                          "Submit a serialized Base64 transaction or Solana Blink URL in Column 01 to run pre-sign bytecode & Venice AI risk analysis."}
-                    </h4>
-                    {auditResult?.technicalFindings &&
-                      auditResult.technicalFindings.length > 0 && (
-                        <ul className="space-y-2 pt-1">
-                          {auditResult.technicalFindings
-                            .slice(0, 2)
-                            .map((finding, idx) => (
-                              <li
-                                key={idx}
-                                className="text-[14px] opacity-85 leading-relaxed font-sans"
-                              >
-                                → {finding}
-                              </li>
-                            ))}
-                        </ul>
-                      )}
-                  </div>
-                </>
-              )}
-
-              {/* Venice AI Inference Mode & Zero-Retention Telemetry */}
-              {(() => {
-                const activeMode =
-                  technicalMode === "token"
-                    ? tokenScanReport?.inferenceMode
-                    : auditResult?.inferenceMode;
-                const activeModel =
-                  technicalMode === "token"
-                    ? activeMode === "venice-live-api"
-                      ? "llama-3.3-70b (Live Zero-Retention)"
-                      : "llama-3.3-70b (Deterministic Pre-Filter)"
-                    : auditResult?.modelUsed ?? "llama-3.3-70b (Deterministic Pre-Filter)";
-                const activeAttestation =
-                  technicalMode === "token"
-                    ? tokenScanReport?.privacyAttestation
-                    : auditResult?.privacyAttestation;
-                const isLiveVenice = activeMode === "venice-live-api";
-
-                return (
-                  <div className="mt-5 p-3.5 border border-current/15 bg-current/[0.03] space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] font-mono uppercase tracking-[0.08em] opacity-75">
-                        VENICE_INFERENCE_STATUS
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2 py-0.5 text-[10.5px] font-mono uppercase border ${
-                            isLiveVenice
-                              ? "border-emerald-500/45 text-emerald-400 bg-emerald-500/10"
-                              : "border-amber-500/45 text-amber-400 bg-amber-500/10"
-                          }`}
-                        >
-                          {isLiveVenice
-                            ? "VENICE LIVE LLM"
-                            : "PRE-FILTER · KEY READY"}
-                        </span>
-                        {!isLiveVenice && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          {hasActiveTxAudit && (
+                            <button
+                              type="button"
+                              onClick={handleExportAuditProof}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11.5px] font-mono transition-colors cursor-pointer ${
+                                darkMode
+                                  ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF]"
+                                  : "border-black/15 bg-white hover:border-[#2934FF]"
+                              }`}
+                            >
+                              <Download className="w-3.5 h-3.5 text-[#2934FF]" />
+                              <span>Export JSON</span>
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => setShowKeyModal(true)}
-                            className="text-[11px] font-mono text-[#6B78FF] hover:underline cursor-pointer"
+                            disabled={isAuditing || !txPayloadInput.trim()}
+                            onClick={() => runPayloadAudit()}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11.5px] font-mono transition-colors cursor-pointer disabled:opacity-40 ${
+                              darkMode
+                                ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF]"
+                                : "border-black/15 bg-white hover:border-[#2934FF]"
+                            }`}
                           >
-                            {veniceApiKey ? "Key Active ↗" : "Add Key ↗"}
+                            <RefreshCw
+                              className={`w-3.5 h-3.5 ${
+                                isAuditing ? "animate-spin" : ""
+                              }`}
+                            />
+                            <span>Re-Audit</span>
                           </button>
+                        </div>
+                      </div>
+
+                      {/* Visual Asset Flow Graphic (Leaving -> SolShield -> Entering) */}
+                      <div
+                        className={`rounded-xl border p-4 sm:p-5 ${
+                          darkMode
+                            ? "bg-[#080B13] border-white/10"
+                            : "bg-white border-black/10"
+                        }`}
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3">
+                          <div
+                            className={`rounded-xl border px-3.5 py-3 ${
+                              darkMode
+                                ? "bg-white/[0.02] border-white/10"
+                                : "bg-[#FAF9F6] border-black/10"
+                            }`}
+                          >
+                            <div
+                              className={`text-[10.5px] font-mono uppercase tracking-[0.1em] ${
+                                darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                              }`}
+                            >
+                              Leaving Wallet
+                            </div>
+                            <div className="font-mono text-[14px] font-semibold mt-1 text-rose-400 truncate">
+                              {rpcSimulationReport?.status === "SIMULATED_OK" &&
+                              rpcSimulationReport.balanceDiffs.some(
+                                (d) => d.direction === "OUT"
+                              )
+                                ? rpcSimulationReport.balanceDiffs
+                                    .filter((d) => d.direction === "OUT")
+                                    .slice(0, 2)
+                                    .map((d) => `${d.deltaUiAmount} ${d.asset}`)
+                                    .join(" · ")
+                                : hasActiveTxAudit
+                                  ? "0 Direct Outflows"
+                                  : "Awaiting Simulation"}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-center gap-2 py-1">
+                            <ArrowRight className="w-4 h-4 opacity-40 hidden sm:block" />
+                            <div
+                              className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                                isCritical
+                                  ? "border-red-500/50 bg-red-500/15 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.28)]"
+                                  : "border-[#2934FF]/50 bg-[#2934FF]/15 text-[#6B78FF] shadow-[0_0_20px_rgba(41,52,255,0.28)]"
+                              }`}
+                            >
+                              <Shield className="w-5 h-5" />
+                            </div>
+                            <ArrowRight className="w-4 h-4 opacity-40 hidden sm:block" />
+                          </div>
+
+                          <div
+                            className={`rounded-xl border px-3.5 py-3 ${
+                              darkMode
+                                ? "bg-white/[0.02] border-white/10"
+                                : "bg-[#FAF9F6] border-black/10"
+                            }`}
+                          >
+                            <div
+                              className={`text-[10.5px] font-mono uppercase tracking-[0.1em] ${
+                                darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                              }`}
+                            >
+                              Entering Wallet
+                            </div>
+                            <div className="font-mono text-[14px] font-semibold mt-1 text-emerald-500 truncate">
+                              {rpcSimulationReport?.status === "SIMULATED_OK" &&
+                              rpcSimulationReport.balanceDiffs.some(
+                                (d) => d.direction === "IN"
+                              )
+                                ? rpcSimulationReport.balanceDiffs
+                                    .filter((d) => d.direction === "IN")
+                                    .slice(0, 2)
+                                    .map((d) => `+${d.deltaUiAmount} ${d.asset}`)
+                                    .join(" · ")
+                                : hasActiveTxAudit
+                                  ? "Verified Route Checked"
+                                  : "Verified Output Preview"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Executive Summary */}
+                        <p className="mt-3.5 text-[13.5px] leading-relaxed">
+                          {isAuditing
+                            ? "Decompiling instructions, simulating on-chain RPC balance deltas, and running zero-retention Venice AI scoring..."
+                            : auditResult?.executiveSummary ||
+                              "Submit a Base64 Solana transaction or click 'Live 0.5 SOL Jupiter Blink' on the left to run live bytecode & Venice AI risk inspection."}
+                        </p>
+
+                        {/* 3-Stage Readiness Pipeline (Standby State — Fills Void Cleanly) */}
+                        {!hasActiveTxAudit && !isAuditing && (
+                          <div
+                            className={`mt-3.5 pt-3 border-t grid grid-cols-1 sm:grid-cols-3 gap-2 ${
+                              darkMode ? "border-white/10" : "border-black/10"
+                            }`}
+                          >
+                            {[
+                              {
+                                step: "01",
+                                title: "Bytecode Decoder",
+                                sub: "Legacy & V0 + Hooks",
+                              },
+                              {
+                                step: "02",
+                                title: "RPC Balance Diff",
+                                sub: "Pre-Sign Outflow Sim",
+                              },
+                              {
+                                step: "03",
+                                title: "Venice Zero-Log",
+                                sub: "llama-3.3-70b Score",
+                              },
+                            ].map((item) => (
+                              <div
+                                key={item.step}
+                                className={`rounded-lg border px-3 py-2 flex items-center justify-between gap-2 ${
+                                  darkMode
+                                    ? "bg-white/[0.02] border-white/10"
+                                    : "bg-[#FAF9F6] border-black/10"
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-[11.5px] font-semibold truncate">
+                                    <span className="font-mono text-[#2934FF] mr-1">
+                                      {item.step}
+                                    </span>
+                                    {item.title}
+                                  </div>
+                                  <div
+                                    className={`text-[10.5px] font-mono truncate ${
+                                      darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                                    }`}
+                                  >
+                                    {item.sub}
+                                  </div>
+                                </div>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Clean Hairline Diagnostics (When Active) */}
+                        {hasActiveTxAudit && (
+                          <div
+                            className={`mt-4 pt-3.5 border-t grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[12px] font-mono ${
+                              darkMode ? "border-white/10" : "border-black/10"
+                            }`}
+                          >
+                            <div>
+                              <span className="opacity-55 block text-[10.5px]">
+                                INSTRUCTIONS
+                              </span>
+                              <span className="font-semibold text-[#6B78FF]">
+                                {simulationReport?.instructions.length ?? 0} IX
+                                Calls
+                              </span>
+                            </div>
+                            <div>
+                              <span className="opacity-55 block text-[10.5px]">
+                                ANCHOR PDA GUARD
+                              </span>
+                              <span
+                                className={
+                                  auditResult?.policyGuardVerdict
+                                    ?.passesPolicy === false || emergencyLocked
+                                    ? "text-red-400 font-semibold"
+                                    : "text-emerald-500 font-semibold"
+                                }
+                              >
+                                {emergencyLocked
+                                  ? "LOCKED"
+                                  : auditResult?.policyGuardVerdict
+                                        ?.passesPolicy === false
+                                    ? "BLOCKED"
+                                    : "PASS (Within Policy)"}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="opacity-55 block text-[10.5px]">
+                                VENICE ENGINE
+                              </span>
+                              <span className="text-emerald-500">
+                                {auditResult?.inferenceMode ===
+                                "venice-live-api"
+                                  ? "Live Zero-Log LLM"
+                                  : "Pre-Filter Ready"}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Detected Token Mints inside Payload */}
+                        {rpcSimulationReport?.tokenAudits &&
+                          rpcSimulationReport.tokenAudits.length > 0 && (
+                            <div
+                              className={`mt-3.5 pt-3 border-t flex flex-wrap items-center gap-2 ${
+                                darkMode ? "border-white/10" : "border-black/10"
+                              }`}
+                            >
+                              <span className="text-[11px] font-mono opacity-60">
+                                Detected Tokens:
+                              </span>
+                              {rpcSimulationReport.tokenAudits.map((ta) => (
+                                <button
+                                  key={ta.mintAddress}
+                                  type="button"
+                                  onClick={() => {
+                                    setTokenScanReport(ta);
+                                    setTokenMintInput(ta.mintAddress);
+                                    setTechnicalMode("token");
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg border text-[11.5px] font-mono flex items-center gap-1.5 cursor-pointer ${
+                                    darkMode
+                                      ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF]"
+                                      : "border-black/15 bg-[#FAF9F6] hover:border-[#2934FF]"
+                                  }`}
+                                >
+                                  <span className="font-semibold">
+                                    {ta.symbol
+                                      ? `$${ta.symbol}`
+                                      : `${ta.mintAddress.slice(0, 5)}..${ta.mintAddress.slice(-4)}`}
+                                  </span>
+                                  <span className="text-emerald-500">
+                                    {ta.riskScore}/100
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                      </div>
+
+                      {/* Approve / Block / Tag-5 Revoke Controls */}
+                      <div className="space-y-2.5">
+                        {hasActiveTxAudit &&
+                          (walletStatus === "PENDING" ? (
+                            <div className="grid grid-cols-2 gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setWalletStatus("BLOCKED")}
+                                className={`py-2.5 px-4 rounded-xl border text-[13px] font-semibold transition-colors cursor-pointer ${
+                                  darkMode
+                                    ? "border-white/15 bg-white/[0.04] hover:bg-white/10 text-white"
+                                    : "border-black/15 bg-black text-white hover:bg-neutral-800"
+                                }`}
+                              >
+                                {isCritical ? "Block Payload" : "Reject"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setWalletStatus(
+                                    emergencyLocked ? "BLOCKED" : "SIGNED"
+                                  )
+                                }
+                                className={`py-2.5 px-4 rounded-xl text-white text-[13px] font-semibold transition-colors cursor-pointer ${
+                                  isCritical
+                                    ? "bg-red-600 hover:bg-red-700"
+                                    : "bg-[#2934FF] hover:bg-[#1E27E6]"
+                                }`}
+                              >
+                                {emergencyLocked
+                                  ? "Locked by PDA"
+                                  : isCritical
+                                    ? "Simulate Override"
+                                    : "Approve Payload"}
+                              </button>
+                            </div>
+                          ) : (
+                            <div
+                              className={`p-3.5 rounded-xl border flex items-center justify-between text-[12.5px] font-mono ${
+                                darkMode
+                                  ? "bg-[#080B13] border-white/15"
+                                  : "bg-white border-black/15"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                <span>
+                                  {walletStatus === "BLOCKED"
+                                    ? "PAYLOAD INTERCEPTED & BLOCKED"
+                                    : walletStatus === "REVOKED"
+                                      ? "SPL DELEGATE REVOKED (TAG 5)"
+                                      : "SANDBOX DECISION LOGGED"}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setWalletStatus("PENDING")}
+                                className="text-[#2934FF] hover:underline cursor-pointer"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          ))}
+
+                        <button
+                          type="button"
+                          onClick={handleRevokeSplDelegate}
+                          className={`w-full py-2.5 px-4 rounded-xl border text-[12.5px] font-medium transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                            darkMode
+                              ? "border-white/15 hover:border-[#2934FF] text-[#CBD5E1]"
+                              : "border-black/15 hover:border-[#2934FF] text-[#141413]"
+                          }`}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-[#2934FF]" />
+                          <span>Build SPL Token Delegate Revoke Tx (Tag 5)</span>
+                        </button>
+
+                        {walletStatus === "REVOKED" && revokeArtifact && (
+                          <div
+                            className={`p-3 rounded-xl border text-[11.5px] font-mono break-all ${
+                              darkMode
+                                ? "bg-[#070910] border-emerald-500/35 text-emerald-400"
+                                : "bg-emerald-50 border-emerald-300 text-emerald-900"
+                            }`}
+                          >
+                            TAG_5_REVOKE_IX (0x{revokeArtifact.discriminatorHex}
+                            ) · {revokeArtifact.accountCount} accounts ·{" "}
+                            {revokeArtifact.transactionBase64.slice(0, 56)}...
+                          </div>
                         )}
                       </div>
                     </div>
-                    <div className="text-[11.5px] font-mono opacity-80 break-all">
-                      MODEL: {activeModel} · API: api.venice.ai/v1 · NO_SYSTEM_PROMPT
-                    </div>
-                    {activeAttestation && (
-                      <p className="text-[12px] font-sans opacity-75 leading-snug">
-                        {activeAttestation}
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
+                  )}
 
-              {/* Interactive Venice AI × Solana Mainnet Chat Console */}
-              <div className="mt-6">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.08em] opacity-90 flex items-center gap-1.5">
-                    <VeniceAiLogo className="w-4 h-4 text-[#E05A2D]" />
-                    LIVE VENICE AI AGENT
-                  </span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(
-                        `curl -X POST https://api.venice.ai/api/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"llama-3.3-70b","venice_parameters":{"include_venice_system_prompt":false}}'`
-                      );
-                      setCopiedCurl(true);
-                      setTimeout(() => setCopiedCurl(false), 2000);
-                    }}
-                    className="inline-flex items-center gap-1 text-[12px] font-mono uppercase opacity-75 hover:opacity-100 cursor-pointer"
-                  >
-                    {copiedCurl ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                    <span>{copiedCurl ? "COPIED" : "ZERO-LOG PROOF"}</span>
-                  </button>
-                </div>
-
-                <div className="max-h-[240px] overflow-y-auto space-y-2.5 pr-1 mb-3">
-                  {agentMessages.map((msg, i) => (
-                    <div
-                      key={i}
-                      className={`p-3.5 text-[14px] leading-relaxed border ${
-                        msg.role === "user"
-                          ? "bg-[#2934FF] text-white border-[#2934FF]"
-                          : "border-current/15 bg-current/[0.03]"
-                      }`}
-                    >
-                      {msg.telemetry &&
-                        (msg.telemetry.slot || msg.telemetry.solBalance) && (
-                          <div className="mb-1.5 pb-1.5 border-b border-current/10 flex flex-wrap gap-2 text-[12px] font-mono opacity-85">
-                            {msg.telemetry.slot && (
-                              <span>
-                                SLOT: {msg.telemetry.slot.toLocaleString("en-US")}
+                  {/* RIGHT PANE: TOKEN AUDIT REPORT */}
+                  {technicalMode === "token" && (
+                    <div className="space-y-5">
+                      <div
+                        className={`pb-5 border-b flex flex-wrap items-center justify-between gap-4 ${
+                          darkMode ? "border-white/10" : "border-black/10"
+                        }`}
+                      >
+                        <div className="flex items-baseline gap-4 flex-wrap">
+                          <div>
+                            <div
+                              className={`text-[11px] font-mono uppercase tracking-[0.1em] ${
+                                darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                              }`}
+                            >
+                              {tokenScanReport?.symbol
+                                ? `$${tokenScanReport.symbol} Risk Score`
+                                : "Token Audit Risk Score"}
+                            </div>
+                            <div className="text-[44px] sm:text-[52px] font-semibold tracking-[-0.04em] leading-none mt-1 font-mono">
+                              {tokenScanLoading ? (
+                                <span className="opacity-40">··</span>
+                              ) : tokenScanReport ? (
+                                tokenScanReport.riskScore
+                              ) : (
+                                <span className="opacity-30">—</span>
+                              )}
+                              <span
+                                className={`text-[18px] font-normal ml-1 ${
+                                  darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                                }`}
+                              >
+                                /100
                               </span>
-                            )}
-                            {msg.telemetry.solBalance && (
-                              <span>BAL: {msg.telemetry.solBalance} SOL</span>
+                            </div>
+                          </div>
+
+                          <span
+                            className={`px-3 py-1.5 rounded-full border text-[11.5px] font-mono font-semibold uppercase tracking-[0.06em] ${
+                              tokenScanLoading
+                                ? "border-[#2934FF]/50 bg-[#2934FF]/15 text-[#6B78FF]"
+                                : !tokenScanReport
+                                  ? darkMode
+                                    ? "border-white/15 bg-white/[0.04] text-[#9EA8BA]"
+                                    : "border-black/15 bg-black/[0.04] text-[#575653]"
+                                  : tokenScanReport.classification ===
+                                      "CRITICAL"
+                                    ? "border-red-500/50 bg-red-500/15 text-red-400"
+                                    : tokenScanReport.classification ===
+                                        "CAUTION"
+                                      ? "border-amber-500/50 bg-amber-500/15 text-amber-400"
+                                      : "border-emerald-500/45 bg-emerald-500/15 text-emerald-500"
+                            }`}
+                          >
+                            {tokenScanLoading
+                              ? "Scanning..."
+                              : !tokenScanReport
+                                ? "Standby"
+                                : tokenScanReport.classification === "CRITICAL"
+                                  ? "High Rug Risk"
+                                  : tokenScanReport.classification === "CAUTION"
+                                    ? "DYOR Caution"
+                                    : "Verified Safe"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {tokenScanReport && (
+                            <button
+                              type="button"
+                              onClick={handleExportTokenProof}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11.5px] font-mono cursor-pointer ${
+                                darkMode
+                                  ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF]"
+                                  : "border-black/15 bg-white hover:border-[#2934FF]"
+                              }`}
+                            >
+                              <Download className="w-3.5 h-3.5 text-[#2934FF]" />
+                              <span>Export JSON</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={tokenScanLoading || !tokenMintInput.trim()}
+                            onClick={() => runTokenScan()}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11.5px] font-mono cursor-pointer disabled:opacity-40 ${
+                              darkMode
+                                ? "border-white/15 bg-white/[0.03] hover:border-[#2934FF]"
+                                : "border-black/15 bg-white hover:border-[#2934FF]"
+                            }`}
+                          >
+                            <RefreshCw
+                              className={`w-3.5 h-3.5 ${
+                                tokenScanLoading ? "animate-spin" : ""
+                              }`}
+                            />
+                            <span>Re-Scan</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {!tokenScanReport ? (
+                        <div
+                          className={`rounded-xl border divide-y text-[13.5px] ${
+                            darkMode
+                              ? "bg-[#080B13] border-white/10 divide-white/10"
+                              : "bg-white border-black/10 divide-black/10"
+                          }`}
+                        >
+                          {[
+                            "Mint & Freeze Authority Revocation Check",
+                            "Token-2022 PermanentDelegate & Transfer Hooks",
+                            "Top 5 / Top 10 Holder Concentration Analysis",
+                          ].map((item) => (
+                            <div
+                              key={item}
+                              className="px-4 py-3.5 flex items-center justify-between gap-3"
+                            >
+                              <span>{item}</span>
+                              <span className="font-mono text-[11px] opacity-55">
+                                READY
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div
+                            className={`rounded-xl border divide-y text-[13.5px] ${
+                              darkMode
+                                ? "bg-[#080B13] border-white/10 divide-white/10"
+                                : "bg-white border-black/10 divide-black/10"
+                            }`}
+                          >
+                            {[
+                              {
+                                label: "Mint Authority",
+                                value: tokenScanReport.mintAuthority
+                                  ? `${tokenScanReport.mintAuthority.slice(0, 6)}...${tokenScanReport.mintAuthority.slice(-4)}`
+                                  : "Revoked (Fixed Supply)",
+                                ok: !tokenScanReport.mintAuthority,
+                              },
+                              {
+                                label: "Freeze Authority",
+                                value: tokenScanReport.freezeAuthority
+                                  ? `${tokenScanReport.freezeAuthority.slice(0, 6)}...${tokenScanReport.freezeAuthority.slice(-4)}`
+                                  : "Revoked (Cannot Blacklist)",
+                                ok: !tokenScanReport.freezeAuthority,
+                              },
+                              {
+                                label: "Token-2022 Extensions",
+                                value: !tokenScanReport.isToken2022
+                                  ? "Clean Standard SPL"
+                                  : tokenScanReport.extensions.join(", ") ||
+                                    "Token-2022 Base Mint",
+                                ok:
+                                  !tokenScanReport.permanentDelegate &&
+                                  !tokenScanReport.transferHookProgramId,
+                              },
+                              {
+                                label: "Top Holder Concentration",
+                                value:
+                                  tokenScanReport.topHolders.length > 0
+                                    ? `Top 5: ${tokenScanReport.top5Pct}% · Top 10: ${tokenScanReport.top10Pct}%`
+                                    : "Inspect on Solscan",
+                                ok: tokenScanReport.top5Pct < 55,
+                              },
+                            ].map((row) => (
+                              <div
+                                key={row.label}
+                                className="px-4 py-3 flex items-center justify-between gap-3"
+                              >
+                                <span className="opacity-75">{row.label}</span>
+                                <span
+                                  className={`font-mono text-[12.5px] font-medium flex items-center gap-1.5 ${
+                                    row.ok ? "text-emerald-500" : "text-amber-400"
+                                  }`}
+                                >
+                                  {row.ok ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>{row.value}</span>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <p className="text-[13.5px] leading-relaxed opacity-90">
+                            {tokenScanReport.executiveSummary}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`/buildcheck?target=${encodeURIComponent(tokenScanReport.mintAddress)}`}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#2934FF] hover:bg-[#1E27E6] text-white text-[12px] font-semibold transition-colors"
+                            >
+                              <span>Deep BuildCheck AI Audit</span>
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            </Link>
+                            <a
+                              href={`https://solscan.io/token/${tokenScanReport.mintAddress}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl border text-[12px] font-mono ${
+                                darkMode
+                                  ? "border-white/15 hover:border-[#2934FF]"
+                                  : "border-black/15 hover:border-[#2934FF]"
+                              }`}
+                            >
+                              <span>Solscan</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                            <a
+                              href={`https://jup.ag/tokens/${tokenScanReport.mintAddress}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl border text-[12px] font-mono ${
+                                darkMode
+                                  ? "border-white/15 hover:border-[#2934FF]"
+                                  : "border-black/15 hover:border-[#2934FF]"
+                              }`}
+                            >
+                              <span>Jupiter</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(
+                                  tokenScanReport.mintAddress
+                                );
+                                setCopiedMint(true);
+                                setTimeout(() => setCopiedMint(false), 1800);
+                              }}
+                              className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl border text-[12px] font-mono cursor-pointer ${
+                                darkMode
+                                  ? "border-white/15 hover:border-[#2934FF]"
+                                  : "border-black/15 hover:border-[#2934FF]"
+                              }`}
+                            >
+                              {copiedMint ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                              <span>{copiedMint ? "Copied" : "Copy CA"}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* RIGHT PANE: INTENT COPILOT OUTPUT */}
+                  {technicalMode === "intent" && (
+                    <div className="space-y-4">
+                      <div
+                        className={`pb-4 border-b flex items-center justify-between gap-3 ${
+                          darkMode ? "border-white/10" : "border-black/10"
+                        }`}
+                      >
+                        <div>
+                          <div className="text-[11px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
+                            Compiled Intent &amp; Jupiter Quote
+                          </div>
+                          <h4 className="text-[20px] font-semibold tracking-[-0.02em] mt-0.5">
+                            {intentResponse
+                              ? `${intentResponse.intent.action.toUpperCase()} ${intentResponse.intent.amount} ${intentResponse.intent.inputToken} → ${intentResponse.intent.outputToken}`
+                              : "Awaiting Natural-Language Intent"}
+                          </h4>
+                        </div>
+                      </div>
+
+                      {intentResponse ? (
+                        <div
+                          className={`rounded-xl border divide-y text-[13px] font-mono ${
+                            darkMode
+                              ? "bg-[#080B13] border-white/10 divide-white/10"
+                              : "bg-white border-black/10 divide-black/10"
+                          }`}
+                        >
+                          <div className="px-4 py-3 flex justify-between gap-3">
+                            <span className="opacity-65">QUOTED OUTPUT</span>
+                            <span className="text-emerald-500 font-semibold text-right">
+                              {intentResponse.quote?.quoteMode ===
+                                "jupiter-v1-live" &&
+                              intentResponse.quote.outAmountUi !== null
+                                ? `${intentResponse.quote.outAmountUi.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${intentResponse.intent.outputToken}`
+                                : `Unavailable (${intentResponse.quote?.error ?? "offline"})`}
+                            </span>
+                          </div>
+                          <div className="px-4 py-3 flex justify-between gap-3">
+                            <span className="opacity-65">MAX SLIPPAGE</span>
+                            <span>{intentResponse.intent.maxSlippageBps} BPS</span>
+                          </div>
+                          <div className="px-4 py-3 flex justify-between gap-3">
+                            <span className="opacity-65">PDA POLICY CHECK</span>
+                            <span
+                              className={
+                                (intentResponse.intent.inputToken === "SOL" &&
+                                  intentResponse.intent.amount > maxDailySol) ||
+                                emergencyLocked ||
+                                !intentResponse.veniceAudit.policyGuardVerdict
+                                  .passesPolicy
+                                  ? "text-red-400 font-semibold"
+                                  : "text-emerald-500 font-semibold"
+                              }
+                            >
+                              {emergencyLocked
+                                ? "BLOCKED (EmergencyLock)"
+                                : intentResponse.intent.inputToken === "SOL" &&
+                                    intentResponse.intent.amount > maxDailySol
+                                  ? `BLOCKED (> ${maxDailySol} SOL Cap)`
+                                  : !intentResponse.veniceAudit
+                                        .policyGuardVerdict.passesPolicy
+                                    ? "BLOCKED BY POLICY"
+                                    : "APPROVED BY PDA"}
+                            </span>
+                          </div>
+                          <div className="px-4 py-3 font-sans text-[13.5px] leading-relaxed opacity-85">
+                            {intentResponse.intent.explanation}
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className={`rounded-xl border p-5 text-[13.5px] leading-relaxed ${
+                            darkMode
+                              ? "bg-[#080B13] border-white/10 text-[#8E98AD]"
+                              : "bg-white border-black/10 text-[#575653]"
+                          }`}
+                        >
+                          Enter any Solana DeFi swap instruction on the left and
+                          click <strong>Compile Guarded Intent</strong> to fetch
+                          a live Jupiter v1 quote checked against your on-chain
+                          spending limits.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* RIGHT PANE: ANCHOR POLICY VAULT STATE & EMERGENCY FREEZE */}
+                  {technicalMode === "vault" && (
+                    <div className="space-y-4">
+                      <div
+                        className={`rounded-xl border p-4 sm:p-5 font-mono text-[12.5px] space-y-2.5 ${
+                          darkMode
+                            ? "bg-[#080B13] border-white/10"
+                            : "bg-white border-black/10"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="opacity-60">WALLET_OWNER</span>
+                          {effectiveVaultOwner ? (
+                            <span>
+                              {effectiveVaultOwner.slice(0, 8)}...
+                              {effectiveVaultOwner.slice(-6)}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={connectBrowserWallet}
+                              className="text-[#2934FF] hover:underline cursor-pointer"
+                            >
+                              Connect Wallet ↗
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="opacity-60">POLICY_PDA</span>
+                          {derivedPdaAddress || vaultStatus?.policyPda ? (
+                            <a
+                              href={`https://explorer.solana.com/address/${
+                                derivedPdaAddress || vaultStatus?.policyPda
+                              }${vaultStatus?.cluster === "mainnet" ? "" : "?cluster=devnet"}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-emerald-500 hover:underline"
+                            >
+                              {(
+                                derivedPdaAddress ||
+                                vaultStatus?.policyPda ||
+                                ""
+                              ).slice(0, 10)}
+                              ...
+                              {(
+                                derivedPdaAddress ||
+                                vaultStatus?.policyPda ||
+                                ""
+                              ).slice(-6)}{" "}
+                              ↗
+                            </a>
+                          ) : (
+                            <span className="opacity-60">Checking RPC...</span>
+                          )}
+                        </div>
+                        <div className="flex justify-between items-center gap-2">
+                          <span className="opacity-60">PDA_STATE</span>
+                          <span className="text-emerald-500 text-right">
+                            {vaultStatus?.policyState
+                              ? `Active · ${(vaultStatus.policyState.maxDailySpendLamports / 1e9).toFixed(1)} SOL/24h`
+                              : `Ready (${vaultStatus?.cluster === "mainnet" ? "Mainnet" : "Devnet Beta"})`}
+                          </span>
+                        </div>
+                        <div
+                          className={`flex justify-between items-center gap-2 pt-2 border-t ${
+                            darkMode ? "border-white/10" : "border-black/10"
+                          }`}
+                        >
+                          <span className="opacity-60">VAULT_PROGRAM</span>
+                          <a
+                            href={
+                              vaultStatus?.programDeployedOnMainnet
+                                ? TOKEN_CONFIG.links.mainnetProgram
+                                : TOKEN_CONFIG.links.devnetProgram
+                            }
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[#2934FF] hover:underline"
+                          >
+                            {vaultStatus
+                              ? `${vaultStatus.programId.slice(0, 6)}..${vaultStatus.programId.slice(-4)} ↗`
+                              : "Checking..."}
+                          </a>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleBuildPolicyVaultTx("sync")}
+                          className={`w-full py-3 px-4 rounded-xl border text-[13px] font-semibold transition-colors cursor-pointer ${
+                            darkMode
+                              ? "border-white/15 bg-white/[0.04] hover:border-[#2934FF] text-white"
+                              : "border-black/15 bg-white hover:border-[#2934FF] text-[#141413]"
+                          }`}
+                        >
+                          Sync Policy Guardrails to PDA ↗
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextLocked = !emergencyLocked;
+                            setEmergencyLocked(nextLocked);
+                            handleBuildPolicyVaultTx(
+                              "emergency-lock",
+                              nextLocked
+                            );
+                          }}
+                          className={`w-full py-3.5 px-5 rounded-xl font-semibold text-[13.5px] text-white transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                            emergencyLocked
+                              ? "bg-emerald-600 hover:bg-emerald-700"
+                              : "bg-red-600 hover:bg-red-700"
+                          }`}
+                        >
+                          {emergencyLocked ? (
+                            <>
+                              <Unlock className="w-4 h-4" />
+                              <span>Unlock Anchor Policy Vault</span>
+                            </>
+                          ) : (
+                            <>
+                              <Lock className="w-4 h-4" />
+                              <span>Engage Emergency Circuit Breaker</span>
+                            </>
+                          )}
+                        </button>
+
+                        {policyActionNotice && (
+                          <div
+                            className={`p-3 rounded-xl border font-mono text-[11.5px] leading-relaxed break-all ${
+                              darkMode
+                                ? "bg-[#080B13] border-white/15 text-emerald-400"
+                                : "bg-white border-black/15 text-[#141413]"
+                            }`}
+                          >
+                            <div>{policyActionNotice}</div>
+                            {policyTxArtifact && (
+                              <div className="opacity-75 mt-1">
+                                DATA_HEX: {policyTxArtifact.instructionDataHex}
+                              </div>
                             )}
                           </div>
                         )}
-                      <p className="whitespace-pre-line">{msg.content}</p>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  )}
 
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    sendAgentQuery();
-                  }}
-                  className="flex gap-2"
-                >
-                  <input
-                    type="text"
-                    value={agentInput}
-                    onChange={(e) => setAgentInput(e.target.value)}
-                    placeholder="Ask Venice AI or paste a txHash..."
-                    className="flex-1 px-3.5 py-3 text-[14px] bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    disabled={agentLoading}
-                    className="px-4 py-3 bg-[#2934FF] hover:bg-[#1E28E6] text-white transition-colors cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-              </div>
-            </div>
-          </SpotlightCard>
-        </section>
+                  {/* RIGHT PANE: BLINKS PREVIEW CARD */}
+                  {technicalMode === "blinks" && (
+                    <div className="space-y-4">
+                      <div
+                        className={`rounded-2xl border p-5 sm:p-6 space-y-4 ${
+                          darkMode
+                            ? "bg-[#080B13] border-white/10"
+                            : "bg-white border-black/10"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src="/logo.jpg"
+                              alt="SolShield Blink"
+                              className="w-11 h-11 rounded-xl object-cover border border-white/15"
+                            />
+                            <div>
+                              <div className="text-[15.5px] font-semibold">
+                                SolShield — Venice AI Guarded Swap
+                              </div>
+                              <div className="text-[12px] font-mono opacity-65">
+                                sol-shield.xyz · Zero-Log Action
+                              </div>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-500 text-[11px] font-mono font-semibold">
+                            LIVE
+                          </span>
+                        </div>
 
-        {/* ====================================================================
-            SECTION 03 — AUTONOMOUS INTENT COPILOT, ANCHOR PDA VAULT & BLINKS
-            Continues the 3-Column Hexacore Architectural Grid
-            ==================================================================== */}
-        <section
-          id="vault-side"
-          className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.16fr)_minmax(0,1fr)] hexacore-hairline-b"
-        >
-          {/* COLUMN 1 (LEFT) — 04 // NATURAL-LANGUAGE DEFI INTENT COPILOT */}
-          <SpotlightCard
-            spotlightColor="rgba(41, 52, 255, 0.14)"
-            className="hexacore-hairline-r px-8 sm:px-12 xl:px-14 py-12 flex flex-col justify-between"
-          >
-            <div id="intent-copilot">
-              <div className="flex items-center justify-between mb-6">
-                <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                  04 // DEFI INTENT COPILOT
-                </span>
-                <span className="text-[12px] font-mono uppercase px-2.5 py-0.5 border border-current/25">
-                  /API/INTENT
-                </span>
-              </div>
+                        <p
+                          className={`text-[13.5px] leading-relaxed ${
+                            darkMode ? "text-[#8E98AD]" : "text-[#575653]"
+                          }`}
+                        >
+                          Every click on this Blink audits the Jupiter swap
+                          route, balance deltas, and token authorities before
+                          delivering the unsigned transaction to the user&apos;s
+                          wallet.
+                        </p>
 
-              <h3 className="text-[28px] sm:text-[32px] font-normal tracking-[-0.035em] leading-[1.1] mb-3">
-                Plain-English to Guarded Tx
-              </h3>
-              <p className="text-[15px] opacity-80 leading-[1.6] mb-6">
-                Express what you want to trade in plain language. Venice AI
-                parses your intent and verifies it against your Anchor{" "}
-                <code className="font-mono text-[13.5px]">SecurityPolicy</code> PDA before
-                building the Jupiter route.
-              </p>
+                        <div
+                          className={`rounded-xl border px-3.5 py-2.5 font-mono text-[12px] break-all ${
+                            darkMode
+                              ? "bg-[#05070C] border-white/10 text-[#9EA8BA]"
+                              : "bg-[#FAF9F6] border-black/10 text-[#575653]"
+                          }`}
+                        >
+                          solana-action:https://sol-shield.xyz/api/actions/audit-swap?amount=
+                          {encodeURIComponent(selectedBlinkSol || "0.5")}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-              <textarea
-                value={intentPrompt}
-                onChange={(e) => setIntentPrompt(e.target.value)}
-                rows={3}
-                className="w-full p-3.5 text-[15px] font-mono bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none leading-relaxed"
-                placeholder="Describe what you want to trade on Solana (amount, input/output tokens, max slippage)..."
-              />
-
-              {!connectedWallet && (
-                <input
-                  type="text"
-                  value={manualVaultOwner}
-                  onChange={(e) => setManualVaultOwner(e.target.value)}
-                  placeholder="Optional Wallet Pubkey (read-only unsigned tx preview)"
-                  className="mt-2.5 w-full px-3.5 py-2.5 text-[13px] font-mono bg-transparent border border-current/20 focus:border-[#2934FF] focus:outline-none"
-                />
-              )}
-
-              <button
-                type="button"
-                onClick={() => runIntentCopilot()}
-                disabled={intentLoading || !intentPrompt.trim()}
-                className="mt-3 w-full bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-50 text-white py-3.5 text-[13.5px] font-sans font-semibold uppercase tracking-[0.06em] transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>
-                  {intentLoading
-                    ? "BUILDING GUARDED SWAP..."
-                    : "COMPILE GUARDED INTENT ↗"}
-                </span>
-              </button>
-            </div>
-
-            {intentResponse && (
-              <div className="mt-8 pt-6 hexacore-hairline-t font-mono text-[13px] space-y-2.5">
-                <div className="flex justify-between gap-2">
-                  <span className="opacity-75">PARSED_ACTION</span>
-                  <span className="font-semibold text-right">
-                    {intentResponse.intent.action}{" "}
-                    {intentResponse.intent.amount}{" "}
-                    {intentResponse.intent.inputToken} →{" "}
-                    {intentResponse.intent.outputToken}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="opacity-75">VENICE_INFERENCE</span>
-                  <span
-                    className={`text-right ${
-                      intentResponse.intent.inferenceMode === "venice-live-api"
-                        ? "text-emerald-400 font-semibold"
-                        : "opacity-85"
+                  {/* DOCKED RAYCAST-STYLE VENICE AI SECURITY COPILOT BAR */}
+                  <div
+                    className={`pt-4 border-t space-y-3 ${
+                      darkMode ? "border-white/10" : "border-black/10"
                     }`}
                   >
-                    {intentResponse.intent.inferenceMode === "venice-live-api"
-                      ? "Live LLM (llama-3.3-70b · Zero-Retention)"
-                      : "Deterministic Parser · Add Venice Key for Live LLM"}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="opacity-75">QUOTED_OUTPUT</span>
-                  {intentResponse.quote?.quoteMode === "jupiter-v1-live" &&
-                  intentResponse.quote.outAmountUi !== null ? (
-                    <span className="text-emerald-400 font-semibold text-right">
-                      {intentResponse.quote.outAmountUi.toLocaleString(
-                        "en-US",
-                        { maximumFractionDigits: 4 }
-                      )}{" "}
-                      {intentResponse.intent.outputToken}
-                      {intentResponse.quote.routeLabels.length > 0
-                        ? ` (${intentResponse.quote.routeLabels[0]})`
-                        : " (Jupiter v1)"}
-                    </span>
-                  ) : (
-                    <span className="text-amber-400 text-right">
-                      Quote unavailable ({intentResponse.quote?.error ?? "offline"})
-                    </span>
-                  )}
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="opacity-75">MAX_SLIPPAGE</span>
-                  <span>{intentResponse.intent.maxSlippageBps} BPS</span>
-                </div>
-                {intentResponse.recentBlockhash && (
-                  <div className="flex justify-between gap-2">
-                    <span className="opacity-75">LIVE_TX_V0</span>
-                    <span className="opacity-90">
-                      BH {intentResponse.recentBlockhash.slice(0, 8)}... ·{" "}
-                      {intentResponse.base64Transaction?.length ?? 0}b64
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between gap-2">
-                  <span className="opacity-75">PDA_POLICY_CHECK</span>
-                  <span
-                    className={
-                      (intentResponse.intent.inputToken === "SOL" &&
-                        intentResponse.intent.amount > maxDailySol) ||
-                      emergencyLocked ||
-                      !intentResponse.veniceAudit.policyGuardVerdict
-                        .passesPolicy
-                        ? "text-red-500 font-semibold text-right"
-                        : "text-emerald-500 font-semibold text-right"
-                    }
-                  >
-                    {emergencyLocked
-                      ? "BLOCKED (EmergencyLock)"
-                      : intentResponse.intent.inputToken === "SOL" &&
-                          intentResponse.intent.amount > maxDailySol
-                        ? `BLOCKED (Exceeds ${maxDailySol} SOL Cap)`
-                        : !intentResponse.veniceAudit.policyGuardVerdict
-                              .passesPolicy
-                          ? "BLOCKED BY POLICY"
-                          : "APPROVED BY PDA"}
-                  </span>
-                </div>
-                <p className="text-[13.5px] opacity-85 pt-2 font-sans leading-relaxed">
-                  {intentResponse.intent.explanation}
-                </p>
-              </div>
-            )}
-          </SpotlightCard>
-
-          {/* COLUMN 2 (CENTER MONOLITH) — 05 // ANCHOR SECURITYPOLICY PDA VAULT */}
-          <div
-            id="policy-vault"
-            className="hexacore-hairline-r bg-[#E2E4E8] text-[#0A0A0C] px-8 sm:px-12 py-12 flex flex-col justify-between min-w-0"
-          >
-            <div>
-              <div className="flex items-center justify-between pb-6 border-b border-[#0A0A0C]/15">
-                <div>
-                  <span className="text-[12.5px] font-mono uppercase tracking-[0.1em] text-[#2934FF] font-semibold">
-                    {vaultStatus?.programDeployedOnMainnet
-                      ? "05 // POLICY VAULT (SOLANA MAINNET)"
-                      : "05 // DEVNET POLICY VAULT (BETA)"}
-                  </span>
-                  <h3 className="text-[26px] sm:text-[30px] font-normal tracking-[-0.03em] leading-tight mt-1">
-                    On-Chain Spending Guardrails
-                  </h3>
-                </div>
-                <span className="px-2.5 py-1 bg-[#0A0A0C] text-white text-[12px] font-mono uppercase shrink-0">
-                  {vaultStatus?.programDeployedOnMainnet
-                    ? "Mainnet · Anchor v0.30.1"
-                    : vaultStatus?.programDeployedOnDevnet
-                      ? "Devnet Beta · Anchor v0.30.1"
-                      : "Anchor v0.30.1 · Deploy Pending"}
-                </span>
-              </div>
-
-              <div className="mt-4 p-3.5 bg-white/80 border border-[#0A0A0C]/15 text-[13px] font-sans text-[#0A0A0C]/85 leading-relaxed">
-                <strong className="font-mono text-[11.5px] uppercase tracking-[0.06em] text-[#2934FF] block mb-1">
-                  {vaultStatus?.programDeployedOnMainnet
-                    ? "MAINNET FIREWALL · LIVE MAINNET ANCHOR VAULT"
-                    : "MAINNET FIREWALL · DEVNET BETA SMART CONTRACT"}
-                </strong>
-                Pre-Sign Tx Firewall, Token Mint Auditor, Live Tx/Address X-Ray &amp; Blinks execute live on{" "}
-                <strong>Solana Mainnet RPC</strong>.{" "}
-                {vaultStatus?.programDeployedOnMainnet ? (
-                  <>
-                    The Anchor PDA Policy Vault is deployed and executable on{" "}
-                    <strong>Solana Mainnet</strong>.
-                  </>
-                ) : (
-                  <>
-                    This optional Anchor PDA Vault currently runs on{" "}
-                    <strong>Devnet Beta</strong> until Mainnet program deployment completes.
-                  </>
-                )}
-              </div>
-
-              {/* Derived PDA Box */}
-              <div className="mt-6 p-4 bg-[#0A0A0C] text-white font-mono text-[13px] space-y-2">
-                <div className="flex justify-between items-center text-white/75">
-                  <span>WALLET_OWNER</span>
-                  {effectiveVaultOwner ? (
-                    <span className="text-white">
-                      {effectiveVaultOwner.slice(0, 8)}...
-                      {effectiveVaultOwner.slice(-6)}
-                      {!connectedWallet && " (Manual)"}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={connectBrowserWallet}
-                      className="text-[#6B78FF] hover:underline cursor-pointer"
-                    >
-                      Connect Wallet ↗
-                    </button>
-                  )}
-                </div>
-                <div className="flex justify-between items-center gap-2 text-white/75">
-                  <span>
-                    {derivedPdaAddress
-                      ? "DERIVED_POLICY_PDA"
-                      : "PROTOCOL_REFERENCE_PDA"}
-                  </span>
-                  {derivedPdaAddress || vaultStatus?.policyPda ? (
-                    <a
-                      href={`https://explorer.solana.com/address/${
-                        derivedPdaAddress || vaultStatus?.policyPda
-                      }${vaultStatus?.cluster === "mainnet" ? "" : "?cluster=devnet"}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-emerald-400 hover:underline inline-flex items-center gap-1"
-                    >
-                      {(derivedPdaAddress || vaultStatus?.policyPda || "").slice(0, 10)}
-                      ...
-                      {(derivedPdaAddress || vaultStatus?.policyPda || "").slice(-6)}
-                      {!derivedPdaAddress && " (Protocol Default)"} ↗
-                    </a>
-                  ) : (
-                    <span className="text-white/60">
-                      {lang === "en"
-                        ? "Checking Solana RPC..."
-                        : "Memeriksa Solana RPC..."}
-                    </span>
-                  )}
-                </div>
-                <div className="flex justify-between items-center gap-2 text-white/75">
-                  <span>PDA_STATE</span>
-                  {vaultStatus?.policyState ? (
-                    <span className="text-emerald-400 text-right">
-                      Active ·{" "}
-                      {(
-                        vaultStatus.policyState.maxDailySpendLamports / 1e9
-                      ).toFixed(1)}{" "}
-                      SOL/24h · Risk &lt;={" "}
-                      {vaultStatus.policyState.maxAllowedRiskScore} ·{" "}
-                      {vaultStatus.policyState.auditedTxCount} tx
-                      {vaultStatus.policyState.emergencyLocked ? " · LOCKED" : ""}
-                    </span>
-                  ) : vaultStatus?.policyInitialized ||
-                    vaultStatus?.policyInitializedOnDevnet ? (
-                    <span className="text-emerald-400">
-                      Initialized ({vaultStatus.cluster === "mainnet" ? "Mainnet" : "Devnet Beta"})
-                    </span>
-                  ) : (
-                    <span className="text-amber-300">
-                      {lang === "en"
-                        ? `Ready to initialize (${
-                            vaultStatus?.cluster === "mainnet"
-                              ? "Mainnet"
-                              : "Devnet Beta"
-                          })`
-                        : `Siap diinisialisasi (${
-                            vaultStatus?.cluster === "mainnet"
-                              ? "Mainnet"
-                              : "Devnet Beta"
-                          })`}
-                    </span>
-                  )}
-                </div>
-                <div className="flex justify-between text-white/75">
-                  <span>SEEDS</span>
-                  <span>[&quot;solshield_policy&quot;, owner]</span>
-                </div>
-                <div className="flex justify-between items-center text-white/75 pt-1 border-t border-white/10">
-                  <span>
-                    {vaultStatus?.programDeployedOnMainnet
-                      ? "VAULT_PROGRAM (MAINNET)"
-                      : "VAULT_PROGRAM (DEVNET BETA)"}
-                  </span>
-                  <a
-                    href={
-                      vaultStatus?.programDeployedOnMainnet
-                        ? TOKEN_CONFIG.links.mainnetProgram
-                        : TOKEN_CONFIG.links.devnetProgram
-                    }
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`${
-                      vaultStatus?.programDeployedOnMainnet ||
-                      vaultStatus?.programDeployedOnDevnet
-                        ? "text-emerald-400"
-                        : "text-amber-300"
-                    } hover:underline inline-flex items-center gap-1`}
-                  >
-                    {vaultStatus
-                      ? `${vaultStatus.programId.slice(0, 6)}..${vaultStatus.programId.slice(-4)} (${
-                          vaultStatus.programDeployedOnMainnet
-                            ? "Deployed Mainnet"
-                            : vaultStatus.programDeployedOnDevnet
-                              ? "Deployed Devnet"
-                              : "Template ID"
-                        }) ↗`
-                      : "Checking Solana RPC..."}
-                  </a>
-                </div>
-              </div>
-              {walletNotice && (
-                <div className="mt-3 px-3.5 py-2.5 border border-amber-600/35 bg-amber-500/10 text-amber-950 font-sans text-[13px]">
-                  {walletNotice}
-                </div>
-              )}
-
-              {/* Optional Manual Owner & Revoke Mint Inputs */}
-              <div className="mt-4 space-y-2.5">
-                {!connectedWallet && (
-                  <input
-                    type="text"
-                    value={manualVaultOwner}
-                    onChange={(e) => setManualVaultOwner(e.target.value)}
-                    placeholder="Optional Owner Pubkey (if browser wallet not connected)"
-                    className="w-full px-3.5 py-2.5 text-[12.5px] font-mono bg-white/80 text-[#0A0A0C] border border-[#0A0A0C]/20 focus:border-[#2934FF] focus:outline-none"
-                  />
-                )}
-                <input
-                  type="text"
-                  value={revokeMintInput}
-                  onChange={(e) => setRevokeMintInput(e.target.value)}
-                  placeholder="Optional Token Mint CA for Tag-5 Delegate Revoke (defaults to USDC)"
-                  className="w-full px-3.5 py-2.5 text-[12.5px] font-mono bg-white/80 text-[#0A0A0C] border border-[#0A0A0C]/20 focus:border-[#2934FF] focus:outline-none"
-                />
-              </div>
-
-              {/* Sliders for 24h Spend Cap & Risk Threshold */}
-              <div className="mt-6 space-y-5">
-                <div className="p-4 bg-white/70 border border-[#0A0A0C]/15">
-                  <div className="flex justify-between gap-2 text-[13px] font-mono mb-2.5">
-                    <span>MAX DAILY SPEND (24H ROLLING)</span>
-                    <span className="font-bold text-[#2934FF] text-right">
-                      {maxDailySol.toFixed(1)} SOL (
-                      {(maxDailySol * 1e9).toLocaleString("en-US")} lamports)
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.5}
-                    max={20}
-                    step={0.5}
-                    value={maxDailySol}
-                    onChange={(e) => setMaxDailySol(Number(e.target.value))}
-                    className="w-full accent-[#2934FF] cursor-pointer"
-                  />
-                </div>
-
-                <div className="p-4 bg-white/70 border border-[#0A0A0C]/15">
-                  <div className="flex justify-between gap-2 text-[13px] font-mono mb-2.5">
-                    <span>MAX ALLOWED VENICE RISK SCORE</span>
-                    <span className="font-bold text-[#2934FF]">
-                      {maxAllowedRisk} / 100
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={10}
-                    max={80}
-                    step={5}
-                    value={maxAllowedRisk}
-                    onChange={(e) => setMaxAllowedRisk(Number(e.target.value))}
-                    className="w-full accent-[#2934FF] cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Emergency Circuit Breaker & Policy Sync Controls */}
-            <div className="mt-8 pt-6 border-t border-[#0A0A0C]/15 space-y-3">
-              <button
-                type="button"
-                onClick={() => handleBuildPolicyVaultTx("sync")}
-                className="w-full py-3 px-4 border border-[#0A0A0C]/25 bg-white/70 hover:bg-[#0A0A0C] hover:text-white text-[#0A0A0C] font-mono text-[12.5px] uppercase tracking-[0.05em] transition-colors cursor-pointer"
-              >
-                {vaultStatus?.programDeployedOnMainnet
-                  ? "SYNC POLICY GUARDRAILS TO MAINNET PDA ↗"
-                  : vaultStatus?.programDeployedOnDevnet
-                    ? "SYNC POLICY GUARDRAILS TO DEVNET BETA PDA ↗"
-                    : "SERIALIZE ANCHOR POLICY INSTRUCTION (DEVNET BETA)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextLocked = !emergencyLocked;
-                  setEmergencyLocked(nextLocked);
-                  handleBuildPolicyVaultTx("emergency-lock", nextLocked);
-                }}
-                className={`w-full py-4 px-5 font-sans font-semibold text-[13.5px] uppercase tracking-[0.06em] text-white transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                  emergencyLocked
-                    ? "bg-emerald-700 hover:bg-emerald-800"
-                    : "bg-red-600 hover:bg-red-700"
-                }`}
-              >
-                {emergencyLocked ? (
-                  <>
-                    <Unlock className="w-4 h-4" />
-                    <span>
-                      UNLOCK ANCHOR POLICY VAULT (RESTORE SIGNING)
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-4 h-4" />
-                    <span>
-                      ENGAGE EMERGENCY CIRCUIT BREAKER (FREEZE VAULT)
-                    </span>
-                  </>
-                )}
-              </button>
-              {policyActionNotice && (
-                <div className="p-3 bg-[#0A0A0C] text-white font-mono text-[11.5px] leading-relaxed break-all">
-                  <div>{policyActionNotice}</div>
-                  {policyTxArtifact && (
-                    <div className="text-emerald-300/90 mt-1">
-                      DATA_HEX: {policyTxArtifact.instructionDataHex}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-[11.5px] font-mono uppercase tracking-[0.08em] opacity-80">
+                        <VeniceAiLogo className="w-3.5 h-3.5 text-[#E05A2D]" />
+                        <span>Live Venice AI Copilot</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            `curl -X POST https://api.venice.ai/api/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"llama-3.3-70b","venice_parameters":{"include_venice_system_prompt":false}}'`
+                          );
+                          setCopiedCurl(true);
+                          setTimeout(() => setCopiedCurl(false), 2000);
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-mono uppercase opacity-70 hover:opacity-100 cursor-pointer"
+                      >
+                        {copiedCurl ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        <span>{copiedCurl ? "Copied" : "Zero-Log Proof"}</span>
+                      </button>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
 
-          {/* COLUMN 3 (RIGHT) — 06 // SOLANA ACTIONS & BLINKS STUDIO */}
-          <SpotlightCard
-            spotlightColor="rgba(41, 52, 255, 0.14)"
-            className="px-8 sm:px-12 xl:px-14 py-12 flex flex-col justify-between"
-          >
-            <div id="blinks-studio">
-              <div className="flex items-center justify-between gap-2 mb-6">
-                <span className="text-[12.5px] font-mono uppercase tracking-[0.09em] text-[#2934FF] font-semibold">
-                  06 // SOLANA BLINKS
-                </span>
-                <span className="text-[12px] font-mono uppercase px-2.5 py-0.5 border border-emerald-500/45 text-emerald-500 whitespace-nowrap shrink-0">
-                  ACTIONS.JSON READY
-                </span>
-              </div>
-
-              <h3 className="text-[28px] sm:text-[32px] font-normal tracking-[-0.035em] leading-[1.1] mb-3">
-                Shareable Guarded Blink
-              </h3>
-              <p className="text-[15px] opacity-80 leading-[1.6] mb-6">
-                SolShield exposes a spec-compliant Solana Action endpoint at{" "}
-                <code className="font-mono text-[13.5px]">/api/actions/audit-swap</code> that
-                runs a Venice AI pre-flight check before returning the swap
-                payload to X/Twitter Blinks.
-              </p>
-
-              {/* Visual Blink Card Preview */}
-              <div className="p-5 border border-current/20 bg-current/[0.03] space-y-4">
-                <div className="flex items-center gap-3">
-                  <img
-                    src="/logo.jpg"
-                    alt="SolShield Blink"
-                    className="w-11 h-11 rounded-lg object-cover border border-white/20"
-                  />
-                  <div>
-                    <div className="text-[16px] font-medium">
-                      SolShield — Venice AI Guarded Swap
-                    </div>
-                    <div className="text-[13px] font-mono opacity-75">
-                      sol-shield.xyz • Zero-Log Action
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[11.5px] font-mono uppercase tracking-[0.06em] opacity-75 block mb-2">
-                    CUSTOM SWAP AMOUNT (SOL)
-                  </label>
-                  <input
-                    type="number"
-                    min="0.001"
-                    step="0.1"
-                    value={selectedBlinkSol}
-                    onChange={(e) => setSelectedBlinkSol(e.target.value)}
-                    placeholder="Enter SOL amount (e.g. 0.5)"
-                    className="w-full px-3.5 py-2.5 text-[14px] font-mono bg-transparent border border-current/25 focus:border-[#2934FF] focus:outline-none"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    disabled={!selectedBlinkSol.trim()}
-                    onClick={() => {
-                      const actionUrl = getLiveAuditSwapBlinkUrl(selectedBlinkSol);
-                      setTechnicalMode("payload");
-                      setPayloadInputMode("blink");
-                      setTxPayloadInput(actionUrl);
-                      runPayloadAudit({ mode: "blink", payload: actionUrl });
-                      scrollToTechnicalSide();
-                    }}
-                    className="w-full py-3 bg-[#2934FF] hover:bg-[#1E28E6] disabled:opacity-50 text-white text-[12.5px] font-sans font-semibold uppercase tracking-[0.05em] flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    <span>INSPECT BLINK IN FIREWALL ↗</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!selectedBlinkSol.trim()}
-                    onClick={() => {
-                      const amt = encodeURIComponent(selectedBlinkSol.trim());
-                      const actionUrl = `solana-action:${window.location.origin}/api/actions/audit-swap?amount=${amt}`;
-                      navigator.clipboard.writeText(actionUrl);
-                      setCopiedBlinkUrl(true);
-                      setTimeout(() => setCopiedBlinkUrl(false), 2000);
-                    }}
-                    className="w-full py-3 border border-current/25 hover:border-[#2934FF] disabled:opacity-50 text-[12.5px] font-sans font-semibold uppercase tracking-[0.05em] flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    {copiedBlinkUrl ? (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-500" />
-                        <span>COPIED SOLANA-ACTION: URL</span>
-                      </>
-                    ) : (
-                      <>
-                        <Share2 className="w-4 h-4" />
-                        <span>COPY BLINK ACTION URL</span>
-                      </>
+                    {agentMessages.length > 0 && (
+                      <div className="max-h-[135px] overflow-y-auto space-y-2 pr-1">
+                        {agentMessages.slice(-4).map((msg, i) => (
+                          <div
+                            key={i}
+                            className={`rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed border ${
+                              msg.role === "user"
+                                ? "bg-[#2934FF] text-white border-[#2934FF]"
+                                : darkMode
+                                  ? "bg-[#080B13] border-white/10 text-[#CBD5E1]"
+                                  : "bg-white border-black/10 text-[#141413]"
+                            }`}
+                          >
+                            {msg.telemetry &&
+                              (msg.telemetry.slot ||
+                                msg.telemetry.solBalance) && (
+                                <div className="mb-1 pb-1 border-b border-current/10 flex flex-wrap gap-2 text-[11px] font-mono opacity-80">
+                                  {msg.telemetry.slot && (
+                                    <span>
+                                      SLOT:{" "}
+                                      {msg.telemetry.slot.toLocaleString(
+                                        "en-US"
+                                      )}
+                                    </span>
+                                  )}
+                                  {msg.telemetry.solBalance && (
+                                    <span>
+                                      BAL: {msg.telemetry.solBalance} SOL
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            <p className="whitespace-pre-line">{msg.content}</p>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                  </button>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        sendAgentQuery();
+                      }}
+                      className="flex gap-2"
+                    >
+                      <input
+                        type="text"
+                        value={agentInput}
+                        onChange={(e) => setAgentInput(e.target.value)}
+                        placeholder="Ask Venice AI or paste a Solana txHash / address..."
+                        className={`flex-1 min-w-0 rounded-xl px-3.5 py-2.5 text-[13.5px] border focus:border-[#2934FF] focus:outline-none ${
+                          darkMode
+                            ? "bg-[#06080E] border-white/15 text-white placeholder:text-white/35"
+                            : "bg-white border-black/15 text-[#141413] placeholder:text-black/40"
+                        }`}
+                      />
+                      <button
+                        type="submit"
+                        disabled={agentLoading || !agentInput.trim()}
+                        className="px-4 py-2.5 rounded-xl bg-[#2934FF] hover:bg-[#1E27E6] disabled:opacity-45 text-white transition-colors cursor-pointer shrink-0"
+                        aria-label="Send query to Venice AI"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
             </div>
-
-            <div className="mt-8 pt-6 hexacore-hairline-t flex flex-wrap items-center justify-between gap-2 text-[13px] font-mono opacity-80">
-              <span className="whitespace-nowrap">Built by @Blanksite</span>
-              <a
-                href="https://github.com/Blanksite/solshield"
-                target="_blank"
-                rel="noreferrer"
-                className="underline hover:opacity-100 whitespace-nowrap"
-              >
-                Open-Source MIT Repo ↗
-              </a>
-            </div>
-          </SpotlightCard>
-        </section>
-
-        {/* ====================================================================
-            BROWSER GUARD CHROME MV3 EXTENSION RELEASE STRIP
-            ==================================================================== */}
-        <section
-          id="browser-guard"
-          className="w-full hexacore-canvas border-t border-white/12 text-current px-6 sm:px-10 xl:px-14 py-12"
-        >
-          <div className="max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-            <div className="lg:col-span-7 space-y-3">
-              <div className="inline-flex items-center gap-2 text-[12px] font-mono uppercase tracking-[0.12em] text-[#2934FF] font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>
-                  {lang === "en"
-                    ? "CHROME MV3 EXTENSION BETA · v0.3.0"
-                    : "EKSTENSI CHROME MV3 BETA · v0.3.0"}
-                </span>
-              </div>
-              <h2 className="text-[28px] sm:text-[34px] font-medium tracking-[-0.03em] leading-[1.12]">
-                {lang === "en"
-                  ? "SolShield Browser Guard — Pre-Sign Firewall Before Phantom Pops Up."
-                  : "SolShield Browser Guard — Firewall Pra-Sign Sebelum Popup Phantom."}
-              </h2>
-              <p className="text-[15.5px] opacity-80 leading-relaxed max-w-2xl">
-                {lang === "en"
-                  ? "Intercepts Legacy (Phantom, Solflare, Backpack, Glow) and Wallet Standard requests including signTransaction, signAllTransactions, signMessage, and cross-domain SIWS signIn via isolated MessageChannel + Shadow DOM modal with zero transaction mutation."
-                  : "Mencegat permintaan Legacy & Wallet Standard (signTransaction, signAllTransactions, signMessage, hingga SIWS signIn lintas domain) lewat MessageChannel terisolasi + overlay Shadow DOM tanpa memodifikasi objek transaksi."}
-              </p>
-              <div className="pt-1 flex flex-wrap gap-2 text-[12px] font-mono opacity-80">
-                <span className="px-2.5 py-1 border border-current/20">1. Download &amp; unzip ZIP</span>
-                <span className="px-2.5 py-1 border border-current/20">2. chrome://extensions → Developer mode</span>
-                <span className="px-2.5 py-1 border border-current/20">3. Load unpacked dist/</span>
-              </div>
-            </div>
-
-            <div className="lg:col-span-5 flex flex-col sm:flex-row lg:flex-col xl:flex-row lg:items-end justify-end gap-3">
-              <a
-                href="/downloads/solshield-browser-guard-v0.3.0.zip"
-                download
-                className="inline-flex items-center justify-center gap-2.5 px-5 py-3.5 bg-[#2934FF] hover:opacity-95 text-white text-[13px] font-mono font-semibold uppercase tracking-[0.06em] transition-opacity whitespace-nowrap"
-              >
-                <Download className="w-4 h-4 shrink-0" />
-                <span>
-                  {lang === "en"
-                    ? "Download MV3 Guard (.ZIP)"
-                    : "Unduh Ekstensi MV3 (.ZIP)"}
-                </span>
-              </a>
-              <a
-                href="/privacy"
-                className="inline-flex items-center justify-center gap-2 px-4 py-3.5 border border-current/25 hover:border-[#2934FF] text-[13px] font-mono uppercase tracking-[0.06em] transition-colors whitespace-nowrap"
-              >
-                <Shield className="w-4 h-4 text-[#2934FF] shrink-0" />
-                <span>{lang === "en" ? "Privacy Policy" : "Kebijakan Privasi"}</span>
-              </a>
-            </div>
           </div>
         </section>
 
         {/* ====================================================================
-            FOOTER — SLEEK HEADER-MATCHED PROTOCOL BAR (OUTSIDE 3-COL BODY GRID)
+            ACT III — SCULPTURAL PROOF METRIC STRIP & BROWSER GUARD EXTENSION
             ==================================================================== */}
-        <footer
-          className={`w-full border-t transition-colors ${
-            darkMode
-              ? "bg-[#050507] text-[#F8F8FA] border-white/15"
-              : "bg-[#E7E9EF] text-[#0A0A0C] border-black/15"
-          }`}
-        >
-          <div className="max-w-[1440px] mx-auto px-6 sm:px-10 xl:px-14">
-            {/* Primary Footer Bar — Mirrors Top Header Navigation & Controls */}
-            <div className="py-7 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-              {/* Left: Brand Identity + Venice Pill */}
-              <div className="flex flex-wrap items-center gap-3.5">
-                <a
-                  href="#top"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  className="inline-flex items-center gap-2.5 group focus:outline-none"
-                >
-                  <HexaCoreLogoMark />
-                  <span className="text-[21px] font-medium tracking-[-0.03em]">
-                    SolShield
-                    <sup className="text-[11px] font-normal ml-0.5 opacity-75">
-                      ®
-                    </sup>
-                  </span>
-                </a>
-                <BuiltInVeniceBadge />
-              </div>
+        <ArchitecturalProofStrip lang={lang} darkMode={darkMode} />
 
-              {/* Center: Horizontal Navigation Links (Matches Hero Built in Venice Pillars) */}
-              <nav
-                aria-label="Footer navigation"
-                className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[15px] font-medium tracking-[-0.01em] opacity-85"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTechnicalMode("payload");
-                    scrollToTechnicalSide();
-                  }}
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors cursor-pointer"
-                >
-                  {lang === "en" ? "Tx Firewall" : "Firewall Tx"}
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToIntentSide}
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors cursor-pointer"
-                >
-                  Intent Copilot
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToVaultSide}
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors cursor-pointer"
-                >
-                  Vault
-                </button>
-                <a
-                  href="/actions.json"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Blinks
-                </a>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTechnicalMode("token");
-                    scrollToTechnicalSide();
-                  }}
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors cursor-pointer"
-                >
-                  {lang === "en" ? "Token Audit" : "Cek Token"}
-                </button>
-                <Link
-                  href="/buildcheck"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  BuildCheck
-                </Link>
-                <Link
-                  href="/wallet-detox"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Wallet Detox
-                </Link>
-                <Link
-                  href="/dev-lineage"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Dev Lineage
-                </Link>
-                <Link
-                  href="/wallets"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Watchlist
-                </Link>
-                <Link
-                  href="/watchdog"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Watchdog
-                </Link>
-                <Link
-                  href="/autopsy"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Autopsy
-                </Link>
-                <Link
-                  href="/agent-firewall"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
-                >
-                  Agent MCP
-                </Link>
-                <a
-                  href="https://github.com/Blanksite/solshield"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors inline-flex items-center gap-1"
-                >
-                  <span>GitHub</span>
-                  <ArrowUpRight className="w-4 h-4 opacity-70" />
-                </a>
-              </nav>
-
-              {/* Right: Utility Pills (Mirrors Top-Right Header Controls) */}
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span
-                  title="Live Solana Mainnet Telemetry"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-500/40 text-emerald-500 text-[12px] font-mono uppercase tracking-[0.06em]"
-                >
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>
-                    {liveSlot !== null
-                      ? `SLOT #${liveSlot.toLocaleString("en-US")}`
-                      : "MAINNET SYNC"}
-                  </span>
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => setShowKeyModal(true)}
-                  title="Configure Venice AI Zero-Retention Key"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-current/25 hover:border-[#2934FF] text-[12px] font-sans font-medium uppercase tracking-[0.06em] transition-colors cursor-pointer"
-                >
-                  <Key className="w-4 h-4 text-[#2934FF]" />
-                  <span>BYOK Key</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-                  title="Back to Top"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-current/25 hover:border-[#2934FF] hover:bg-[#2934FF] hover:text-white text-[12px] font-sans font-medium uppercase tracking-[0.06em] transition-colors cursor-pointer"
-                >
-                  <span>Top</span>
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Sub-Footer Bar: Copyright, Verified Specs & Non-Custodial Guarantee */}
-            <div
-              className={`py-4 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-[12.5px] font-mono opacity-80 ${
-                darkMode ? "border-white/10" : "border-black/10"
-              }`}
-            >
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span>
-                  © 2026 SolShield® Protocol · MIT License · Built by{" "}
-                  <a
-                    href="https://github.com/Blanksite"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:opacity-100"
-                  >
-                    @Blanksite
-                  </a>
-                </span>
-                <a
-                  href="https://sol-shield.xyz"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  sol-shield.xyz
-                </a>
-                <a
-                  href="https://github.com/Blanksite/solshield/blob/main/programs/solshield-policy/src/lib.rs"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Anchor Policy PDA
-                </a>
-                <a
-                  href={TOKEN_CONFIG.links.solscan || "https://solscan.io"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Mainnet Solscan
-                </a>
-                <a
-                  href="/downloads/solshield-browser-guard-v0.3.0.zip"
-                  download
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Extension ZIP
-                </a>
-                <a
-                  href="/privacy"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  Privacy Policy
-                </a>
-                <a
-                  href={TOKEN_CONFIG.links.x}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover:text-[#2934FF] transition-colors"
-                >
-                  {TOKEN_CONFIG.xHandle}
-                </a>
-              </div>
-
-              <div className="inline-flex items-center gap-1.5">
-                <Shield className="w-4 h-4 text-[#2934FF] shrink-0" />
-                <span>
-                  {lang === "en"
-                    ? "100% NON-CUSTODIAL · ZERO-RETENTION VENICE AI · VERIFY BEFORE SIGNING"
-                    : "100% NON-KUSTODIAN · VENICE AI ZERO-RETENTION · SELALU VERIFIKASI SEBELUM SIGN"}
-                </span>
-              </div>
-            </div>
-
-            {/* Editorial Giant Bayer-Dithered Wordmark (hover to heal the dither) */}
-            <div
-              className={`pt-9 sm:pt-12 pb-8 sm:pb-10 border-t ${
-                darkMode ? "border-white/10" : "border-black/10"
-              }`}
-            >
-              <div className="flex items-end justify-between gap-4 mb-4 sm:mb-5 text-[12px] font-mono uppercase tracking-[0.12em] opacity-75">
-                <span>
-                  <span className="text-[#2934FF]">●</span> Solana Security
-                  Protocol — Est. 2026
-                </span>
-                <span className="hidden sm:inline">
-                  {lang === "en" ? "Verify before you sign ↘" : "Verifikasi sebelum sign ↘"}
-                </span>
-              </div>
-              <FooterWordmark
-                inkColor={darkMode ? "#E2E4E8" : "#0A0A0C"}
-                rimColor="#2934FF"
-                cellSize={2}
-                className="cursor-crosshair"
-              />
-            </div>
-          </div>
-        </footer>
+        {/* ====================================================================
+            FOOTER — MINIMAL EDITORIAL PROTOCOL BAR + BAYER-DITHERED WORDMARK
+            ==================================================================== */}
+        <SiteFooter
+          lang={lang}
+          darkMode={darkMode}
+          liveSlot={liveSlot}
+          onOpenKeyModal={() => setShowKeyModal(true)}
+          solscanUrl={TOKEN_CONFIG.links.solscan || "https://solscan.io"}
+          xUrl={TOKEN_CONFIG.links.x}
+          xHandle={TOKEN_CONFIG.xHandle}
+        />
 
         {/* ====================================================================
             BYOK VENICE AI API KEY MODAL
