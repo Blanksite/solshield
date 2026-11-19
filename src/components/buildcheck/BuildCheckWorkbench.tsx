@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Eye,
   FileJson2,
+  FileWarning,
   Flame,
   Globe,
   KeyRound,
@@ -64,12 +65,14 @@ import {
   type ScannedTokenSummary,
 } from "@/lib/scanned-token-types";
 import { AuditLedgerSection } from "./AuditLedgerSection";
+import { ClaimsReceiptsPanel } from "./ClaimsReceiptsPanel";
 import { DevHistoryPanel } from "./DevHistoryPanel";
 import { generateBuildCheckEvidencePng } from "./evidence-card-canvas";
 import { MarketTelemetryPanel } from "./MarketTelemetryPanel";
 import { MindsharePulsePanel } from "./MindsharePulsePanel";
 import { ProofDispatchCard } from "./ProofDispatchCard";
 import { RobinhoodAuditCard } from "./RobinhoodAuditCard";
+import { RugAutopsyPanel } from "./RugAutopsyPanel";
 import { ShieldedSwapPanel } from "./ShieldedSwapPanel";
 import { SniperCabalGraph } from "./SniperCabalGraph";
 import { TradingViewTokenChart } from "./TradingViewTokenChart";
@@ -277,7 +280,7 @@ export default function BuildCheckWorkbench({
   const [showResultLedger, setShowResultLedger] = useState(false);
   const [watchedCount, setWatchedCount] = useState(0);
   const [forensicTab, setForensicTab] = useState<
-    "proof" | "mindshare" | "robinhood" | "holders" | "wallets" | "dev" | "browser" | "telemetry"
+    "proof" | "mindshare" | "robinhood" | "holders" | "wallets" | "autopsy" | "dev" | "browser" | "telemetry"
   >("proof");
   const [isScanningMindshare, setIsScanningMindshare] = useState(false);
   const [mindshareScanError, setMindshareScanError] = useState<string | null>(null);
@@ -1217,6 +1220,20 @@ export default function BuildCheckWorkbench({
             </button>
           )}
 
+          <button
+            type="button"
+            data-testid="tab-rug-autopsy"
+            onClick={() => setForensicTab("autopsy")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+              forensicTab === "autopsy"
+                ? "bg-[#2934FF]/22 text-white border border-[#2934FF]/50"
+                : "text-slate-400 hover:text-white border border-transparent hover:bg-white/[0.04]"
+            }`}
+          >
+            <FileWarning className="w-3.5 h-3.5 text-rose-400" />
+            <span>Rug Autopsy</span>
+          </button>
+
           {report.chain?.deep?.devHistory && (
             <button
               type="button"
@@ -1338,49 +1355,39 @@ export default function BuildCheckWorkbench({
           </div>
         )}
 
+        {forensicTab === "autopsy" && (
+          <div className="p-5">
+            <RugAutopsyPanel report={report} />
+          </div>
+        )}
+
         {forensicTab === "proof" && (
           <div className="divide-y divide-white/[0.06]">
-            {/* Claims vs Concrete Evidence */}
-            <div className="p-5 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-white">
-                  Claims vs Concrete Evidence
-                </h3>
-                <span className="text-xs font-mono tabular-nums text-slate-400">
-                  {report.claimsVsProof.length} checks
-                </span>
-              </div>
-              <div className="divide-y divide-white/[0.06] border-t border-b border-white/[0.06]">
-                {report.claimsVsProof.map((row, idx) => {
-                  const statusClass =
-                    row.status === "VERIFIED"
-                      ? "text-emerald-300 border-emerald-500/35 bg-emerald-500/10"
-                      : row.status === "CONTRADICTED"
-                        ? "text-rose-300 border-rose-500/35 bg-rose-500/12"
-                        : "text-amber-300 border-amber-500/35 bg-amber-500/10";
-                  return (
-                    <div
-                      key={`${row.claim}_${idx}`}
-                      className="py-3 hover:bg-white/[0.02] transition-colors flex flex-col sm:flex-row sm:items-center gap-2.5 justify-between"
-                    >
-                      <div className="flex items-start sm:items-center gap-2.5 min-w-0">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono border shrink-0 ${statusClass}`}
-                        >
-                          {row.status}
-                        </span>
-                        <span className="text-sm font-medium text-white truncate">
-                          {row.claim}
-                        </span>
-                      </div>
-                      <span className="text-xs font-mono text-slate-300 break-all sm:text-right">
-                        {row.evidence}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            {/* Claims vs Receipts Tracker */}
+            <ClaimsReceiptsPanel
+              report={report}
+              onMonitorProject={() => {
+                const params = new URLSearchParams();
+                if (tokenSymbol) params.set("label", tokenSymbol);
+                const ca =
+                  report.chain?.mintAddress ||
+                  report.target.contractAddress ||
+                  report.target.mintAddress;
+                if (ca) params.set("ca", ca);
+                const chainKey =
+                  report.chain?.evmSecurity?.chainKey ||
+                  (ca?.startsWith("0x") ? "robinhood" : "solana");
+                params.set("chain", chainKey);
+                const web =
+                  report.browser?.stops?.[0]?.url ||
+                  report.chain?.deep?.metadata?.websites?.[0] ||
+                  "";
+                if (web) params.set("web", web);
+                if (report.github?.fullName) params.set("repo", report.github.fullName);
+                params.set("report", report.id);
+                window.location.href = `/watchdog?${params.toString()}`;
+              }}
+            />
 
             {/* Verified Signals & Red Flags */}
             <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/[0.06]">

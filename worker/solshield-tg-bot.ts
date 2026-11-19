@@ -4,6 +4,15 @@ import path from "node:path";
 import { runBuildCheckInvestigation } from "../src/lib/buildcheck/orchestrator";
 import { formatTelegramProofDispatchHtml } from "../src/lib/buildcheck/proof-dispatch";
 import {
+  deriveWatchdogStatus,
+  detectProjectMutations,
+  makeWatchedProjectId,
+  normalizeGithubRepoSlug,
+  normalizeWebsiteTarget,
+  probeProjectWatchdogSnapshot,
+  type WatchedProjectRecord,
+} from "../src/lib/project-watchdog";
+import {
   fetchWatchedWalletActivity,
   getChainDisplayName,
   getWatchedWalletExplorerUrl,
@@ -43,12 +52,15 @@ import {
 import {
   evaluateTgScanGuard,
   getTgScansTodayCount,
+  listTgWatchedProjects,
   listTgWatchedWallets,
   loadTgBotState,
   recordTgScanCompleted,
   recordTgUpdateSeen,
+  removeTgWatchedProject,
   removeTgWatchedWallet,
   saveTgBotState,
+  upsertTgWatchedProject,
   upsertTgWatchedWallet,
   type TgBotPersistedState,
 } from "./tg-state";
@@ -399,7 +411,9 @@ async function runDaemonLoop(): Promise<void> {
 
   let stopping = false;
   let lastWalletWatchPollMs = 0;
+  let lastProjectWatchPollMs = 0;
   const WALLET_WATCH_INTERVAL_MS = 90_000;
+  const PROJECT_WATCH_INTERVAL_MS = 5 * 60_000;
   const shutdownController = new AbortController();
   const inFlightChats = new Set<string>();
   const shutdown = () => {
@@ -548,6 +562,28 @@ async function runDaemonLoop(): Promise<void> {
                       `Remove with <code>/unwatch &lt;address&gt;</code> · Manage on Web: ${escapeTgHtml(appPublicUrl)}/wallets`,
                     ].join("\n");
                   })()
+                : action.command === "watchprojects"
+                  ? (() => {
+                      const list = listTgWatchedProjects(state, msg.chat.id);
+                      if (list.length === 0) {
+                        return [
+                          "🛡 <b>No projects monitored by Proof-of-Ship Watchdog yet.</b>",
+                          "",
+                          "Usage: <code>/watchproject &lt;CA|owner/repo|https://url&gt; [chain] [label]</code>",
+                          `Web Dashboard: ${escapeTgHtml(appPublicUrl)}/watchdog`,
+                        ].join("\n");
+                      }
+                      const lines = list.map(
+                        (p, idx) =>
+                          `${idx + 1}. <b>[${escapeTgHtml(p.status)}]</b> ${escapeTgHtml(p.label)} (${escapeTgHtml(p.chain)})`
+                      );
+                      return [
+                        `🛡 <b>Proof-of-Ship Watchdog (${list.length}/8)</b>`,
+                        ...lines,
+                        "",
+                        `Remove with <code>/unwatchproject &lt;target&gt;</code> · Dashboard: ${escapeTgHtml(appPublicUrl)}/watchdog`,
+                      ].join("\n");
+                    })()
                 : formatTelegramHelpText(config.botUsername);
           await sendTgTextMessage(config, {
             chatId: msg.chat.id,
@@ -633,6 +669,101 @@ async function runDaemonLoop(): Promise<void> {
             text: res.removed
               ? `✅ Stopped watching <code>${escapeTgHtml(action.address)}</code> (${res.count} remaining).`
               : `ℹ️ <code>${escapeTgHtml(action.address)}</code> was not in this chat's watchlist.`,
+          }).catch(() => {});
+          continue;
+        }
+
+        if (action.kind === "watch_project") {
+          const rawTarget = action.target.trim();
+          const normAddr = rawTarget ? normalizeWatchedAddress(rawTarget, action.chain) : null;
+          const githubRepo = normalizeGithubRepoSlug(rawTarget);
+          const websiteUrl = !normAddr?.valid && !githubRepo ? normalizeWebsiteTarget(rawTarget) : null;
+
+          if ((!normAddr || !normAddr.valid) && !githubRepo && !websiteUrl) {
+            await sendTgTextMessage(config, {
+              chatId: msg.chat.id,
+              replyToMessageId: msg.message_id,
+              parseMode: "HTML",
+              text: "Usage: <code>/watchproject &lt;CA|owner/repo|https://url&gt; [robinhood|base|eth|solana] [label]</code>",
+            }).catch(() => {});
+            continue;
+          }
+
+          const contractAddress = normAddr?.valid ? normAddr.address : null;
+          const chain = normAddr?.valid ? normAddr.chain : action.chain || "robinhood";
+          const baseline = await probeProjectWatchdogSnapshot({
+            contractAddress,
+            chain,
+            websiteUrl,
+            githubRepo,
+          });
+          const record: WatchedProjectRecord = {
+            id: makeWatchedProjectId({ contractAddress, chain, websiteUrl, githubRepo }),
+            label:
+              action.label ||
+              githubRepo ||
+              (contractAddress
+                ? `${contractAddress.slice(0, 6)}...${contractAddress.slice(-4)}`
+                : websiteUrl?.replace(/^https?:\/\//i, "").slice(0, 32) || "Project"),
+            contractAddress,
+            chain,
+            websiteUrl,
+            githubRepo,
+            reportId: null,
+            addedAt: new Date().toISOString(),
+            status: deriveWatchdogStatus(baseline, []),
+            baseline,
+            latest: baseline,
+            mutations: [],
+          };
+          const up = upsertTgWatchedProject(state, msg.chat.id, record);
+          saveTgBotState(stateFile, state);
+          if (up.reachedLimit) {
+            await sendTgTextMessage(config, {
+              chatId: msg.chat.id,
+              replyToMessageId: msg.message_id,
+              text: "⚠️ Watchdog limit reached (max 8 projects per chat). Remove one with /unwatchproject <target>.",
+            }).catch(() => {});
+            continue;
+          }
+          await sendTgTextMessage(config, {
+            chatId: msg.chat.id,
+            replyToMessageId: msg.message_id,
+            parseMode: "HTML",
+            disableWebPagePreview: true,
+            text: [
+              `🛡 <b>Proof-of-Ship Watchdog Active</b> — <b>${escapeTgHtml(record.label)}</b>`,
+              `Status: <b>${escapeTgHtml(record.status)}</b> (${escapeTgHtml(chain)})`,
+              contractAddress ? `Contract: <code>${escapeTgHtml(contractAddress)}</code>` : null,
+              githubRepo ? `GitHub: <code>${escapeTgHtml(githubRepo)}</code>` : null,
+              websiteUrl ? `Website: ${escapeTgHtml(websiteUrl)}` : null,
+              "Alerts will trigger here on proxy upgrades, sell-tax spikes, LP drops, website downtime, or repo privatization.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          }).catch(() => {});
+          continue;
+        }
+
+        if (action.kind === "unwatch_project") {
+          if (!action.target) {
+            await sendTgTextMessage(config, {
+              chatId: msg.chat.id,
+              replyToMessageId: msg.message_id,
+              parseMode: "HTML",
+              text: "Usage: <code>/unwatchproject &lt;CA|repo|url|label&gt;</code>",
+            }).catch(() => {});
+            continue;
+          }
+          const res = removeTgWatchedProject(state, msg.chat.id, action.target);
+          saveTgBotState(stateFile, state);
+          await sendTgTextMessage(config, {
+            chatId: msg.chat.id,
+            replyToMessageId: msg.message_id,
+            parseMode: "HTML",
+            text: res.removed
+              ? `✅ Removed <code>${escapeTgHtml(action.target)}</code> from Watchdog (${res.count} remaining).`
+              : `ℹ️ <code>${escapeTgHtml(action.target)}</code> was not found in this chat's Watchdog list.`,
           }).catch(() => {});
           continue;
         }
@@ -745,6 +876,60 @@ async function runDaemonLoop(): Promise<void> {
               }).catch(() => {});
             } else if (snap.latestTxHash && !prevTx) {
               w.lastSeenTxHash = snap.latestTxHash;
+            }
+          }
+        }
+        saveTgBotState(stateFile, state);
+      }
+
+      // Periodic 3-layer Proof-of-Ship Watchdog poll for monitored projects
+      if (
+        !stopping &&
+        state.watchedProjectsByChat &&
+        nowWatchMs - lastProjectWatchPollMs >= PROJECT_WATCH_INTERVAL_MS
+      ) {
+        lastProjectWatchPollMs = nowWatchMs;
+        let checkedProjects = 0;
+        for (const [chatIdKey, projList] of Object.entries(
+          state.watchedProjectsByChat
+        )) {
+          if (stopping || checkedProjects >= 6) break;
+          for (const proj of projList) {
+            if (stopping || checkedProjects >= 6) break;
+            checkedProjects += 1;
+            const freshSnap = await probeProjectWatchdogSnapshot({
+              contractAddress: proj.contractAddress,
+              chain: proj.chain,
+              websiteUrl: proj.websiteUrl,
+              githubRepo: proj.githubRepo,
+            }).catch(() => null);
+            if (!freshSnap) continue;
+            const prevCodes = new Set((proj.mutations || []).map((m) => m.code));
+            const mutations = detectProjectMutations(proj.baseline, freshSnap);
+            const brandNewAlerts = mutations.filter(
+              (m) => m.severity !== "POSITIVE" && !prevCodes.has(m.code)
+            );
+            proj.latest = freshSnap;
+            proj.mutations = mutations;
+            proj.status = deriveWatchdogStatus(freshSnap, mutations);
+            if (brandNewAlerts.length > 0) {
+              const summaryLines = brandNewAlerts
+                .slice(0, 3)
+                .map(
+                  (m) =>
+                    `• <b>[${escapeTgHtml(m.severity)}] ${escapeTgHtml(m.title)}</b>: ${escapeTgHtml(m.detail)}`
+                );
+              await sendTgTextMessage(config, {
+                chatId: chatIdKey,
+                parseMode: "HTML",
+                disableWebPagePreview: true,
+                text: [
+                  `🚨 <b>PROOF-OF-SHIP WATCHDOG ALERT</b> — ${escapeTgHtml(proj.label)}`,
+                  `Status: <b>${escapeTgHtml(proj.status)}</b> (${escapeTgHtml(proj.chain)})`,
+                  ...summaryLines,
+                  `Dashboard: ${escapeTgHtml(appPublicUrl)}/watchdog`,
+                ].join("\n"),
+              }).catch(() => {});
             }
           }
         }

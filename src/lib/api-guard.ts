@@ -27,14 +27,16 @@ export type ApiGuardProfile =
   | "extension-hybrid"
   | "web-ai"
   | "web-tool"
-  | "solana-actions";
+  | "solana-actions"
+  | "mcp-agent";
 
 export type ApiAuthMode =
   | "api-key"
   | "web-session"
   | "extension"
   | "byok"
-  | "public-blink";
+  | "public-blink"
+  | "public-mcp";
 
 export interface GuardCheckFailure {
   ok: false;
@@ -81,6 +83,8 @@ const RATE_POLICY_TABLE: Record<string, RateLimitSpec> = {
   "web-tool:read": { limit: 60, windowMs: 60_000 },
   "solana-actions:fresh": { limit: 15, windowMs: 5 * 60_000 },
   "solana-actions:read": { limit: 45, windowMs: 60_000 },
+  "mcp-agent:fresh": { limit: 20, windowMs: 5 * 60_000 },
+  "mcp-agent:read": { limit: 60, windowMs: 60_000 },
 };
 
 function getGuardStore(): GlobalApiGuardStore {
@@ -102,7 +106,7 @@ function getGuardStore(): GlobalApiGuardStore {
 
 function profileToCorsPolicy(profile: ApiGuardProfile): CorsPolicy {
   if (profile === "extension-hybrid") return "extension";
-  if (profile === "solana-actions") return "actions";
+  if (profile === "solana-actions" || profile === "mcp-agent") return "actions";
   return "web";
 }
 
@@ -178,6 +182,7 @@ export async function authorizeApiCaller(
   if (
     process.env.SOLSHIELD_REQUIRE_API_KEY === "true" &&
     options.profile !== "solana-actions" &&
+    options.profile !== "mcp-agent" &&
     !(options.byokKey && options.byokKey.trim().length >= 16)
   ) {
     return {
@@ -194,7 +199,7 @@ export async function authorizeApiCaller(
   const secFetchSite = req.headers.get("sec-fetch-site")?.trim().toLowerCase() || "";
   const allowsExt = options.profile === "extension-hybrid";
 
-  if (options.profile !== "solana-actions") {
+  if (options.profile !== "solana-actions" && options.profile !== "mcp-agent") {
     if (origin) {
       const originAllowed =
         isAllowedWebOrigin(origin, req) || (allowsExt && isExtensionOrigin(origin));
@@ -230,11 +235,20 @@ export async function authorizeApiCaller(
     }
   }
 
-  // 3. Public Solana Blinks Actions remain callable by external wallets (rate-limited below)
+  // 3. Public Solana Blinks & MCP Agent endpoints remain callable by external clients (rate-limited below)
   if (options.profile === "solana-actions") {
     return {
       ok: true,
       authMode: "public-blink",
+      clientIp,
+      corsPolicy,
+    };
+  }
+
+  if (options.profile === "mcp-agent") {
+    return {
+      ok: true,
+      authMode: "public-mcp",
       clientIp,
       corsPolicy,
     };

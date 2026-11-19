@@ -275,7 +275,25 @@ export function evaluateDomainSafety(
 
   for (const entry of VERIFIED_SOLANA_DAPPS) {
     const entryStem = entry.domain.split(".")[0];
+    const hyphenatedDomain = entry.domain.replace(/\./g, "-");
     const candidates = [entryStem, ...(entry.aliases ?? [])];
+
+    // Direct dot-to-hyphen domain spoofing (e.g. jup-ag-clalm.xyz, pump-fun-claim.com)
+    const hyphenatedDomainSpoof =
+      sld.includes(hyphenatedDomain) ||
+      foldedSld.includes(hyphenatedDomain) ||
+      hostname.includes(`${hyphenatedDomain}-`) ||
+      hostname.includes(`-${hyphenatedDomain}`);
+
+    if (hyphenatedDomainSpoof) {
+      closestVerifiedBrand = entry.brand;
+      typosquatDetected = true;
+      riskScore += 55;
+      reasons.push(
+        `Impersonates verified domain ${entry.domain} (${entry.brand}) via hyphenated lookalike pattern ("${hyphenatedDomain}").`
+      );
+      break;
+    }
 
     for (const candidate of candidates) {
       if (candidate.length < 3) continue;
@@ -305,7 +323,20 @@ export function evaluateDomainSafety(
     if (typosquatDetected) break;
   }
 
-  const matchedKeyword = PHISHING_KEYWORDS.find((kw) => hostname.includes(kw));
+  const hostTokens = hostname
+    .split(/[.-]+/)
+    .filter((tok) => tok.length >= 4);
+  const matchedKeyword = PHISHING_KEYWORDS.find((kw) => {
+    if (hostname.includes(kw)) return true;
+    if (kw.length >= 5) {
+      return hostTokens.some(
+        (tok) =>
+          Math.abs(tok.length - kw.length) <= 1 &&
+          levenshteinDistance(foldHomoglyphs(tok), kw) <= 1
+      );
+    }
+    return false;
+  });
   if (matchedKeyword) {
     riskScore += 35;
     reasons.push(`Contains high-risk phishing keyword ("${matchedKeyword}") in hostname.`);

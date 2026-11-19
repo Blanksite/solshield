@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { WatchedProjectRecord } from "../src/lib/project-watchdog";
 import type { WatchWalletChain } from "../src/lib/wallet-watch-client";
 import { getUtcDateKey, saveJsonAtomic } from "./bot-shared";
 
@@ -22,6 +23,7 @@ export interface TgBotPersistedState {
   userLastRunAt: Record<string, number>;
   chatLastRunAt: Record<string, number>;
   watchedWalletsByChat?: Record<string, TgWatchedWalletEntry[]>;
+  watchedProjectsByChat?: Record<string, WatchedProjectRecord[]>;
   scansTodayDate?: string;
   scansTodayCount?: number;
   lastPollAt?: string | null;
@@ -54,6 +56,7 @@ function createEmptyTgState(): TgBotPersistedState {
     userLastRunAt: {},
     chatLastRunAt: {},
     watchedWalletsByChat: {},
+    watchedProjectsByChat: {},
   };
 }
 
@@ -102,6 +105,10 @@ export function loadTgBotState(stateFilePath: string): TgBotPersistedState {
       watchedWalletsByChat:
         parsed.watchedWalletsByChat && typeof parsed.watchedWalletsByChat === "object"
           ? parsed.watchedWalletsByChat
+          : {},
+      watchedProjectsByChat:
+        parsed.watchedProjectsByChat && typeof parsed.watchedProjectsByChat === "object"
+          ? parsed.watchedProjectsByChat
           : {},
       scansTodayDate:
         typeof parsed.scansTodayDate === "string"
@@ -225,6 +232,59 @@ export function listTgWatchedWallets(
   chatId: string | number
 ): TgWatchedWalletEntry[] {
   const map = state.watchedWalletsByChat;
+  if (!map) return [];
+  return Array.isArray(map[String(chatId)]) ? map[String(chatId)] : [];
+}
+
+export function upsertTgWatchedProject(
+  state: TgBotPersistedState,
+  chatId: string | number,
+  record: WatchedProjectRecord,
+  maxPerChat = 8
+): { added: boolean; count: number; reachedLimit: boolean } {
+  const map = (state.watchedProjectsByChat ||= {});
+  const key = String(chatId);
+  const existing = Array.isArray(map[key]) ? map[key] : [];
+  const idx = existing.findIndex((p) => p.id === record.id);
+  if (idx >= 0) {
+    existing[idx] = record;
+    map[key] = existing;
+    return { added: false, count: existing.length, reachedLimit: false };
+  }
+  if (existing.length >= maxPerChat) {
+    return { added: false, count: existing.length, reachedLimit: true };
+  }
+  existing.push(record);
+  map[key] = existing;
+  return { added: true, count: existing.length, reachedLimit: false };
+}
+
+export function removeTgWatchedProject(
+  state: TgBotPersistedState,
+  chatId: string | number,
+  query: string
+): { removed: boolean; count: number } {
+  const map = (state.watchedProjectsByChat ||= {});
+  const key = String(chatId);
+  const list = Array.isArray(map[key]) ? map[key] : [];
+  const lower = query.trim().toLowerCase();
+  const next = list.filter(
+    (p) =>
+      p.id.toLowerCase() !== lower &&
+      (p.contractAddress || "").toLowerCase() !== lower &&
+      (p.githubRepo || "").toLowerCase() !== lower &&
+      (p.websiteUrl || "").toLowerCase() !== lower &&
+      p.label.toLowerCase() !== lower
+  );
+  map[key] = next;
+  return { removed: next.length < list.length, count: next.length };
+}
+
+export function listTgWatchedProjects(
+  state: TgBotPersistedState,
+  chatId: string | number
+): WatchedProjectRecord[] {
+  const map = state.watchedProjectsByChat;
   if (!map) return [];
   return Array.isArray(map[String(chatId)]) ? map[String(chatId)] : [];
 }

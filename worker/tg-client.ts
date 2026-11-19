@@ -241,7 +241,7 @@ function pickBestTargetFromTextAndUrls(
 }
 
 export type TelegramMessageAction =
-  | { kind: "command"; command: "help" | "status" | "watchlist" }
+  | { kind: "command"; command: "help" | "status" | "watchlist" | "watchprojects" }
   | {
       kind: "watch_wallet";
       address: string;
@@ -249,6 +249,13 @@ export type TelegramMessageAction =
       label?: string;
     }
   | { kind: "unwatch_wallet"; address: string }
+  | {
+      kind: "watch_project";
+      target: string;
+      chain?: WatchWalletChain;
+      label?: string;
+    }
+  | { kind: "unwatch_project"; target: string }
   | { kind: "scan"; target: string; forceRefresh?: boolean }
   | { kind: "prompt_for_target" }
   | { kind: "ignore"; reason: string };
@@ -319,6 +326,46 @@ export function resolveTelegramMessageAction(
 
     if (cmd === "watchlist" || cmd === "watches") {
       return { kind: "command", command: "watchlist" };
+    }
+
+    if (cmd === "watchprojects" || cmd === "watchdog") {
+      return { kind: "command", command: "watchprojects" };
+    }
+
+    if (cmd === "watchproject") {
+      const tokens = cmdArg.split(/\s+/).filter(Boolean);
+      const targetToken = tokens[0] || "";
+      const chainAliasMap: Record<string, WatchWalletChain> = {
+        sol: "solana",
+        solana: "solana",
+        rh: "robinhood",
+        robinhood: "robinhood",
+        hood: "robinhood",
+        eth: "ethereum",
+        ethereum: "ethereum",
+        base: "base",
+        arb: "arbitrum",
+        arbitrum: "arbitrum",
+        op: "optimism",
+        optimism: "optimism",
+        poly: "polygon",
+        polygon: "polygon",
+        bsc: "bsc",
+      };
+      let parsedChain: WatchWalletChain | undefined;
+      let labelStartIdx = 1;
+      const secondLower = (tokens[1] || "").toLowerCase();
+      if (secondLower && (chainAliasMap[secondLower] || isValidWatchedChain(secondLower))) {
+        parsedChain = chainAliasMap[secondLower] || (secondLower as WatchWalletChain);
+        labelStartIdx = 2;
+      }
+      const label = tokens.slice(labelStartIdx).join(" ").trim() || undefined;
+      return { kind: "watch_project", target: targetToken, chain: parsedChain, label };
+    }
+
+    if (cmd === "unwatchproject") {
+      const targetToken = cmdArg.split(/\s+/).filter(Boolean)[0] || "";
+      return { kind: "unwatch_project", target: targetToken };
     }
 
     if (cmd === "watch") {
@@ -672,6 +719,8 @@ export function formatTelegramHelpText(botUsername?: string): string {
     `• Reply to any message with <code>/scan</code> or <code>${escapeTgHtml(handle)}</code> to audit the target inside it`,
     "• <code>/watch &lt;wallet&gt; [chain] [label]</code> — get live activity alerts for a Solana or EVM wallet",
     "• <code>/watchlist</code> · <code>/unwatch &lt;wallet&gt;</code> — view or remove watched wallets",
+    "• <code>/watchproject &lt;CA|repo|url&gt; [chain]</code> — 3-layer Proof-of-Ship Watchdog (contract, web &amp; GitHub alerts)",
+    "• <code>/watchprojects</code> · <code>/unwatchproject &lt;target&gt;</code> — manage monitored projects",
     "• <code>/status</code> — check bot health &amp; daily stats",
     "• <code>/help</code> — show this guide",
   ].join("\n");
@@ -814,6 +863,9 @@ export async function setTgCommands(
           { command: "watch", description: "Watch a Solana/EVM wallet for live on-chain moves" },
           { command: "watchlist", description: "Show wallets currently watched in this chat" },
           { command: "unwatch", description: "Stop watching a wallet address" },
+          { command: "watchproject", description: "Monitor a project's contract, web & GitHub for mutations" },
+          { command: "watchprojects", description: "List projects monitored by Proof-of-Ship Watchdog" },
+          { command: "unwatchproject", description: "Stop monitoring a project" },
           { command: "status", description: "Check SolShield bot readiness & daily scan count" },
           { command: "help", description: "Show usage examples and supported targets" },
         ],

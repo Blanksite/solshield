@@ -1310,6 +1310,30 @@ export default function SolShieldHexaCorePage() {
                   </Link>
                 </Magnet>
                 <Magnet padding={28} magnetStrength={3.2}>
+                  <Link
+                    href="/watchdog"
+                    className="hover:opacity-100 transition-opacity cursor-pointer text-emerald-300"
+                  >
+                    Watchdog
+                  </Link>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
+                  <Link
+                    href="/autopsy"
+                    className="hover:opacity-100 transition-opacity cursor-pointer text-rose-300"
+                  >
+                    Autopsy
+                  </Link>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
+                  <Link
+                    href="/agent-firewall"
+                    className="hover:opacity-100 transition-opacity cursor-pointer text-sky-300"
+                  >
+                    Agent MCP
+                  </Link>
+                </Magnet>
+                <Magnet padding={28} magnetStrength={3.2}>
                   <a
                     href="https://github.com/Blanksite/solshield"
                     target="_blank"
@@ -3987,6 +4011,24 @@ export default function SolShieldHexaCorePage() {
                   className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
                 >
                   Watchlist
+                </Link>
+                <Link
+                  href="/watchdog"
+                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
+                >
+                  Watchdog
+                </Link>
+                <Link
+                  href="/autopsy"
+                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
+                >
+                  Autopsy
+                </Link>
+                <Link
+                  href="/agent-firewall"
+                  className="hover:opacity-100 hover:text-[#2934FF] transition-colors"
+                >
+                  Agent MCP
                 </Link>
                 <a
                   href="https://github.com/Blanksite/solshield"
