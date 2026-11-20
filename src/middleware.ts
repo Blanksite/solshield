@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   GUARD_COOKIE_NAME,
   GUARD_TOKEN_TTL_SEC,
+  isGuardTokenSigningConfigured,
   signGuardToken,
   verifyGuardToken,
 } from "@/lib/guard-token";
@@ -28,6 +29,8 @@ export const config = {
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
+  if (!isGuardTokenSigningConfigured()) return res;
+
   const userAgent = req.headers.get("user-agent");
   const existing = req.cookies.get(GUARD_COOKIE_NAME)?.value;
   const isValid = await verifyGuardToken(existing, undefined, userAgent);

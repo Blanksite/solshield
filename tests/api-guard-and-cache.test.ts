@@ -14,6 +14,7 @@ import {
 import { buildCorsHeaders, isExtensionOrigin } from "../src/lib/cors";
 import {
   GUARD_COOKIE_NAME,
+  isGuardTokenSigningConfigured,
   signGuardToken,
   verifyApiSecretHeader,
   verifyGuardToken,
@@ -76,6 +77,23 @@ describe("SolShield API Guard & Anti-Abuse Protections", () => {
     expect(await verifyGuardToken(uaToken, now + 60, "curl/8.4.0")).toBe(false);
     // Rejects legacy 3-part unbound cookies
     expect(await verifyGuardToken(`${parts[0]}.${parts[1]}.${parts[3]}`, now + 60)).toBe(false);
+  });
+
+  it("requires a private secret to issue or verify web-session tokens", async () => {
+    const now = 1_760_000_000;
+    const token = await signGuardToken(now);
+    delete process.env.SOLSHIELD_API_SECRET;
+    delete process.env.VENICE_API_KEY;
+    process.env.SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com";
+
+    expect(isGuardTokenSigningConfigured()).toBe(false);
+    await expect(signGuardToken(now)).rejects.toThrow("No private signing secret");
+    await expect(verifyGuardToken(token, now + 60)).resolves.toBe(false);
+
+    process.env.VENICE_API_KEY = "test-venice-signing-secret";
+    expect(isGuardTokenSigningConfigured()).toBe(true);
+    const fallbackToken = await signGuardToken(now);
+    await expect(verifyGuardToken(fallbackToken, now + 60)).resolves.toBe(true);
   });
 
   it("validates strict Chrome Extension origins and enforces UA-bound session cookies on requests", async () => {

@@ -20,17 +20,22 @@ function fromHex(hex: string): Uint8Array | null {
   return out;
 }
 
-function getSecretMaterial(): string {
-  return (
-    process.env.SOLSHIELD_API_SECRET?.trim() ||
+function getSecretMaterial(): string | undefined {
+  return process.env.SOLSHIELD_API_SECRET?.trim() ||
     process.env.VENICE_API_KEY?.trim() ||
-    process.env.SOLANA_RPC_URL?.trim() ||
-    "solshield-local-ephemeral-guard-secret"
-  );
+    undefined;
+}
+
+export function isGuardTokenSigningConfigured(): boolean {
+  return getSecretMaterial() !== undefined;
 }
 
 async function importHmacKey(): Promise<CryptoKey> {
-  const secretBytes = textEncoder.encode(getSecretMaterial());
+  const secret = getSecretMaterial();
+  if (!secret) {
+    throw new Error("No private signing secret is configured for web sessions.");
+  }
+  const secretBytes = textEncoder.encode(secret);
   const hashedSecret = await crypto.subtle.digest("SHA-256", secretBytes);
   return crypto.subtle.importKey(
     "raw",
@@ -62,13 +67,13 @@ export async function signGuardToken(
   nowSec = Math.floor(Date.now() / 1000),
   userAgent?: string | null
 ): Promise<string> {
+  const key = await importHmacKey();
   const nonceBytes = new Uint8Array(12);
   crypto.getRandomValues(nonceBytes);
   const nonce = toHex(nonceBytes);
   const uaHash = await computeUserAgentBinding(userAgent);
   const payload = `${nowSec}.${nonce}.${uaHash}`;
 
-  const key = await importHmacKey();
   const sigBuf = await crypto.subtle.sign(
     "HMAC",
     key,
