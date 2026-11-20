@@ -55,7 +55,6 @@ export interface DecodedSecurityPolicy {
 
 export interface PolicyVaultStatus {
   cluster: PolicyVaultCluster;
-  rpcUrl: string;
   programId: string;
   isPlaceholderTemplateId: boolean;
   programAccountExists: boolean;
@@ -588,7 +587,6 @@ async function probeClusterPolicyVault(params: {
 
     return {
       cluster,
-      rpcUrl,
       programId,
       isPlaceholderTemplateId,
       programAccountExists,
@@ -607,10 +605,9 @@ async function probeClusterPolicyVault(params: {
       rpcLatencyMs,
       checkedAt: new Date().toISOString(),
     };
-  } catch (err: unknown) {
+  } catch {
     return {
       cluster,
-      rpcUrl,
       programId,
       isPlaceholderTemplateId,
       programAccountExists: false,
@@ -626,10 +623,7 @@ async function probeClusterPolicyVault(params: {
       latestBlockhash: null,
       latestDevnetBlockhash: null,
       checkedAt: new Date().toISOString(),
-      error:
-        err instanceof Error
-          ? err.message
-          : `Unable to reach Solana ${cluster === "mainnet" ? "Mainnet" : "Devnet"} RPC.`,
+      error: `Unable to reach Solana ${cluster === "mainnet" ? "Mainnet" : "Devnet"} RPC.`,
     };
   } finally {
     clearTimeout(timeout);

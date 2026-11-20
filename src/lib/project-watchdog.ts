@@ -1,4 +1,4 @@
-import { assertSafePublicHttpUrl } from "./buildcheck/url-safety";
+import { fetchPublicHttpUrl } from "./buildcheck/url-safety";
 import { evaluateDomainSafety, normalizeHostname } from "./domain-guard";
 import {
   inspectEvmContractSecurity,
@@ -320,23 +320,23 @@ export async function probeProjectWatchdogSnapshot(
     }
 
     try {
-      const safeUrl = await assertSafePublicHttpUrl(websiteUrl);
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 4500);
       try {
-        const res = await fetchImpl(safeUrl.toString(), {
-          method: "GET",
-          redirect: "follow",
-          signal: ctrl.signal,
-          headers: { "User-Agent": "SolShieldWatchdog/1.0" },
-        });
-        const finalUrl = res.url || safeUrl.toString();
+        const { response: res, url: finalUrl } = await fetchPublicHttpUrl(
+          websiteUrl,
+          {
+            signal: ctrl.signal,
+            headers: { "User-Agent": "SolShieldWatchdog/1.0" },
+          },
+          fetchImpl
+        );
         const domEval = evaluateDomainSafety(finalUrl);
         const bodyText = await res.text().catch(() => "");
         const titleMatch = bodyText.match(/<title[^>]*>([^<]{1,120})<\/title>/i);
         return {
           queried: true,
-          url: safeUrl.toString(),
+          url: websiteUrl,
           online: res.status >= 200 && res.status < 400,
           httpStatus: res.status,
           finalHostname: domEval.hostname,

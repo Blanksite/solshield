@@ -2,6 +2,7 @@ import dns from "node:dns/promises";
 import { describe, it, expect, vi } from "vitest";
 import {
   assertSafePublicHttpUrl,
+  fetchPublicHttpUrl,
   isBlockedHostname,
   isPrivateOrReservedIp,
 } from "../src/lib/buildcheck/url-safety";
@@ -42,10 +43,39 @@ describe("BuildCheck URL & SSRF Safety Guards", () => {
     expect(isPrivateOrReservedIp("::1")).toBe(true);
     expect(isPrivateOrReservedIp("fd00::1")).toBe(true);
     expect(isPrivateOrReservedIp("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateOrReservedIp("::ffff:7f00:1")).toBe(true);
+    expect(isPrivateOrReservedIp("0:0:0:0:0:ffff:7f00:1")).toBe(true);
+    expect(isPrivateOrReservedIp("febf::1")).toBe(true);
+    expect(isPrivateOrReservedIp("::ffff:808:808")).toBe(false);
 
     expect(isPrivateOrReservedIp("8.8.8.8")).toBe(false);
     expect(isPrivateOrReservedIp("1.1.1.1")).toBe(false);
     expect(isPrivateOrReservedIp("172.32.0.1")).toBe(false);
+  });
+
+  it("validates and follows a relative public redirect without using automatic redirects", async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/final" } }))
+      .mockResolvedValueOnce(new Response("done"));
+
+    const { response, url } = await fetchPublicHttpUrl("https://8.8.8.8/start", {}, fetchImpl);
+
+    expect(fetchImpl.mock.calls).toEqual([
+      ["https://8.8.8.8/start", { method: "GET", redirect: "manual" }],
+      ["https://8.8.8.8/final", { method: "GET", redirect: "manual" }],
+    ]);
+    expect(url).toBe("https://8.8.8.8/final");
+    expect(await response.text()).toBe("done");
+  });
+
+  it("stops after three redirects", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      new Response(null, { status: 302, headers: { location: "/again" } })
+    );
+
+    await expect(fetchPublicHttpUrl("https://8.8.8.8/start", {}, fetchImpl))
+      .rejects.toThrow("Too many public HTTP redirects.");
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
   it("blocks internal hostnames and reserved suffixes", () => {

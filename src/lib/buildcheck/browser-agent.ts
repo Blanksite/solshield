@@ -13,7 +13,7 @@ import type {
   BrowserStopCapture,
   InspectedApiPayload,
 } from "./types";
-import { assertSafePublicHttpUrl, isBlockedHostname } from "./url-safety";
+import { assertSafePublicHttpUrl, fetchPublicHttpUrl, isBlockedHostname } from "./url-safety";
 
 const PLACEHOLDER_RE =
   /lorem ipsum|coming soon|replace_me|example\.com|todo:|sample dashboard|demo only/i;
@@ -438,40 +438,18 @@ async function captureHttpStop(
   timeoutMs = 6800
 ): Promise<{ stop: BrowserStopCapture; websiteUrls: string[] }> {
   const startMs = Date.now();
-  let currentUrl = (await assertSafePublicHttpUrl(targetUrl)).toString();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    let res: Response | null = null;
-    for (let hop = 0; hop <= 3; hop += 1) {
-      res = await fetch(currentUrl, {
-        method: "GET",
-        redirect: "manual",
-        headers: {
-          "User-Agent": "SolShield-BuildCheck/1.0",
-          Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
-        },
-        signal: controller.signal,
-        cache: "no-store",
-      });
-
-      if (res.status >= 300 && res.status < 400) {
-        const location = res.headers.get("location");
-        await res.body?.cancel().catch(() => {});
-        if (!location) {
-          throw new Error(`HTTP ${res.status} redirect without Location header`);
-        }
-        const nextUrl = new URL(location, currentUrl).toString();
-        currentUrl = (await assertSafePublicHttpUrl(nextUrl)).toString();
-        continue;
-      }
-      break;
-    }
-
-    if (!res) {
-      throw new Error("HTTP request failed without response");
-    }
+    const { response: res, url: currentUrl } = await fetchPublicHttpUrl(targetUrl, {
+      headers: {
+        "User-Agent": "SolShield-BuildCheck/1.0",
+        Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+      },
+      signal: controller.signal,
+      cache: "no-store",
+    });
     if (!res.ok) {
       await res.body?.cancel().catch(() => {});
       throw new Error(`HTTP ${res.status}`);

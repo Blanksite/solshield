@@ -13,7 +13,7 @@ import type {
   TokenDeepMarketStats,
   TokenDeepMetadata,
 } from "./types";
-import { assertSafePublicHttpUrl } from "./url-safety";
+import { fetchPublicHttpUrl } from "./url-safety";
 import {
   buildSolanaWalletsToWatch,
   type SolanaWalletSwapActivityInput,
@@ -71,11 +71,15 @@ async function rpcCall<T>(
   }
 }
 
-async function fetchJsonSafe<T>(url: string, timeoutMs = 5200): Promise<T | null> {
+async function fetchJsonSafe<T>(
+  url: string,
+  timeoutMs = 5200,
+  fetchImpl: typeof fetch = fetch
+): Promise<T | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
+    const res = await fetchImpl(url, {
       headers: { "User-Agent": "SolShield-BuildCheck/1.0" },
       signal: controller.signal,
       cache: "no-store",
@@ -180,7 +184,6 @@ async function fetchMetaplexUriMetadata(mintAddress: string): Promise<{
 
     if (uri && (uri.startsWith("https://") || uri.startsWith("http://"))) {
       try {
-        await assertSafePublicHttpUrl(uri);
         const metaJson = await fetchJsonSafe<{
           description?: string;
           image?: string;
@@ -189,7 +192,10 @@ async function fetchMetaplexUriMetadata(mintAddress: string): Promise<{
           twitter?: string;
           telegram?: string;
           extensions?: { website?: string; twitter?: string; telegram?: string };
-        }>(uri, 4000);
+        }>(uri, 4000, async (url, init = {}) => {
+          const { response } = await fetchPublicHttpUrl(String(url), init);
+          return response;
+        });
         if (metaJson) {
           description = metaJson.description?.trim() || null;
           imageUrl = metaJson.image?.trim() || null;
